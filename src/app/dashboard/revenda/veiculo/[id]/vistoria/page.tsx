@@ -11,6 +11,11 @@ import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// Rota canônica da ajuda "?" (RD-95): a tela é dinâmica (/[id]), então fixamos a rota com o [id] literal,
+// que é como erp_ajuda_campo guarda o texto e como fn_ajuda_campo_listar é chamado.
+const ROTA_AJUDA = '/dashboard/revenda/veiculo/[id]/vistoria'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -355,9 +360,10 @@ function Inner() {
           {/* KM (só interior) */}
           {regiao.codigo === 'interior' && (
             <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
-              <label style={{ fontSize: 12.5, color: C.espM, fontWeight: 700 }}>KM do veículo</label>
-              <input defaultValue={data?.vistoria?.km ?? ''} inputMode="numeric" onBlur={(e) => void setKm(e.target.value)}
-                placeholder="ex.: 84500" style={{ width: '100%', boxSizing: 'border-box', marginTop: 6, padding: '12px', fontSize: 18, border: `1px solid ${C.border}`, borderRadius: 10, color: C.esp }} />
+              <label style={{ display: 'block', fontSize: 12.5, color: C.espM, fontWeight: 700 }}>KM do veículo <AjudaCampo chave="revenda.vistoria.km" rota={ROTA_AJUDA} />
+                <input defaultValue={data?.vistoria?.km ?? ''} inputMode="numeric" onBlur={(e) => void setKm(e.target.value)}
+                  placeholder="ex.: 84500" style={{ width: '100%', boxSizing: 'border-box', marginTop: 6, padding: '12px', fontSize: 18, border: `1px solid ${C.border}`, borderRadius: 10, color: C.esp }} />
+              </label>
             </div>
           )}
 
@@ -402,7 +408,7 @@ function FotoRegiao({ rg, urls, onUpload, onRemover, exigida }: { rg: Regiao; ur
   const [busy, setBusy] = useState(false)
   return (
     <div style={{ background: C.white, border: `1px solid ${exigida && !rg.tem_foto ? C.amber : C.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: C.esp }}>📷 {rg.foto_rotulo || (rg.foto_obrigatoria ? 'Foto da região' : 'Foto do reparo/troca')}{exigida && <span style={{ color: C.amber }}> · obrigatória</span>}</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.esp }}>📷 {rg.foto_rotulo || (rg.foto_obrigatoria ? 'Foto da região' : 'Foto do reparo/troca')}{exigida && <span style={{ color: C.amber }}> · obrigatória</span>} <AjudaCampo chave="revenda.vistoria.foto" rota={ROTA_AJUDA} /></div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
         {rg.fotos.map((f) => (
           <div key={f.foto_id} style={{ position: 'relative', width: 84, height: 84, borderRadius: 8, overflow: 'hidden', background: C.cream, border: `1px solid ${C.border}` }}>
@@ -411,7 +417,7 @@ function FotoRegiao({ rg, urls, onUpload, onRemover, exigida }: { rg: Regiao; ur
             <button onClick={() => onRemover(f)} aria-label="remover" style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,.55)', color: '#fff', border: 'none', borderRadius: 999, width: 22, height: 22, cursor: 'pointer', fontSize: 13 }}>✕</button>
           </div>
         ))}
-        <label style={{ width: 84, height: 84, borderRadius: 8, border: `1px dashed ${C.gold}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.gold, fontSize: 24, cursor: busy ? 'wait' : 'pointer' }}>
+        <label data-ajuda="revenda.vistoria.foto" style={{ width: 84, height: 84, borderRadius: 8, border: `1px dashed ${C.gold}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.gold, fontSize: 24, cursor: busy ? 'wait' : 'pointer' }}>
           {busy ? '…' : '＋'}
           <input type="file" accept="image/*" capture="environment" disabled={busy} style={{ display: 'none' }}
             onChange={async (e) => { const f = e.target.files?.[0]; e.currentTarget.value = ''; if (f) { setBusy(true); try { await onUpload(f) } finally { setBusy(false) } } }} />
@@ -483,9 +489,10 @@ function ItemCard({ item, idx, total, regiaoNome, companyId, save, onResponder, 
         </>
       ) : (
         <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: 12.5, color: C.espM, fontWeight: 700 }}>O que precisa?</div>
-          <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="ex.: Reparo tecido/couro"
-            style={{ width: '100%', boxSizing: 'border-box', marginTop: 6, padding: 12, fontSize: 15, border: `1px solid ${C.border}`, borderRadius: 10, color: C.esp }} />
+          <label style={{ display: 'block', fontSize: 12.5, color: C.espM, fontWeight: 700 }}>O que precisa? <AjudaCampo chave="revenda.vistoria.item_descricao" rota={ROTA_AJUDA} />
+            <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="ex.: Reparo tecido/couro"
+              style={{ width: '100%', boxSizing: 'border-box', marginTop: 6, padding: 12, fontSize: 15, border: `1px solid ${C.border}`, borderRadius: 10, color: C.esp }} />
+          </label>
           <div style={{ fontSize: 12.5, color: C.espM, fontWeight: 700, marginTop: 12 }}>Quanto vai custar?</div>
           <CampoMoeda value={valor} onChange={setValor} placeholder="R$ 0,00"
             style={{ width: '100%', boxSizing: 'border-box', marginTop: 6, padding: 12, fontSize: 18, border: `1px solid ${C.border}`, borderRadius: 10, color: C.esp }} />

@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { parseNumBR } from '@/lib/num'
 
 const ROTA_AJUDA = '/dashboard/metas'
 
@@ -70,8 +71,9 @@ export default function CentralMetas() {
   async function salvar(ind: Indicador) {
     if (!empresaUnica) return
     const raw = rascunho[ind.indicador_id]
-    const valor = Number(String(raw).replace(',', '.'))
-    if (raw == null || raw === '' || !isFinite(valor)) { setErro('Informe um número válido para a meta.'); return }
+    // #5660 · fonte única parseNumBR: aceita vírgula E milhar BR ("1.234,56"); antes "1.234,56" virava NaN e era recusado
+    const valor = parseNumBR(raw)
+    if (raw == null || raw === '' || valor == null) { setErro('Informe um número válido para a meta.'); return }
     setSalvando(ind.indicador_id); setErro(null); setOk(null)
     const { data, error } = await supabase.rpc('fn_meta_definir', {
       p_company_id: empresaUnica, p_indicador_id: ind.indicador_id, p_valor_meta: valor, p_fonte: 'ceo',

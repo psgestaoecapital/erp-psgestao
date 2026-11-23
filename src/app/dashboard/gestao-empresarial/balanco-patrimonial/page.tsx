@@ -10,6 +10,8 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
 const ROTA = '/dashboard/gestao-empresarial/balanco-patrimonial'
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'
@@ -45,9 +47,7 @@ function hoje(): string { return new Date().toISOString().slice(0, 10) }
 function periodoDe(dataRef: string): string { return dataRef.slice(0, 7) }
 function periodoAnterior(dataRef: string): string { const [y, m] = dataRef.slice(0, 7).split('-').map(Number); const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
 function iconeOrigem(o: string): string { return o === 'calculado' ? '🔒' : o === 'manual' ? '✍️' : '⚠️' }
-// Máscara de moeda BR: digita só números, formata como R$ (centavos à direita).
-function maskMoeda(v: string): string { const d = v.replace(/\D/g, ''); if (!d) return ''; return (Number(d) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
-function parseMoeda(v: string): number | null { if (!v.trim()) return null; return Number(v.replace(/\./g, '').replace(',', '.')) || 0 }
+// #6874 — moeda via CampoMoeda + moedaParaNumero/numeroParaMoeda (trata milhar "1.234,56" -> 1234.56).
 
 export default function BalancoPage() {
   // Princ.1 (núcleo universal): seletor GENÉRICO — empresa única só quando UMA empresa está selecionada.
@@ -79,7 +79,7 @@ export default function BalancoPage() {
       const e: Record<string, { nome: string; valor: string; ordem: string }> = {}
       for (const l of b.linhas) if (l.editavel) {
         const k = l.id ?? `t:${l.lado}|${l.grupo}|${l.nome}`
-        e[k] = { nome: l.nome, valor: l.valor != null ? String(l.valor) : '', ordem: String(l.ordem ?? 0) }
+        e[k] = { nome: l.nome, valor: l.valor != null ? numeroParaMoeda(l.valor) : '', ordem: String(l.ordem ?? 0) }
       }
       setEd(e)
     }
@@ -97,7 +97,7 @@ export default function BalancoPage() {
     setBusy(true); setMsg(null)
     const { error } = await supabase.rpc('fn_balanco_linha_salvar', {
       p_company_id: empresaUnica, p_id: l.id ?? null, p_lado: l.lado, p_grupo: l.grupo,
-      p_nome: cur.nome.trim(), p_valor: cur.valor === '' ? null : Number(String(cur.valor).replace(',', '.')),
+      p_nome: cur.nome.trim(), p_valor: cur.valor === '' ? null : moedaParaNumero(cur.valor),
       p_subgrupo: null, p_ordem: Number(cur.ordem) || 0, p_periodo: periodo,
     })
     if (error) setMsg('Erro: ' + erroAmigavel(error)); else { setMsg('Linha salva.'); await carregar() }
@@ -131,7 +131,7 @@ export default function BalancoPage() {
     setBusy(true); setNovaErro(null); setMsg(null)
     const { error } = await supabase.rpc('fn_balanco_linha_salvar', {
       p_company_id: empresaUnica, p_id: null, p_lado: nova.lado, p_grupo: nova.grupo, p_nome: nova.nome.trim(),
-      p_valor: parseMoeda(nova.valor), p_subgrupo: null, p_ordem: 99, p_periodo: periodo,
+      p_valor: moedaParaNumero(nova.valor), p_subgrupo: null, p_ordem: 99, p_periodo: periodo,
     })
     if (error) { setNovaErro(erroAmigavel(error)); setBusy(false); return }
     setNova(null); setMsg('Linha adicionada.'); await carregar(); setBusy(false)
@@ -177,7 +177,7 @@ export default function BalancoPage() {
         <AjudaCampo chave="ge.balanco.linha" rota={ROTA} />
         <input value={cur.ordem} onChange={(e) => setEd({ ...ed, [k]: { ...cur, ordem: e.target.value } })} title="ordem" style={{ ...ip, width: 34, textAlign: 'center' }} />
         <input value={cur.nome} onChange={(e) => setEd({ ...ed, [k]: { ...cur, nome: e.target.value } })} placeholder={l.origem === 'ausente' ? `${l.nome} (sugestão)` : 'nome'} style={{ ...ip, flex: 1 }} />
-        <input value={cur.valor} onChange={(e) => setEd({ ...ed, [k]: { ...cur, valor: e.target.value } })} placeholder="0,00" style={{ ...ip, width: 100, textAlign: 'right' }} />
+        <CampoMoeda value={cur.valor} onChange={(v) => setEd({ ...ed, [k]: { ...cur, valor: v } })} placeholder="R$ 0,00" style={{ ...ip, width: 100, textAlign: 'right' }} testId="ge-balanco-linha-valor" />
         <button onClick={() => void salvarLinha(l)} disabled={busy} style={miniPri} title="Salvar">✓</button>
         {l.id && <button onClick={() => void excluirLinha(l)} disabled={busy} style={miniDel} title="Excluir">✕</button>}
       </div>
@@ -310,7 +310,7 @@ export default function BalancoPage() {
                 <input autoFocus style={{ ...ipModal, width: '100%' }} value={nova.nome} onChange={(e) => setNova({ ...nova, nome: e.target.value })} placeholder="ex.: Capital Social" />
               </label>
               <label style={lbl}>Valor (R$) <AjudaCampo chave="ge.balanco.linha_valor" rota={ROTA} />
-                <input style={{ ...ipModal, width: '100%', textAlign: 'right' }} inputMode="numeric" value={nova.valor} onChange={(e) => setNova({ ...nova, valor: maskMoeda(e.target.value) })} placeholder="0,00" />
+                <CampoMoeda value={nova.valor} onChange={(v) => setNova({ ...nova, valor: v })} placeholder="R$ 0,00" style={{ ...ipModal, width: '100%', textAlign: 'right' }} testId="ge-balanco-nova-valor" />
               </label>
             </div>
             {novaErro && <div style={{ marginTop: 10, fontSize: 12.5, color: RED }}>{novaErro}</div>}
