@@ -63,7 +63,7 @@ const bucketMelhoria = (m: { status: string; resposta: string | null; confirmado
   return 'aguardando'
 }
 
-type Minha = { id: string; numero: number; titulo: string | null; descricao: string; categoria: string | null; status: string; responsavel_id: string | null; agente: string | null; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean; concluido_em?: string | null; conclusao_automatica?: boolean; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string; company_id: string | null; empresa: string | null; user_id: string; user_name: string | null; rota: string | null }
+type Minha = { id: string; numero: number; titulo: string | null; descricao: string; categoria: string | null; status: string; responsavel_id: string | null; agente: string | null; resposta: string | null; resposta_aprovada: boolean; aguardando_usuario: boolean; confirmado_pelo_autor: boolean; concluido_em?: string | null; conclusao_automatica?: boolean; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string; company_id: string | null; empresa: string | null; user_id: string; user_name: string | null; rota: string | null }
 
 export default function MelhoriasPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -122,7 +122,7 @@ function Inner() {
     // selecionada, abertos por colegas (CEO 28/09: quem abre em nome da empresa e quem acompanha veem o mesmo
     // chamado — evita chamado repetido). A RLS de sugestoes libera a leitura pela empresa (get_user_company_ids).
     // Mostramos de QUAL empresa é cada um (embed companies). Arquivadas saem da lista por padrão (CEO).
-    let q = supabase.from('sugestoes').select('id,numero,titulo,descricao,categoria,status,responsavel_id,agente,resposta,resposta_aprovada,confirmado_pelo_autor,concluido_em,conclusao_automatica,ia_analise,created_at,company_id,user_id,user_name,rota,companies(nome_fantasia,razao_social)')
+    let q = supabase.from('sugestoes').select('id,numero,titulo,descricao,categoria,status,responsavel_id,agente,resposta,resposta_aprovada,aguardando_usuario,confirmado_pelo_autor,concluido_em,conclusao_automatica,ia_analise,created_at,company_id,user_id,user_name,rota,companies(nome_fantasia,razao_social)')
     // CEO 13/10: incluir SEMPRE os chamados DAS EMPRESAS da pessoa (não só da empresa selecionada) — assim os abertos
     // pela equipe PS em nome dela também aparecem, mesmo em "consolidado". A RLS de sugestoes já limita pela empresa.
     const empresasVisiveis = companyId ? [companyId] : (companyIds ?? [])
