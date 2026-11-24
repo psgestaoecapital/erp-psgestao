@@ -39,6 +39,10 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'id', v_id);
 END $function$;
 
+-- Reafirma a ACL viva (o CREATE OR REPLACE não reseta grants; o gate check_fn_guards confere o texto).
+REVOKE ALL ON FUNCTION public.fn_obra_tarefa_salvar(uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_obra_tarefa_salvar(uuid, jsonb) TO authenticated, service_role;
+
 INSERT INTO public.erp_ajuda_campo
   (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, versao, status)
 VALUES (
