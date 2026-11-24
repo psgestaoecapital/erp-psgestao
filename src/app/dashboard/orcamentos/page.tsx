@@ -24,7 +24,10 @@ const G="#22C55E",R="#EF4444",B="#3B82F6",Y="#F59E0B",P="#8B5CF6",T="#14B8A6";
 // FEAT-OS-ONDA1-ITENS-SERVICO-BOM-v1 · item polimorfico
 type ItemOrc = {
   id?:string; ordem:number;
-  tipo_item:'produto'|'servico';
+  tipo_item:'produto'|'servico'|'despesa';
+  // Despesa/omisso (Diego/FC) — linha livre: descrição em produto_nome, categoria da lista fixa, reembolsável.
+  categoria_despesa?:string|null; reembolsavel?:boolean|null;
+  frente?:string|null; // divisão por área/parte (qualquer item), N partes livre
   produto_id?:string; produto_codigo:string; produto_nome:string; produto_descricao?:string;
   servico_id?:string; servico_codigo?:string; servico_descricao?:string;
   unidade:string; quantidade:number; preco_unitario:number; preco_custo?:number;
@@ -109,6 +112,13 @@ const OBS_PADRAO="O presente orçamento pode sofrer variações durante a execu�
 const EMPTY_ITEM:ItemOrc = {ordem:0,tipo_item:'produto',produto_codigo:'',produto_nome:'',unidade:'UN',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
 const EMPTY_ITEM_SERVICO:ItemOrc = {ordem:0,tipo_item:'servico',produto_codigo:'',produto_nome:'',servico_codigo:'',servico_descricao:'',unidade:'UN',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
 const EMPTY_ITEM_SERVICO_ENG:ItemOrc = {ordem:0,tipo_item:'servico',_srv_eng:true,produto_codigo:'',produto_nome:'',servico_codigo:'',servico_descricao:'',unidade:'UN',quantidade:1,preco_unitario:0,preco_custo:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
+// Despesa/omisso (Diego/FC): custo indireto (hospedagem, alimentação, mobilização...). Linha livre, sem catálogo.
+const EMPTY_ITEM_DESPESA:ItemOrc = {ordem:0,tipo_item:'despesa',produto_codigo:'',produto_nome:'',unidade:'verba',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0,reembolsavel:false};
+// Lista fixa (bate com o CHECK chk_orc_item_categoria_despesa da migration da Parte 1 / #6056).
+const CATEGORIAS_DESPESA:{v:string;rotulo:string}[] = [
+  {v:'hospedagem',rotulo:'Hospedagem'},{v:'alimentacao',rotulo:'Alimentação'},{v:'deslocamento',rotulo:'Deslocamento/Mobilização'},
+  {v:'equipamento',rotulo:'Equipamento'},{v:'diarias',rotulo:'Diárias'},{v:'outros',rotulo:'Outros'},
+];
 
 export default function OrcamentosPage(){
   const router = useRouter();
@@ -148,6 +158,7 @@ export default function OrcamentosPage(){
   // Form state
   const [form,setForm]=useState<Partial<Orcamento>>({});
   const [itens,setItens]=useState<ItemOrc[]>([]);
+  const [dividirFrente,setDividirFrente]=useState(false); // mostra o campo "frente" por item + subtotal por frente
   // Centros de custo p/ rateio do item (erp_centros_custo — cadastro certo, não setor de RH)
   const [centrosCusto,setCentrosCusto]=useState<{id:string;nome:string;codigo:string|null}[]>([]);
   
@@ -380,6 +391,7 @@ export default function OrcamentosPage(){
       ...(clientePrefill?{cliente_id:clientePrefill.id,cliente_nome:nomeCli,cliente_cnpj:clientePrefill.cpf_cnpj||'',cliente_email:clientePrefill.email||'',cliente_telefone:clientePrefill.telefone||''}:{}),
     });
     setItens([{...EMPTY_ITEM,ordem:1}]);
+    setDividirFrente(false);
     setBuscaCliente(nomeCli);
     setShowForm(true);
   };
@@ -440,8 +452,9 @@ export default function OrcamentosPage(){
     const{data:itensData}=await supabase.from("erp_orcamentos_itens").select("*").eq("orcamento_id",o.id).order("ordem");
     setItens((itensData||[]).map(i=>({
       ...i,
-      tipo_item:(i.tipo_item==='servico'?'servico':'produto') as 'produto'|'servico',
+      tipo_item:(i.tipo_item==='servico'?'servico':i.tipo_item==='despesa'?'despesa':'produto') as 'produto'|'servico'|'despesa',
       _srv_eng: i.tipo_item==='servico' && Number(i.preco_custo||0)>0, // serviço com custo = engenharia (BDI)
+      categoria_despesa:i.categoria_despesa??null, frente:i.frente??null, reembolsavel:i.reembolsavel??null,
       quantidade:Number(i.quantidade),preco_unitario:Number(i.preco_unitario),
       desconto_percentual:Number(i.desconto_percentual),desconto_valor:Number(i.desconto_valor),
       subtotal:Number(i.subtotal),
@@ -449,6 +462,7 @@ export default function OrcamentosPage(){
       margem_percentual:i.margem_percentual!=null?Number(i.margem_percentual):undefined,
       aliquota_iss:i.aliquota_iss!=null?Number(i.aliquota_iss):undefined,
     })));
+    setDividirFrente((itensData||[]).some(i=>(i.frente??'').trim()!=='')); // reabre já dividido se tiver frente gravada
     setBuscaCliente(o.cliente_nome||'');
     setShowForm(true);
   };
@@ -469,6 +483,7 @@ export default function OrcamentosPage(){
   const addItem=()=>setItens([...itens,{...EMPTY_ITEM,ordem:itens.length+1}]);
   const addItemServico=()=>setItens([...itens,{...EMPTY_ITEM_SERVICO,ordem:itens.length+1}]);
   const addItemServicoEng=()=>setItens([...itens,{...EMPTY_ITEM_SERVICO_ENG,ordem:itens.length+1}]);
+  const addItemDespesa=()=>setItens([...itens,{...EMPTY_ITEM_DESPESA,ordem:itens.length+1}]);
   // Serviço de ENGENHARIA (RD-26): consome a v_projetos_bdi_impacto — custo do BOM, BDI do catálogo e
   // preço de venda (= custo × (1+BDI)) já calculados pelo "cérebro" do BDI. Não recalcula BDI aqui; só
   // usa. Fallback: se o serviço não estiver na view (BOM incompleto), usa o BDI padrão da empresa.
@@ -623,7 +638,7 @@ export default function OrcamentosPage(){
           tipo_item:i.tipo_item,
           produto_id:i.tipo_item==='produto'?i.produto_id:null,
           produto_codigo:i.tipo_item==='produto'?i.produto_codigo:null,
-          produto_nome:i.tipo_item==='produto'?i.produto_nome:null,
+          produto_nome:(i.tipo_item==='produto'||i.tipo_item==='despesa')?i.produto_nome:null,
           produto_descricao:i.tipo_item==='produto'?i.produto_descricao:null,
           servico_id:i.tipo_item==='servico'?i.servico_id:null,
           servico_codigo:i.tipo_item==='servico'?i.servico_codigo:null,
@@ -634,6 +649,9 @@ export default function OrcamentosPage(){
           aliquota_iss:i.tipo_item==='servico'?(i.aliquota_iss ?? null):null,
           iss_retido:i.tipo_item==='servico'?(i.iss_retido ?? null):null,
           setor_id:i.setor_id ?? null, centro_custo_id:i.centro_custo_id ?? null,
+          categoria_despesa:i.tipo_item==='despesa'?(i.categoria_despesa||null):null,
+          frente:(i.frente||'').trim()||null,
+          reembolsavel:i.tipo_item==='despesa'?(i.reembolsavel??false):null,
         }));
         const{data:rpc,error:rpcErr}=await supabase.rpc('fn_orcamento_salvar_itens',{p_orcamento_id:orcId,p_itens:payload});
         if(rpcErr){setMsg('Erro ao salvar itens: '+rpcErr.message);return;}
@@ -646,7 +664,7 @@ export default function OrcamentosPage(){
           tipo_item:i.tipo_item,
           produto_id:i.tipo_item==='produto'?i.produto_id:null,
           produto_codigo:i.tipo_item==='produto'?i.produto_codigo:null,
-          produto_nome:i.tipo_item==='produto'?i.produto_nome:null,
+          produto_nome:(i.tipo_item==='produto'||i.tipo_item==='despesa')?i.produto_nome:null,
           produto_descricao:i.tipo_item==='produto'?i.produto_descricao:null,
           servico_id:i.tipo_item==='servico'?i.servico_id:null,
           servico_codigo:i.tipo_item==='servico'?i.servico_codigo:null,
@@ -658,6 +676,9 @@ export default function OrcamentosPage(){
           iss_retido:i.tipo_item==='servico'?(i.iss_retido ?? null):null,
           valor_iss:i.tipo_item==='servico'&&(i.aliquota_iss??0)>0?Math.round(i.subtotal*(i.aliquota_iss??0)/100*100)/100:null,
           setor_id:i.setor_id ?? null, centro_custo_id:i.centro_custo_id ?? null,
+          categoria_despesa:i.tipo_item==='despesa'?(i.categoria_despesa||null):null,
+          frente:(i.frente||'').trim()||null,
+          reembolsavel:i.tipo_item==='despesa'?(i.reembolsavel??false):null,
         }));
         if(insertItens.length>0)await supabase.from("erp_orcamentos_itens").insert(insertItens);
       }
@@ -1036,6 +1057,13 @@ export default function OrcamentosPage(){
               {temProjetos && (
                 <button onClick={addItemServicoEng} data-testid="orc-add-servico-eng" title={`Serviço do catálogo de engenharia (preço = custo + BDI ${bdiPct}%)`} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:"#7C3AED15",color:"#7C3AED",border:`1px solid #7C3AED40`,cursor:"pointer",fontWeight:600}}>+ Serviço eng.</button>
               )}
+              {/* Despesa/omisso (Diego/FC) — custo indireto que fecha o orçamento. Genérico p/ todo prestador de campo. */}
+              <button onClick={addItemDespesa} data-testid="orc-add-despesa" title="Custo indireto/omisso: hospedagem, alimentação, deslocamento/mobilização, equipamento, diárias..." style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:"#B4530915",color:"#B45309",border:"1px solid #B4530940",cursor:"pointer",fontWeight:600}}>+ Despesa/Omisso</button>
+              <label style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:TXD,cursor:"pointer",marginLeft:4}} title="Dividir o orçamento por frente/área e ver o subtotal de cada uma">
+                <input type="checkbox" checked={dividirFrente} onChange={e=>setDividirFrente(e.target.checked)} style={{accentColor:GO}}/>
+                <span style={{fontWeight:600}}>Dividir por frente</span>
+                <AjudaCampo chave="projetos.orcamento.frente_agrupar" rota="/dashboard/orcamentos"/>
+              </label>
             </div>
           </div>
           <div style={{background:BG3,borderRadius:8,padding:12,marginBottom:12}}>
@@ -1046,7 +1074,7 @@ export default function OrcamentosPage(){
               <div key={idx} style={{display:"grid",gridTemplateColumns:"40px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",padding:"4px 0",borderBottom:`0.5px solid ${BD}`,position:"relative"}}>
                 <div style={{fontSize:10,color:TXD,textAlign:"center"}}>
                   {it.ordem}
-                  <div style={{fontSize:8,fontWeight:700,color:it._srv_eng?"#7C3AED":(it.tipo_item==='servico'?P:GO),marginTop:2}}>{it._srv_eng?'SRV-ENG':(it.tipo_item==='servico'?'SRV':'PRD')}</div>
+                  <div style={{fontSize:8,fontWeight:700,color:it._srv_eng?"#7C3AED":(it.tipo_item==='servico'?P:it.tipo_item==='despesa'?"#B45309":GO),marginTop:2}}>{it._srv_eng?'SRV-ENG':(it.tipo_item==='servico'?'SRV':it.tipo_item==='despesa'?'DSP':'PRD')}</div>
                 </div>
                 <div style={{position:"relative"}}>
                   {it._srv_eng ? (
@@ -1065,6 +1093,10 @@ export default function OrcamentosPage(){
                       onClear={()=>limparServico(idx)}
                       testId={`orc-servico-${idx}`}
                     />
+                  ) : it.tipo_item==='despesa' ? (
+                    <div data-ajuda="projetos.orcamento.despesa.descricao" style={{display:"contents"}}>
+                      <input value={it.produto_nome} onChange={e=>atualizarItem(idx,'produto_nome',e.target.value)} placeholder="Descreva a despesa/omisso (ex.: Hospedagem da equipe)" style={{...inp,padding:"6px 8px",fontSize:11}}/>
+                    </div>
                   ) : (<>
                     <input value={it.produto_nome} onChange={e=>{atualizarItem(idx,'produto_nome',e.target.value);setBuscaProduto({idx,termo:e.target.value});}} onFocus={()=>setBuscaProduto({idx,termo:it.produto_nome||''})} placeholder="Buscar produto ou digitar manualmente" style={{...inp,padding:"6px 8px",fontSize:11}}/>
                     {buscaProduto?.idx===idx&&produtosBusca.length>0&&(
@@ -1133,16 +1165,55 @@ export default function OrcamentosPage(){
                     </select>
                   </div>
                 )}
+                {/* Despesa/omisso: categoria + reembolsável (Diego/FC) */}
+                {it.tipo_item==='despesa' && (
+                  <div style={{gridColumn:"2 / -1",display:"flex",alignItems:"center",gap:10,fontSize:10,color:TXD,paddingTop:2,flexWrap:"wrap"}}>
+                    <label style={{display:"flex",alignItems:"center",gap:4}}>
+                      <span style={{fontWeight:600}}>Categoria</span>
+                      <select value={it.categoria_despesa??''} onChange={e=>atualizarItem(idx,'categoria_despesa',e.target.value||null)} style={{padding:"3px 6px",fontSize:10,border:`1px solid ${BD}`,borderRadius:4,background:'#fff',cursor:'pointer'}}>
+                        <option value="">— escolher —</option>
+                        {CATEGORIAS_DESPESA.map(c=><option key={c.v} value={c.v}>{c.rotulo}</option>)}
+                      </select>
+                      <AjudaCampo chave="projetos.orcamento.despesa.categoria" rota="/dashboard/orcamentos"/>
+                    </label>
+                    <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer"}} title="Despesa reembolsável pelo cliente (repassada), em vez de embutida no preço">
+                      <input type="checkbox" checked={!!it.reembolsavel} onChange={e=>atualizarItem(idx,'reembolsavel',e.target.checked)} style={{accentColor:"#B45309"}}/>
+                      <span style={{fontWeight:600,color:it.reembolsavel?"#B45309":TXD}}>Reembolsável</span>
+                      <AjudaCampo chave="projetos.orcamento.despesa.reembolsavel" rota="/dashboard/orcamentos"/>
+                    </label>
+                  </div>
+                )}
+                {/* Frente/parte (qualquer item) — visível quando "Dividir por frente" está ligado */}
+                {dividirFrente && (
+                  <div style={{gridColumn:"2 / -1",display:"flex",alignItems:"center",gap:6,fontSize:10,color:TXD,paddingTop:2}}>
+                    <label style={{flex:1,maxWidth:340,display:"flex",alignItems:"center",gap:4}}>
+                      <span style={{fontWeight:600,whiteSpace:"nowrap"}}>Frente/parte</span>
+                      <input value={it.frente??''} onChange={e=>atualizarItem(idx,'frente',e.target.value||null)} placeholder="Ex.: Área 1 · Pavimento térreo" style={{flex:1,padding:"3px 6px",fontSize:10,border:`1px solid ${BD}`,borderRadius:4}}/>
+                      <AjudaCampo chave="projetos.orcamento.frente" rota="/dashboard/orcamentos"/>
+                    </label>
+                  </div>
+                )}
               </div>
             ))}
             {/* FEAT-OS-ONDA1: Subtotais separados Servicos vs Produtos */}
             {itens.length>0 && (
-              <div style={{display:"flex",justifyContent:"flex-end",gap:18,padding:"8px 4px 0",borderTop:`1px solid ${BD}`,marginTop:4,fontSize:10,color:TXD}}>
+              <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap",gap:18,padding:"8px 4px 0",borderTop:`1px solid ${BD}`,marginTop:4,fontSize:10,color:TXD}}>
+                {/* 3 blocos (Diego/FC): Serviços/M.O. · Materiais · Despesas/Omissos → Total geral */}
                 <span>Serviços: <strong style={{color:P}}>{fmtR(itens.filter(i=>i.tipo_item==='servico').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
-                <span>Produtos: <strong style={{color:GO}}>{fmtR(itens.filter(i=>i.tipo_item==='produto').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
+                <span>Materiais: <strong style={{color:GO}}>{fmtR(itens.filter(i=>i.tipo_item==='produto').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
+                <span data-testid="orc-subtotal-despesas">Despesas/Omissos: <strong style={{color:"#B45309"}}>{fmtR(itens.filter(i=>i.tipo_item==='despesa').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
                 {itens.some(i=>i.tipo_item==='servico'&&(i.aliquota_iss??0)>0) && (
                   <span title="ISS embutido (informativo) — não soma ao total">ISS (incl.): <strong style={{color:P}}>{fmtR(itens.filter(i=>i.tipo_item==='servico').reduce((s,i)=>s+(i.subtotal||0)*(i.aliquota_iss??0)/100,0))}</strong></span>
                 )}
+                <span data-testid="orc-total-geral" title="Serviços + Materiais + Despesas/Omissos">Total geral: <strong style={{color:G,fontSize:12}}>{fmtR(totalItens)}</strong></span>
+              </div>
+            )}
+            {itens.length>0 && dividirFrente && itens.some(i=>(i.frente??'').trim()) && (
+              <div data-testid="orc-subtotais-frente" style={{display:"flex",justifyContent:"flex-end",flexWrap:"wrap",gap:14,padding:"6px 4px 0",fontSize:10,color:TXD}}>
+                <span style={{fontWeight:600}}>Por frente:</span>
+                {Object.entries(itens.reduce((m,i)=>{const f=(i.frente??'').trim()||'(sem frente)';m[f]=(m[f]||0)+(i.subtotal||0);return m;},{} as Record<string,number>)).map(([f,v])=>(
+                  <span key={f}>{f}: <strong style={{color:GO}}>{fmtR(v)}</strong></span>
+                ))}
               </div>
             )}
           </div>
