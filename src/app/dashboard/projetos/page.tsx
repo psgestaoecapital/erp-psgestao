@@ -349,12 +349,23 @@ export default function PainelProjetos() {
           <SectionLabel>Funil de oportunidades</SectionLabel>
           <AjudaCampo chave="projetos.painel.funil" />
         </div>
-        <Link href="/dashboard/projetos/oportunidades" className="mt-3 grid grid-cols-2 gap-3 rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm hover:border-[#C8941A] md:grid-cols-4">
-          <Numero label="Em aberto" valor={resumo ? String(resumo.funil_abertas) : "…"} testid="funil-abertas" ajuda="projetos.painel.funil" />
-          <Numero label="Valor em aberto" valor={resumo ? fmtBRL(resumo.funil_valor_aberto) : "…"} ajuda="projetos.painel.funil" />
-          <Numero label="Ganhas" valor={resumo ? String(resumo.funil_ganhas) : "…"} ajuda="projetos.painel.funil" />
-          <Numero label="Perdidas" valor={resumo ? String(resumo.funil_perdidas) : "…"} ajuda="projetos.painel.funil" />
-        </Link>
+        {/* §310 "todo indicador é clicável e abre a lista filtrada": cada número do funil abre a tela de
+            Oportunidades já no recorte dele — Ganhas → etapa=ganho, Perdidas → etapa=perdido; os de aberto
+            abrem o funil completo. A caixa continua sendo um único cartão (RD-96); só o realce de hover é por célula. */}
+        <div className="mt-3 grid grid-cols-2 gap-3 rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm md:grid-cols-4">
+          <Link href="/dashboard/projetos/oportunidades" className="-m-2 rounded-lg p-2 transition-colors hover:bg-[#C8941A]/5">
+            <Numero label="Em aberto" valor={resumo ? String(resumo.funil_abertas) : "…"} testid="funil-abertas" ajuda="projetos.painel.funil" />
+          </Link>
+          <Link href="/dashboard/projetos/oportunidades" className="-m-2 rounded-lg p-2 transition-colors hover:bg-[#C8941A]/5">
+            <Numero label="Valor em aberto" valor={resumo ? fmtBRL(resumo.funil_valor_aberto) : "…"} ajuda="projetos.painel.funil" />
+          </Link>
+          <Link href="/dashboard/projetos/oportunidades?etapa=ganho" className="-m-2 rounded-lg p-2 transition-colors hover:bg-[#C8941A]/5">
+            <Numero label="Ganhas" valor={resumo ? String(resumo.funil_ganhas) : "…"} testid="funil-ganhas" ajuda="projetos.painel.funil" />
+          </Link>
+          <Link href="/dashboard/projetos/oportunidades?etapa=perdido" className="-m-2 rounded-lg p-2 transition-colors hover:bg-[#C8941A]/5">
+            <Numero label="Perdidas" valor={resumo ? String(resumo.funil_perdidas) : "…"} testid="funil-perdidas" ajuda="projetos.painel.funil" />
+          </Link>
+        </div>
       </section>
 
       {/* OBRAS POR SITUAÇÃO */}
