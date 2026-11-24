@@ -535,7 +535,7 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, papeisRbac,
               (fonte user_scope.papel_slug, a mesma do menu/F1 e do bloqueio de rota/F2). Em branco = RD-97 (nível manda). */}
           <Field icon={<Shield size={14} color={GO} />} label="Função (papel) — o que a pessoa VÊ no menu">
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <AjudaCampo chave="acessos_funcao_papel" rota="/dashboard/admin/acessos" />
+              <AjudaCampo chave="acessos.funcao_papel" rota="/dashboard/admin/acessos" />
               <select value={papelSlug} onChange={(e) => setPapelSlug(e.target.value)}
                 style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: BG, color: TX, fontWeight: 600, maxWidth: 320 }}>
                 <option value="">Sem função (vê o menu conforme o nível)</option>

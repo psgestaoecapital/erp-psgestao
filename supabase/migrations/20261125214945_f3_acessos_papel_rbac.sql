@@ -171,10 +171,10 @@ GRANT EXECUTE ON FUNCTION public.fn_acessos_definir_papel_rbac(uuid, uuid, text,
 -- RD-95: "?" do novo campo "Função (papel)" na tela de Acessos (idempotente).
 INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem)
 SELECT
-  'acessos_funcao_papel', '/dashboard/admin/acessos', 'pessoa', 'Função (papel)',
+  'acessos.funcao_papel', '/dashboard/admin/acessos', 'pessoa', 'Função (papel)',
   'Escolha a FUNÇÃO da pessoa na empresa (ex.: RH Industrial, Vendedor, TI / Suporte). Em branco = sem restrição por função — a pessoa vê o menu conforme o nível.',
   'A função decide QUAIS seções e itens do menu a pessoa enxerga e consegue abrir: fecha por função o acesso a Financeiro, Comercial, Administração etc. É fail-closed — abrir por URL uma tela fora da função mostra "Acesso restrito à sua função".',
   'RH Industrial → só Início + Recursos Humanos. Vendedor → só Comercial. TI / Suporte → Início + Conectores, Abastecimento e Notificações técnicas.',
   'Não confundir com "Papel na empresa (o que PODE GERIR)": a Função controla o que a pessoa VÊ. Deixar em branco mantém o acesso amplo do nível — escolha a função para restringir.',
   NULL, 10
-WHERE NOT EXISTS (SELECT 1 FROM public.erp_ajuda_campo WHERE chave = 'acessos_funcao_papel');
+WHERE NOT EXISTS (SELECT 1 FROM public.erp_ajuda_campo WHERE chave = 'acessos.funcao_papel');
