@@ -254,3 +254,18 @@ BEGIN
     )
   );
 END $function$;
+
+-- ============================================================================================
+-- 4) RD-95 · "?" do campo novo "Trocar item de faturamento" (só aparece no modo baixar_estoque).
+--    Idempotente (não duplica a chave).
+-- ============================================================================================
+INSERT INTO public.erp_ajuda_campo
+  (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, versao, status)
+SELECT
+  'oficina.os.nfe_trocar_item_faturamento', '/dashboard/os', 'Nota fiscal', 'Trocar item de faturamento',
+  'Busque e escolha um produto de estoque real (tipo 00) com NCM para sair NA NOTA no lugar do item usado. A troca vale só para a NF-e: o item da OS, a baixa de estoque e o histórico do veículo continuam com o item realmente usado.',
+  'Permite faturar com um produto fiscalmente emitível quando o item usado é "99 - Outras" (que não pode ir na nota). Mantém a quantidade e o valor da linha original, para o total da nota não divergir do total da OS.',
+  'A peça usada é "99 - Outras"; troque pelo produto equivalente de tipo 00 (com NCM). Na OS continua a peça usada; na nota sai o produto escolhido.',
+  'Só produto tipo 00 com NCM de 8 dígitos pode ser escolhido. O saldo mostrado é informativo — a emissão da nota não baixa estoque (a baixa é pelo botão "Baixar estoque").',
+  'oficina', 60, 1, 'ativo'
+WHERE NOT EXISTS (SELECT 1 FROM public.erp_ajuda_campo WHERE chave = 'oficina.os.nfe_trocar_item_faturamento');
