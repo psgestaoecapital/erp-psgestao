@@ -65,6 +65,7 @@ export default function ProdutividadePage() {
   const empresa = companyIds[0] ?? null;
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [semanasN, setSemanasN] = useState(8);
+  const [ordem, setOrdem] = useState<"nome" | "disponivel">("nome");
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -101,11 +102,19 @@ export default function ProdutividadePage() {
 
   const pessoas = useMemo(() => {
     const m = new Map<string, { user_id: string; pessoa: string; cargo: string | null }>();
+    const livre = new Map<string, number>(); // horas livres por pessoa, para ordenar por disponibilidade
     for (const l of linhas) {
       if (!m.has(l.user_id)) m.set(l.user_id, { user_id: l.user_id, pessoa: l.pessoa ?? "—", cargo: l.cargo });
+      const atual = livre.get(l.user_id) ?? 0;
+      livre.set(l.user_id, atual + ((Number(l.capacidade_horas) || 0) - (Number(l.horas_total) || 0)));
     }
-    return Array.from(m.values()).sort((a, b) => a.pessoa.localeCompare(b.pessoa, "pt-BR"));
-  }, [linhas]);
+    const lista = Array.from(m.values());
+    if (ordem === "disponivel") {
+      // mais disponível primeiro (maior folga = capacidade − apontadas); desempate pelo nome
+      return lista.sort((a, b) => (Math.max(0, livre.get(b.user_id) ?? 0) - Math.max(0, livre.get(a.user_id) ?? 0)) || a.pessoa.localeCompare(b.pessoa, "pt-BR"));
+    }
+    return lista.sort((a, b) => a.pessoa.localeCompare(b.pessoa, "pt-BR"));
+  }, [linhas, ordem]);
 
   const celula = useMemo(() => {
     const m = new Map<string, Linha>();
@@ -154,6 +163,18 @@ export default function ProdutividadePage() {
           </button>
         ))}
         <AjudaCampo chave="pm.produtividade.filtro_periodo" rota={ROTA} />
+        <span className="ml-3 mr-1 text-[12px] text-[#6b5444]">Ordenar:</span>
+        {([["nome", "Nome"], ["disponivel", "Mais disponível"]] as const).map(([k, l]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setOrdem(k)}
+            className={`min-h-[40px] rounded-lg border px-3 text-[12px] ${ordem === k ? "border-[#3D2314] bg-[#3D2314] text-white" : "border-[#E7DED3] text-[#3D2314]"}`}
+          >
+            {l}
+          </button>
+        ))}
+        <AjudaCampo chave="pm.produtividade.ordenar" rota={ROTA} />
       </div>
 
       {erro && <p role="alert" className="rounded-lg bg-red-50 p-3 text-[13px] text-red-700">{erro}</p>}
