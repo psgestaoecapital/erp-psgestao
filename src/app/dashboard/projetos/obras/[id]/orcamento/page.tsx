@@ -38,7 +38,7 @@ type ObraInfo = { numero: string; nome: string | null; orcamento_id: string | nu
 // Serviço do catálogo da empresa (origem do custo do item)
 type Servico = { id: string; codigo: string | null; nome: string; unidade: string | null; eap_codigo: string | null; custo_material: number | null; custo_mao_obra: number | null }
 // Item individual do orçamento com complemento EAP (para editar/excluir) — fn_projetos_orcamento_item_eap_listar (#5814)
-type ItemEap = { item_id: string; servico_id: string | null; servico_codigo: string | null; servico_descricao: string | null; unidade: string | null; eap_codigo: string; local_tipo: string | null; local_nome: string | null; quantidade: number; custo_material_unit: number | null; custo_mao_obra_unit: number | null; custo_equipamento_unit: number | null; subtotal: number }
+type ItemEap = { item_id: string; servico_id: string | null; servico_codigo: string | null; servico_descricao: string | null; unidade: string | null; eap_codigo: string; local_tipo: string | null; local_nome: string | null; quantidade: number; custo_material_unit: number | null; custo_mao_obra_unit: number | null; custo_equipamento_unit: number | null; observacao: string | null; subtotal: number }
 // Os 6 tipos de local (projetos_local_tipo). O LOCAL é dimensão do item, não nível da EAP.
 const LOCAIS: { codigo: string; nome: string }[] = [
   { codigo: 'ambiente', nome: 'Ambiente / área comum' },
@@ -78,6 +78,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   const [custoMat, setCustoMat] = useState('')
   const [custoMo, setCustoMo] = useState('')
   const [custoEquip, setCustoEquip] = useState('')
+  const [observacao, setObservacao] = useState('')
   const [eapOverride, setEapOverride] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erroForm, setErroForm] = useState<string | null>(null)
@@ -129,7 +130,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
 
   const fecharForm = () => {
     setFormAberto(false); setEditId(null); setServicoId(''); setQuantidade(''); setLocalTipo(''); setLocalNome('')
-    setCustoMat(''); setCustoMo(''); setCustoEquip(''); setEapOverride(''); setErroForm(null)
+    setCustoMat(''); setCustoMo(''); setCustoEquip(''); setObservacao(''); setEapOverride(''); setErroForm(null)
   }
 
   // Abre o formulário em branco para um item novo.
@@ -145,6 +146,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     setCustoMat(it.custo_material_unit != null ? String(it.custo_material_unit) : '')
     setCustoMo(it.custo_mao_obra_unit != null ? String(it.custo_mao_obra_unit) : '')
     setCustoEquip(it.custo_equipamento_unit != null ? String(it.custo_equipamento_unit) : '')
+    setObservacao(it.observacao ?? '')
     setEapOverride(it.eap_codigo ?? '')
     setErroForm(null)
     setFormAberto(true)
@@ -206,6 +208,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
       p_custo_mao_obra_unit: mo,
       p_custo_equipamento_unit: equip,
       p_item_id: editId,
+      p_observacao: observacao.trim() || null,
     })
     setSalvando(false)
     if (error) { setErroForm(erroAmigavel(error, editId ? 'Não foi possível salvar o item.' : 'Não foi possível adicionar o item.')); return }
@@ -367,6 +370,12 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
               <input data-testid="orc-add-eap" value={eapOverride} onChange={(e) => setEapOverride(e.target.value)} placeholder={servicoSel?.eap_codigo ?? 'Ex.: 08.03'} style={campo} />
             </label>
           </div>
+          <label style={{ display: 'block' }}>
+            <span style={rotuloCampo}>Observação <AjudaCampo chave="projetos.orcamento_eap.item_observacao" rota={ROTA} /></span>
+            <textarea data-testid="orc-add-observacao" value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={2}
+              placeholder="Especificação, condição de execução ou restrição (opcional)"
+              style={{ ...campo, resize: 'vertical', minHeight: 44, fontFamily: 'inherit' }} />
+          </label>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
             <div style={{ fontSize: 13, color: MUT }}>Subtotal previsto: <strong style={{ color: ESP }}>{brl(subtotalPrevia)}</strong></div>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -547,6 +556,9 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                           <div data-testid={`orc-item-split-${it.item_id}`} style={{ fontSize: 11, color: MUT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             Material {brl(matTot)} · Mão de obra {brl(moTot)}{equipTot > 0 ? ` · Equipamento ${brl(equipTot)}` : ''}
                           </div>
+                        )}
+                        {it.observacao && (
+                          <div data-testid={`orc-item-obs-${it.item_id}`} style={{ fontSize: 12, color: MUT, fontStyle: 'italic', marginTop: 2 }}>{it.observacao}</div>
                         )}
                       </div>
                       <span style={{ fontSize: 13, color: ESP, fontWeight: 600, textAlign: 'right' }}>{brl(it.subtotal)}</span>

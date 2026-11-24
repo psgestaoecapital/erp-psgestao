@@ -1,21 +1,39 @@
--- Hub · §315 Orçamento por EAP (C-2) — coluna de EQUIPAMENTO na composição do item
--- Requisito essencial (blueprint hub_projetos tela 315):
---   "previsão de equipamentos além de material e mão de obra (coluna de equipamentos na composição)".
--- ADITIVA e retrocompatível: a coluna nasce com DEFAULT 0, então o total de todo
--- orçamento já existente NÃO muda (equipamento = 0 em todas as linhas atuais).
--- RLS: a tabela projetos_orcamento_item_eap já tem RLS por empresa; as 3 funções abaixo
--- seguem SECURITY DEFINER com a guarda get_user_company_ids(). Nada de policy nova nem anon.
+-- Hub · §315 C-2 (Orçamento por EAP) — dois campos aditivos no ITEM do orçamento:
+--   (1) EQUIPAMENTO (custo por unidade), além de material e mão de obra
+--       — blueprint tela 315: "previsão de equipamentos … (coluna de equipamentos na composição)";
+--   (2) OBSERVAÇÃO (texto livre por item)
+--       — blueprint tela 315: "Dados de cada item" (parcial): faltava observação.
+-- ADITIVA e retrocompatível: custo_equipamento_unit nasce com DEFAULT 0, então o total de todo
+-- orçamento já existente NÃO muda (equipamento = 0 em todas as linhas atuais); observacao é NULLable.
+-- Unifica numa só PR o que antes eram #6043 (equipamento) e #5999 (observação), que tocavam a MESMA
+-- função fn_projetos_orcamento_item_eap_salvar (não eram independentes — dois overloads/ordens de deploy
+-- se chocariam). Aqui a função ganha os DOIS parâmetros de uma vez.
+-- RLS: projetos_orcamento_item_eap já tem RLS por empresa; as 3 funções seguem SECURITY DEFINER com a
+-- guarda get_user_company_ids(). Sem policy nova, sem anon (REVOKE reaplicado após cada CREATE/REPLACE).
 
 BEGIN;
 
--- 1) Coluna aditiva (idempotente)
+-- 1) Colunas aditivas (idempotentes)
 ALTER TABLE public.projetos_orcamento_item_eap
   ADD COLUMN IF NOT EXISTS custo_equipamento_unit numeric NOT NULL DEFAULT 0;
+ALTER TABLE public.projetos_orcamento_item_eap
+  ADD COLUMN IF NOT EXISTS observacao text;
 
 COMMENT ON COLUMN public.projetos_orcamento_item_eap.custo_equipamento_unit IS
   'Custo de equipamento por unidade (locação/uso de máquina e equipamento), além de material e mão de obra. §315 C-2.';
+COMMENT ON COLUMN public.projetos_orcamento_item_eap.observacao IS
+  'Observação livre do item do orçamento (especificação, condição de execução, restrição). Opcional. §315 C-2.';
 
--- 2) Salvar item: aceita o custo de equipamento (param novo com DEFAULT = retrocompatível)
+-- 2) Salvar: ganha p_custo_equipamento_unit e p_observacao (ambos ao FINAL, opcionais).
+-- A assinatura muda (de 9 para 11 args), então dropamos as assinaturas antigas para não deixar
+-- overloads obsoletos (o CREATE OR REPLACE não troca a lista de parâmetros). O único chamador em
+-- runtime é a tela (named params); o importador (§334) escreve inline — nenhum objeto do banco depende
+-- desta função. DROP IF EXISTS cobre tanto a de 9 args quanto a variante de 10 args (p_observacao).
+DROP FUNCTION IF EXISTS public.fn_projetos_orcamento_item_eap_salvar(
+  uuid, uuid, numeric, text, text, text, numeric, numeric, uuid);
+DROP FUNCTION IF EXISTS public.fn_projetos_orcamento_item_eap_salvar(
+  uuid, uuid, numeric, text, text, text, numeric, numeric, uuid, text);
+
 CREATE OR REPLACE FUNCTION public.fn_projetos_orcamento_item_eap_salvar(
   p_orcamento_id uuid,
   p_servico_id uuid,
@@ -26,7 +44,8 @@ CREATE OR REPLACE FUNCTION public.fn_projetos_orcamento_item_eap_salvar(
   p_custo_material_unit numeric DEFAULT NULL::numeric,
   p_custo_mao_obra_unit numeric DEFAULT NULL::numeric,
   p_item_id uuid DEFAULT NULL::uuid,
-  p_custo_equipamento_unit numeric DEFAULT NULL::numeric
+  p_custo_equipamento_unit numeric DEFAULT NULL::numeric,
+  p_observacao text DEFAULT NULL::text
 )
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -43,6 +62,7 @@ DECLARE
   v_unit      numeric;
   v_qtd       numeric;
   v_item_id   uuid;
+  v_obs       text;
 BEGIN
   -- Guarda de empresa: o orçamento tem de ser da empresa do usuário
   SELECT o.company_id INTO v_company
@@ -84,6 +104,7 @@ BEGIN
     RAISE EXCEPTION 'quantidade e custos não podem ser negativos' USING ERRCODE = '22023';
   END IF;
   v_unit := v_mat + v_mo + v_equip;
+  v_obs  := NULLIF(btrim(p_observacao), '');
 
   -- Item compartilhado (erp_orcamentos_itens): insere novo ou atualiza o existente.
   -- O trigger recalc_orcamento_total recalcula o total do orçamento a partir do subtotal.
@@ -119,11 +140,11 @@ BEGIN
   -- Complemento EAP 1:1 (upsert por orcamento_item_id)
   INSERT INTO public.projetos_orcamento_item_eap
     (orcamento_item_id, company_id, eap_codigo, ref_padrao_codigo, local_tipo, local_nome,
-     quantidade, custo_material_unit, custo_mao_obra_unit, custo_equipamento_unit, origem)
+     quantidade, custo_material_unit, custo_mao_obra_unit, custo_equipamento_unit, origem, observacao)
   VALUES
     (v_item_id, v_company, v_eap, v_servico.ref_padrao_codigo,
      NULLIF(btrim(p_local_tipo), ''), NULLIF(btrim(p_local_nome), ''),
-     v_qtd, v_mat, v_mo, v_equip, 'empresa')
+     v_qtd, v_mat, v_mo, v_equip, 'empresa', v_obs)
   ON CONFLICT (orcamento_item_id) DO UPDATE
     SET eap_codigo             = EXCLUDED.eap_codigo,
         ref_padrao_codigo      = EXCLUDED.ref_padrao_codigo,
@@ -133,6 +154,7 @@ BEGIN
         custo_material_unit    = EXCLUDED.custo_material_unit,
         custo_mao_obra_unit    = EXCLUDED.custo_mao_obra_unit,
         custo_equipamento_unit = EXCLUDED.custo_equipamento_unit,
+        observacao             = EXCLUDED.observacao,
         atualizado_em          = now();
 
   RETURN jsonb_build_object(
@@ -144,7 +166,16 @@ BEGIN
 END;
 $function$;
 
--- 3) Listar itens: devolve também o custo de equipamento por unidade
+-- Guarda da nova assinatura (SECURITY DEFINER): fora do alcance de anon/public, só authenticated/service_role.
+REVOKE ALL ON FUNCTION public.fn_projetos_orcamento_item_eap_salvar(
+  uuid, uuid, numeric, text, text, text, numeric, numeric, uuid, numeric, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_projetos_orcamento_item_eap_salvar(
+  uuid, uuid, numeric, text, text, text, numeric, numeric, uuid, numeric, text) TO authenticated, service_role;
+COMMENT ON FUNCTION public.fn_projetos_orcamento_item_eap_salvar(
+  uuid, uuid, numeric, text, text, text, numeric, numeric, uuid, numeric, text) IS
+  'Hub §315: cria/edita item do orçamento por EAP (serviço do catálogo da empresa). Guarda por empresa via get_user_company_ids(). p_custo_equipamento_unit: parcela de equipamento; p_observacao: texto livre opcional.';
+
+-- 3) Listar: devolve também o custo de equipamento e a observação de cada item.
 CREATE OR REPLACE FUNCTION public.fn_projetos_orcamento_item_eap_listar(p_orcamento_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -178,6 +209,7 @@ BEGIN
              'custo_material_unit',    e.custo_material_unit,
              'custo_mao_obra_unit',    e.custo_mao_obra_unit,
              'custo_equipamento_unit', e.custo_equipamento_unit,
+             'observacao',             e.observacao,
              'subtotal',               i.subtotal
            )
            ORDER BY e.eap_codigo NULLS LAST, e.local_nome NULLS LAST, i.created_at
@@ -193,7 +225,11 @@ BEGIN
 END;
 $function$;
 
--- 4) Árvore da EAP: soma equipamento por nó/local e no total geral
+-- Guarda da leitura (o CREATE OR REPLACE acima reseta a ACL): REVOKE anon/public + GRANT authenticated.
+REVOKE ALL ON FUNCTION public.fn_projetos_orcamento_item_eap_listar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_projetos_orcamento_item_eap_listar(uuid) TO authenticated, service_role;
+
+-- 4) Árvore da EAP: soma equipamento por nó/local e no total geral.
 CREATE OR REPLACE FUNCTION public.fn_projetos_orcamento_eap_arvore(p_orcamento_id uuid, p_por_local boolean DEFAULT false)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -330,7 +366,11 @@ BEGIN
 END;
 $function$;
 
--- 5) RD-95: "?" do novo campo Custo de equipamento (unit.)
+-- Guarda da árvore (o CREATE OR REPLACE acima reseta a ACL): REVOKE anon/public + GRANT authenticated.
+REVOKE ALL ON FUNCTION public.fn_projetos_orcamento_eap_arvore(uuid, boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_projetos_orcamento_eap_arvore(uuid, boolean) TO authenticated, service_role;
+
+-- 5) RD-95: "?" dos dois campos novos (idempotentes por chave).
 INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem)
 VALUES (
   'projetos.orcamento_eap.item_custo_equipamento',
@@ -343,6 +383,25 @@ VALUES (
   'Somar o equipamento no custo de material — é uma parcela própria; some aqui só a locação/uso do equipamento.',
   'projetos',
   135
+)
+ON CONFLICT (chave) DO UPDATE
+  SET rota = EXCLUDED.rota, grupo = EXCLUDED.grupo, rotulo = EXCLUDED.rotulo,
+      o_que_preencher = EXCLUDED.o_que_preencher, para_que_serve = EXCLUDED.para_que_serve,
+      exemplo = EXCLUDED.exemplo, erro_comum = EXCLUDED.erro_comum,
+      vertical = EXCLUDED.vertical, ordem = EXCLUDED.ordem, atualizado_em = now();
+
+INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem)
+VALUES (
+  'projetos.orcamento_eap.item_observacao',
+  '/dashboard/projetos/obras/[id]/orcamento',
+  'Orçamento por EAP',
+  'Observação',
+  'Uma observação livre sobre este item (especificação de marca/modelo, condição de execução, restrição). Opcional.',
+  'Registra detalhes que não cabem nos demais campos, para orientar quem executa e quem revisa o orçamento.',
+  'Porcelanato acetinado 60×60, assentamento com argamassa AC-III',
+  'Colocar aqui o código ou o preço — use os campos próprios; a observação é texto livre.',
+  'projetos',
+  170
 )
 ON CONFLICT (chave) DO UPDATE
   SET rota = EXCLUDED.rota, grupo = EXCLUDED.grupo, rotulo = EXCLUDED.rotulo,
