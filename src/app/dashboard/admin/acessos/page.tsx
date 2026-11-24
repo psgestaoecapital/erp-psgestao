@@ -9,6 +9,7 @@ import { Users, Building2, Shield, Factory, Clock, Save, ChevronDown, ChevronRig
 import { textoUltimoEnvio, type UltimoEnvio } from "@/lib/acessos/enviarLink";
 import NovaEmpresaWizard from "./_components/NovaEmpresaWizard";
 import EquipePsSection from "./_components/EquipePsSection";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 const GO = "var(--ps-gold,#C8941A)", BG = "var(--ps-bg,#FAF7F2)", BG2 = "var(--ps-bg2,#FFFFFF)", BG3 = "var(--ps-bg3,#F0ECE3)",
   BD = "var(--ps-border,#E0D8CC)", TX = "var(--ps-text,#3D2314)", TXM = "var(--ps-text-m,#6B5D4F)", TXD = "var(--ps-text-d,#9C8E80)",
@@ -56,6 +57,8 @@ type Pessoa = {
   ultimo_login: string | null; situacao: string;
 };
 type Contexto = { empresa: Empresa; areas_contratadas: Area[]; plantas: Planta[]; master: Master[]; pessoas: Pessoa[] };
+// F3 (emergência LGPD): função RBAC da empresa = o que a pessoa VÊ no menu (fonte user_scope.papel_slug, a mesma de F1/F2).
+type PapelRbac = { slug: string; nome: string; area: string | null; camada: string; secoes: string[]; itens: string[] };
 type ConvitePendente = { id: string; email: string; created_at: string; expires_at: string | null };
 type Envios = { convites_pendentes: ConvitePendente[]; ultimos_envios: Record<string, UltimoEnvio> };
 
@@ -86,6 +89,8 @@ export default function AcessosCascataPage() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [envios, setEnvios] = useState<Envios>({ convites_pendentes: [], ultimos_envios: {} });
+  const [papeisRbac, setPapeisRbac] = useState<PapelRbac[]>([]);
+  const [papelAtual, setPapelAtual] = useState<Record<string, string>>({});
 
   // Empresas que o usuário pode gerir: PS_ADMIN → todas; senão as que ele é CLIENT_OWNER ativo.
   useEffect(() => {
@@ -128,6 +133,11 @@ export default function AcessosCascataPage() {
     const { data, error } = await supabase.rpc("fn_acessos_empresa_contexto", { p_company_id: cid });
     if (error) { setErro(error.message); setCtx(null); }
     else setCtx(data as Contexto);
+    // F3 (emergência LGPD): funções RBAC disponíveis + papel atual de cada pessoa (seletor "Função").
+    const { data: pr } = await supabase.rpc("fn_acessos_papeis_rbac", { p_company_id: cid });
+    const prj = pr as { papeis?: PapelRbac[]; atuais?: Record<string, string> } | null;
+    setPapeisRbac(prj?.papeis ?? []);
+    setPapelAtual(prj?.atuais ?? {});
     setLoading(false);
   }, []);
   useEffect(() => { if (companyId) void carregar(companyId); }, [companyId, carregar]);
@@ -228,9 +238,10 @@ export default function AcessosCascataPage() {
             {ctx.pessoas.map((p) => (
               // RD-41 🅲 · key inclui a versão de áreas/papel → remonta e re-sincroniza do banco
               // após Salvar (fim do estado "preso" na memória que fazia as marcações reverterem).
-              <PessoaRow key={`${p.user_id}:${p.restricted ? "r" : "o"}:${(p.areas || []).join("|")}:${p.role}`} p={p} aberto={editId === p.user_id}
+              <PessoaRow key={`${p.user_id}:${p.restricted ? "r" : "o"}:${(p.areas || []).join("|")}:${p.role}:${papelAtual[p.user_id] ?? ""}`} p={p} aberto={editId === p.user_id}
                 onToggle={() => setEditId(editId === p.user_id ? null : p.user_id)}
                 areasContratadas={ctx.areas_contratadas} plantas={ctx.plantas}
+                papeisRbac={papeisRbac} papelAtualSlug={papelAtual[p.user_id] ?? null}
                 companyId={companyId} onSaved={() => carregar(companyId)}
                 ultimoEnvio={envios.ultimos_envios[p.user_id]} onEnviado={(e) => registrarEnvio(p.user_id, e)} />
             ))}
@@ -352,8 +363,9 @@ function GerenciarAreas({ companyId, onChanged }: { companyId: string; onChanged
   );
 }
 
-function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, onSaved, ultimoEnvio, onEnviado }: {
-  p: Pessoa; aberto: boolean; onToggle: () => void; areasContratadas: Area[]; plantas: Planta[]; companyId: string; onSaved: () => void;
+function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, papeisRbac, papelAtualSlug, companyId, onSaved, ultimoEnvio, onEnviado }: {
+  p: Pessoa; aberto: boolean; onToggle: () => void; areasContratadas: Area[]; plantas: Planta[];
+  papeisRbac: PapelRbac[]; papelAtualSlug: string | null; companyId: string; onSaved: () => void;
   ultimoEnvio?: UltimoEnvio; onEnviado: (e: UltimoEnvio) => void;
 }) {
   const [nome, setNome] = useState(p.nome ?? "");
@@ -370,6 +382,8 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
   const [fim, setFim] = useState((p.horario?.hora_fim || "").slice(0, 5));
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
+  const [papelSlug, setPapelSlug] = useState(papelAtualSlug ?? "");
+  const [papelBusy, setPapelBusy] = useState(false);
 
   async function salvar() {
     setSalvando(true); setMsg(null);
@@ -394,6 +408,17 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
     onSaved();
   }
   const [acaoBusy, setAcaoBusy] = useState(false);
+  async function aplicarFuncao() {
+    setPapelBusy(true); setMsg(null);
+    const { data, error } = await supabase.rpc("fn_acessos_definir_papel_rbac", {
+      p_company_id: companyId, p_user_id: p.user_id, p_papel_slug: papelSlug || null,
+    });
+    setPapelBusy(false);
+    const res = data as { ok?: boolean; erro?: string } | null;
+    if (error || !res?.ok) { setMsg({ ok: false, t: error?.message || res?.erro || "Falha ao aplicar a função." }); return; }
+    setMsg({ ok: true, t: papelSlug ? "Função aplicada — o menu desta pessoa passa a mostrar só as seções da função." : "Função removida — a pessoa volta a ver o menu conforme o nível." });
+    onSaved();
+  }
   async function definirMaster(makeOwner: boolean) {
     if (!confirm(makeOwner ? `Tornar "${p.nome || p.email}" MASTER da empresa?` : `Remover o papel de master de "${p.nome || p.email}"?`)) return;
     setAcaoBusy(true); setMsg(null);
@@ -444,6 +469,7 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
         </div>
         <span style={{ fontSize: 10, color: TXD }} title="Nível — o que a pessoa VÊ">👁 {(papeisDaEmpresa(areasContratadas).find((x) => x.role === p.role) ?? PAPEIS.find((x) => x.role === p.role))?.nome || p.role}</span>
         <span style={{ fontSize: 10, fontWeight: 700, color: p.is_master ? GO : BL }} title="Papel na empresa — o que a pessoa PODE GERIR">🛡 {PAPEL_GESTAO_LBL[p.papel_gestao ?? ""] ?? "Visualizador"}</span>
+        {papelAtualSlug && <span style={{ fontSize: 10, fontWeight: 700, color: GO }} title="Função (papel) — o que a pessoa VÊ no menu">🔒 {papeisRbac.find((r) => r.slug === papelAtualSlug)?.nome ?? papelAtualSlug}</span>}
         <span style={{ fontSize: 11, fontWeight: 700, color: SIT_COR[p.situacao] ?? TXD }}>{SIT_LBL[p.situacao] ?? p.situacao}</span>
       </button>
 
@@ -504,6 +530,35 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
               {papeisDaEmpresa(areasContratadas).map((r) => <option key={r.role} value={r.role}>{r.nome}</option>)}
               {!papeisDaEmpresa(areasContratadas).some((r) => r.role === role) && <option value={role}>{role} (atual)</option>}
             </select>
+          </Field>
+          {/* Função (papel RBAC) — F3 emergência LGPD: decide QUAIS seções/itens do menu a pessoa VÊ e pode abrir
+              (fonte user_scope.papel_slug, a mesma do menu/F1 e do bloqueio de rota/F2). Em branco = RD-97 (nível manda). */}
+          <Field icon={<Shield size={14} color={GO} />} label="Função (papel) — o que a pessoa VÊ no menu">
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <AjudaCampo chave="acessos_funcao_papel" rota="/dashboard/admin/acessos" />
+              <select value={papelSlug} onChange={(e) => setPapelSlug(e.target.value)}
+                style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: BG, color: TX, fontWeight: 600, maxWidth: 320 }}>
+                <option value="">Sem função (vê o menu conforme o nível)</option>
+                {papeisRbac.map((r) => <option key={r.slug} value={r.slug}>{r.nome}</option>)}
+                {papelSlug && !papeisRbac.some((r) => r.slug === papelSlug) && <option value={papelSlug}>{papelSlug} (atual)</option>}
+              </select>
+              <button type="button" disabled={papelBusy || papelSlug === (papelAtualSlug ?? "")} onClick={() => void aplicarFuncao()}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, background: BG2, color: TX, border: `1px solid ${GO}`, borderRadius: 8, padding: "8px 14px", fontWeight: 700,
+                  cursor: (papelBusy || papelSlug === (papelAtualSlug ?? "")) ? "default" : "pointer", opacity: (papelBusy || papelSlug === (papelAtualSlug ?? "")) ? 0.6 : 1 }}>
+                <Shield size={14} color={GO} /> {papelBusy ? "Aplicando…" : "Aplicar função"}
+              </button>
+            </div>
+            {(() => {
+              const sel = papeisRbac.find((r) => r.slug === papelSlug);
+              if (!sel) return <div style={{ fontSize: 11.5, color: TXD, marginTop: 6 }}>Em branco: sem restrição por função — a pessoa vê o menu conforme o nível (RD-97).</div>;
+              return (
+                <div style={{ fontSize: 11.5, color: TXM, marginTop: 6, lineHeight: 1.5 }}>
+                  <div><strong>Esta função vê:</strong> {sel.secoes.length ? sel.secoes.join(" · ") : "só o Início"}</div>
+                  {sel.itens.length > 0 && <div><strong>Itens liberados:</strong> {sel.itens.join(" · ")}</div>}
+                  <div style={{ color: TXD }}>Abrir por URL uma tela fora da função mostra “Acesso restrito à sua função”.</div>
+                </div>
+              );
+            })()}
           </Field>
           {/* Plantas */}
           {plantas.length > 0 && (
