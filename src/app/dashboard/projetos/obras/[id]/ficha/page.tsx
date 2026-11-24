@@ -61,6 +61,9 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [ok, setOk] = useState(false)
   const [okId, setOkId] = useState(false)
   const [okEnd, setOkEnd] = useState(false)
+  // Localização no mapa (tela 314 crit. h): pino lat/long derivado do CEP, sem migration.
+  const [coord, setCoord] = useState<{ lat: number; lon: number } | null>(null)
+  const [mapaMsg, setMapaMsg] = useState<string | null>(null)
 
   // Área: aceita "1250" ou "1.250,50"; vira número só na hora de salvar (null quando vazio).
   const areaNum = (s: string): number | null => {
@@ -91,6 +94,30 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     }
   }, [id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
+
+  // Deriva lat/long do CEP pela BrasilAPI v2 (mesmo provedor do helper buscarCEP). A v2 traz
+  // location.coordinates quando o CEP tem geolocalização; sem coordenada o mapa cai no modo
+  // "abrir por endereço" — nunca um pino falso (RD-51). Só-leitura, sem migration.
+  useEffect(() => {
+    const clean = cep.replace(/\D/g, '')
+    if (clean.length !== 8) { setCoord(null); setMapaMsg(null); return }
+    let vivo = true
+    setMapaMsg('Localizando o CEP no mapa…')
+    void (async () => {
+      try {
+        const res = await fetch(`https://brasilapi.com.br/api/cep/v2/${clean}`)
+        if (!vivo) return
+        if (!res.ok) { setCoord(null); setMapaMsg(null); return }
+        const data = await res.json()
+        const c = data?.location?.coordinates
+        const lat = Number(c?.latitude), lon = Number(c?.longitude)
+        if (!vivo) return
+        if (Number.isFinite(lat) && Number.isFinite(lon) && (lat !== 0 || lon !== 0)) { setCoord({ lat, lon }); setMapaMsg(null) }
+        else { setCoord(null); setMapaMsg(null) }
+      } catch { if (vivo) { setCoord(null); setMapaMsg(null) } }
+    })()
+    return () => { vivo = false }
+  }, [cep])
 
   const salvar = async () => {
     setBusy(true); setErro(null); setOk(false)
@@ -126,6 +153,14 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar o endereço da obra.')); return }
     setOkEnd(true)
   }
+
+  const enderecoBusca = [endereco, bairro, cidade, uf, cep].map((s) => (s ?? '').trim()).filter(Boolean).join(', ')
+  const temEndereco = enderecoBusca.length > 0
+  const D = 0.004 // ~400 m de janela ao redor do ponto
+  const mapaEmbed = coord ? `https://www.openstreetmap.org/export/embed.html?bbox=${coord.lon - D},${coord.lat - D},${coord.lon + D},${coord.lat + D}&layer=mapnik&marker=${coord.lat},${coord.lon}` : null
+  const mapaLink = coord
+    ? `https://www.openstreetmap.org/?mlat=${coord.lat}&mlon=${coord.lon}#map=17/${coord.lat}/${coord.lon}`
+    : (temEndereco ? `https://www.openstreetmap.org/search?query=${encodeURIComponent(enderecoBusca)}` : null)
 
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '20px 16px' }}>
@@ -240,6 +275,30 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                     {busyEnd ? 'Salvando…' : 'Salvar endereço'}
                   </button>
                   <AjudaCampo chave="projetos.obra_ficha.salvar_endereco" rota={ROTA} />
+                </div>
+
+                {/* Localização no mapa — pino lat/long (tela 314, critério h). Sem coordenada do CEP, abre pela busca do endereço; nunca um pino falso. */}
+                <div data-testid="ficha-mapa" style={{ borderTop: `1px solid ${LINE}`, paddingTop: 12, display: 'grid', gap: 8 }}>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700 }}>Localização no mapa</div>
+                  {mapaEmbed && coord ? (
+                    <>
+                      <iframe title="Mapa da obra" data-testid="ficha-mapa-embed" src={mapaEmbed} loading="lazy" referrerPolicy="no-referrer"
+                        style={{ width: '100%', height: 220, border: `1px solid ${LINE}`, borderRadius: 8 }} />
+                      <div style={{ fontSize: 11, color: MUT }}>Ponto aproximado pelo CEP: {coord.lat.toFixed(5)}, {coord.lon.toFixed(5)}.</div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 12, color: MUT }}>
+                      {mapaMsg
+                        ? mapaMsg
+                        : temEndereco
+                          ? 'Este CEP não tem coordenada para fixar o pino. Use “Abrir no mapa” para ver pelo endereço.'
+                          : 'Informe o endereço e o CEP acima para localizar a obra no mapa.'}
+                    </div>
+                  )}
+                  {mapaLink && (
+                    <a data-testid="ficha-mapa-link" href={mapaLink} target="_blank" rel="noopener noreferrer"
+                      style={{ fontSize: 13, color: GOLD, fontWeight: 600, textDecoration: 'none' }}>Abrir no mapa ↗</a>
+                  )}
                 </div>
               </div>
 
