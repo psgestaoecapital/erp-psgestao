@@ -65,6 +65,16 @@ BEGIN
   DELETE FROM erp_renegociacao WHERE company_id=v_bot AND observacao LIKE 'DEMO-GE-FIN%';
   DELETE FROM erp_contratos WHERE company_id=v_bot AND nome LIKE 'DEMO-GE-FIN%';
 
+  -- Auto-cura (RD-52 fonte única: esta é a versão SUPERSET de fn_demo_seed_ge_financeiro, que aplica por ÚLTIMO):
+  -- limpa o lixo de TESTE acumulado em /receber e /pagar (E2E / carga Contas500 / aceitação), protegendo o seed.
+  -- Mescla as chamadas da #5929 (auto-cura) com o rateio desta PR, para que a última definição não perca nenhum dos dois.
+  PERFORM public.fn_demo_ge_receber_purgar_lixo_teste(v_bot);
+  -- O purge de /pagar nasce na migration da #5929 (…140540). Esta migration aplica depois dela; o to_regprocedure
+  -- apenas evita erro de runtime caso o seed seja invocado numa janela em que a #5929 ainda não esteja na main.
+  IF to_regprocedure('public.fn_demo_ge_pagar_purgar_lixo_teste(uuid)') IS NOT NULL THEN
+    PERFORM public.fn_demo_ge_pagar_purgar_lixo_teste(v_bot);
+  END IF;
+
   -- ── RECEBER: 6 títulos mensais (recorrência alternada) — centro COMERCIAL ──
   FOR v_m IN 0..5 LOOP
     v_emissao := CURRENT_DATE - (v_m*30);
