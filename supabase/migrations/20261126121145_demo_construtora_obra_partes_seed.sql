@@ -285,3 +285,10 @@ BEGIN
   END IF;
 END
 $do$;
+
+-- Guarda de superfície (check:fn-guards · Regras 1 e 4): os dois seeds são SECURITY DEFINER com
+-- parâmetro e gravam, mas só semeiam a empresa de demonstração fixa do Hub (is_demo, id 006), rodam
+-- pelo fn_demo_reset (service_role) e nunca ficam acessíveis a usuário anônimo.
+-- ci-sem-guarda: fn_demo_seed_construtora — seed da DEMO fixa do Hub (is_demo 006); roda pelo fn_demo_reset (service_role), guardado por is_demo no corpo
+REVOKE ALL ON FUNCTION public.fn_demo_seed_construtora_partes(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_demo_seed_construtora(uuid) FROM PUBLIC, anon;
