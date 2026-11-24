@@ -32,7 +32,7 @@ const EDIFICACAO = [
   { v: 'misto', l: 'Misto' },
 ]
 
-type Ficha = { ok: boolean; numero?: string; nome?: string | null; cliente_nome?: string | null; tipo_execucao?: string | null; modelo_contratacao?: string | null; matricula?: string | null; inscricao_imobiliaria?: string | null; tipo_edificacao?: string | null; area_construida_m2?: number | null; area_terreno_m2?: number | null; pavimentos?: number | null; blocos?: number | null; unidades?: number | null; erro?: string }
+type Ficha = { ok: boolean; numero?: string; nome?: string | null; cliente_nome?: string | null; tipo_execucao?: string | null; modelo_contratacao?: string | null; matricula?: string | null; inscricao_imobiliaria?: string | null; tipo_edificacao?: string | null; area_construida_m2?: number | null; area_terreno_m2?: number | null; pavimentos?: number | null; blocos?: number | null; unidades?: number | null; endereco?: string | null; bairro?: string | null; cidade?: string | null; uf?: string | null; cep?: string | null; erro?: string }
 
 export default function FichaObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -50,12 +50,20 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [pavimentos, setPavimentos] = useState('')
   const [blocos, setBlocos] = useState('')
   const [unidades, setUnidades] = useState('')
+  // Endereço da obra
+  const [endereco, setEndereco] = useState('')
+  const [bairro, setBairro] = useState('')
+  const [cidade, setCidade] = useState('')
+  const [uf, setUf] = useState('')
+  const [cep, setCep] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [busyId, setBusyId] = useState(false)
+  const [busyEnd, setBusyEnd] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [ok, setOk] = useState(false)
   const [okId, setOkId] = useState(false)
+  const [okEnd, setOkEnd] = useState(false)
 
   // Área: aceita "1250" ou "1.250,50"; vira número só na hora de salvar (null quando vazio).
   const areaNum = (s: string): number | null => {
@@ -88,6 +96,13 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     setPavimentos(j.pavimentos != null ? String(j.pavimentos) : '')
     setBlocos(j.blocos != null ? String(j.blocos) : '')
     setUnidades(j.unidades != null ? String(j.unidades) : '')
+    // Endereço vem de um leitor próprio (collision-free; fn_obra_ficha_ler não é tocado por esta fatia)
+    const { data: endData } = await supabase.rpc('fn_obra_ficha_endereco_ler', { p_obra_id: id })
+    const e = endData as Ficha | null
+    if (e && e.ok) {
+      setEndereco(e.endereco ?? ''); setBairro(e.bairro ?? ''); setCidade(e.cidade ?? '')
+      setUf(e.uf ?? ''); setCep(e.cep ?? '')
+    }
   }, [id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
@@ -113,6 +128,18 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     const j = data as Ficha | null
     if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar a identidade da obra.')); return }
     setOkId(true)
+  }
+
+  const salvarEndereco = async () => {
+    setBusyEnd(true); setErro(null); setOkEnd(false)
+    const { data, error } = await supabase.rpc('fn_obra_ficha_endereco_salvar', {
+      p_obra_id: id, p_endereco: endereco || null, p_bairro: bairro || null,
+      p_cidade: cidade || null, p_uf: uf || null, p_cep: cep || null,
+    })
+    setBusyEnd(false)
+    const j = data as Ficha | null
+    if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar o endereço da obra.')); return }
+    setOkEnd(true)
   }
 
   return (
@@ -205,6 +232,43 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                     {busyId ? 'Salvando…' : 'Salvar identidade'}
                   </button>
                   <AjudaCampo chave="projetos.obra_ficha.salvar_identidade" rota={ROTA} />
+                </div>
+              </div>
+
+              {/* Endereço da obra — logradouro, bairro, cidade, UF e CEP (tela 314 "ficha da obra") */}
+              <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 14 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700 }}>Endereço da obra</div>
+                <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                  <span>Endereço<AjudaCampo chave="projetos.obra_ficha.endereco" rota={ROTA} /></span>
+                  <input data-testid="ficha-endereco" style={campo} value={endereco} placeholder="Logradouro e número" onChange={(e) => { setEndereco(e.target.value); setOkEnd(false) }} />
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Bairro<AjudaCampo chave="projetos.obra_ficha.bairro" rota={ROTA} /></span>
+                    <input data-testid="ficha-bairro" style={campo} value={bairro} placeholder="Bairro" onChange={(e) => { setBairro(e.target.value); setOkEnd(false) }} />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>CEP<AjudaCampo chave="projetos.obra_ficha.cep" rota={ROTA} /></span>
+                    <input data-testid="ficha-cep" inputMode="numeric" style={campo} value={cep} placeholder="00000-000" onChange={(e) => { setCep(e.target.value); setOkEnd(false) }} />
+                  </label>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Cidade<AjudaCampo chave="projetos.obra_ficha.cidade" rota={ROTA} /></span>
+                    <input data-testid="ficha-cidade" style={campo} value={cidade} placeholder="Município" onChange={(e) => { setCidade(e.target.value); setOkEnd(false) }} />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>UF<AjudaCampo chave="projetos.obra_ficha.uf" rota={ROTA} /></span>
+                    <input data-testid="ficha-uf" maxLength={2} style={{ ...campo, textTransform: 'uppercase' }} value={uf} placeholder="SC" onChange={(e) => { setUf(e.target.value.toUpperCase()); setOkEnd(false) }} />
+                  </label>
+                </div>
+                {okEnd && <div data-testid="ficha-endereco-ok" style={{ background: '#EAF6EC', color: VERDE, borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 600 }}>Endereço salvo.</div>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button data-testid="ficha-salvar-endereco" disabled={busyEnd} onClick={() => void salvarEndereco()}
+                    style={{ flex: 1, padding: '12px 16px', borderRadius: 8, border: 'none', background: ESP, color: '#fff', fontSize: 14, fontWeight: 700, cursor: busyEnd ? 'wait' : 'pointer' }}>
+                    {busyEnd ? 'Salvando…' : 'Salvar endereço'}
+                  </button>
+                  <AjudaCampo chave="projetos.obra_ficha.salvar_endereco" rota={ROTA} />
                 </div>
               </div>
 
