@@ -26,19 +26,19 @@ const SITUACAO: Record<string, { rotulo: string; cor: string; bg: string }> = {
 const pct = (n: number | null | undefined) => `${(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 1 })}%`
 
 // Nó da árvore EAP (modo 'eap')
-type NoEap = { eap_codigo: string; nome: string; nivel: number; parent_codigo: string | null; material: number; mao_obra: number; total: number; pct: number }
+type NoEap = { eap_codigo: string; nome: string; nivel: number; parent_codigo: string | null; material: number; mao_obra: number; equipamento: number; total: number; pct: number }
 // Linha por local (modo 'local')
-type NoLocal = { local_tipo: string | null; local_nome: string; material: number; mao_obra: number; total: number; pct: number }
+type NoLocal = { local_tipo: string | null; local_nome: string; material: number; mao_obra: number; equipamento: number; total: number; pct: number }
 type Arvore = {
   orcamento_id: string; modo: 'eap' | 'local'
-  total_geral: number; material_geral: number; mao_obra_geral: number
+  total_geral: number; material_geral: number; mao_obra_geral: number; equipamento_geral: number
   nos: NoEap[] | NoLocal[]
 }
 type ObraInfo = { numero: string; nome: string | null; orcamento_id: string | null; area_construida_m2: number | null }
 // Serviço do catálogo da empresa (origem do custo do item)
 type Servico = { id: string; codigo: string | null; nome: string; unidade: string | null; eap_codigo: string | null; custo_material: number | null; custo_mao_obra: number | null }
 // Item individual do orçamento com complemento EAP (para editar/excluir) — fn_projetos_orcamento_item_eap_listar (#5814)
-type ItemEap = { item_id: string; servico_id: string | null; servico_codigo: string | null; servico_descricao: string | null; unidade: string | null; eap_codigo: string; local_tipo: string | null; local_nome: string | null; quantidade: number; custo_material_unit: number | null; custo_mao_obra_unit: number | null; subtotal: number }
+type ItemEap = { item_id: string; servico_id: string | null; servico_codigo: string | null; servico_descricao: string | null; unidade: string | null; eap_codigo: string; local_tipo: string | null; local_nome: string | null; quantidade: number; custo_material_unit: number | null; custo_mao_obra_unit: number | null; custo_equipamento_unit: number | null; subtotal: number }
 // Os 6 tipos de local (projetos_local_tipo). O LOCAL é dimensão do item, não nível da EAP.
 const LOCAIS: { codigo: string; nome: string }[] = [
   { codigo: 'ambiente', nome: 'Ambiente / área comum' },
@@ -77,6 +77,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   const [localNome, setLocalNome] = useState('')
   const [custoMat, setCustoMat] = useState('')
   const [custoMo, setCustoMo] = useState('')
+  const [custoEquip, setCustoEquip] = useState('')
   const [eapOverride, setEapOverride] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erroForm, setErroForm] = useState<string | null>(null)
@@ -121,13 +122,14 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     const s = servicos.find((x) => x.id === sid)
     setCustoMat(s?.custo_material != null ? String(s.custo_material) : '')
     setCustoMo(s?.custo_mao_obra != null ? String(s.custo_mao_obra) : '')
+    setCustoEquip('') // o catálogo não traz equipamento; o usuário informa por obra quando houver
     setEapOverride('')
     setErroForm(null)
   }
 
   const fecharForm = () => {
     setFormAberto(false); setEditId(null); setServicoId(''); setQuantidade(''); setLocalTipo(''); setLocalNome('')
-    setCustoMat(''); setCustoMo(''); setEapOverride(''); setErroForm(null)
+    setCustoMat(''); setCustoMo(''); setCustoEquip(''); setEapOverride(''); setErroForm(null)
   }
 
   // Abre o formulário em branco para um item novo.
@@ -142,6 +144,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     setLocalNome(it.local_nome ?? '')
     setCustoMat(it.custo_material_unit != null ? String(it.custo_material_unit) : '')
     setCustoMo(it.custo_mao_obra_unit != null ? String(it.custo_mao_obra_unit) : '')
+    setCustoEquip(it.custo_equipamento_unit != null ? String(it.custo_equipamento_unit) : '')
     setEapOverride(it.eap_codigo ?? '')
     setErroForm(null)
     setFormAberto(true)
@@ -189,8 +192,8 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     if (qtd == null || qtd <= 0) { setErroForm('Informe a quantidade (maior que zero).'); return }
     const eapEfetiva = eapOverride.trim() || (servicoSel?.eap_codigo ?? '').trim()
     if (!eapEfetiva) { setErroForm('Este serviço não tem código de EAP. Informe o código da EAP.'); return }
-    const mat = num(custoMat), mo = num(custoMo)
-    if ((mat != null && mat < 0) || (mo != null && mo < 0)) { setErroForm('Os custos não podem ser negativos.'); return }
+    const mat = num(custoMat), mo = num(custoMo), equip = num(custoEquip)
+    if ((mat != null && mat < 0) || (mo != null && mo < 0) || (equip != null && equip < 0)) { setErroForm('Os custos não podem ser negativos.'); return }
     setSalvando(true); setErroForm(null)
     const { error } = await supabase.rpc('fn_projetos_orcamento_item_eap_salvar', {
       p_orcamento_id: obra.orcamento_id,
@@ -201,6 +204,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
       p_eap_codigo: eapOverride.trim() || null,
       p_custo_material_unit: mat,
       p_custo_mao_obra_unit: mo,
+      p_custo_equipamento_unit: equip,
       p_item_id: editId,
     })
     setSalvando(false)
@@ -248,9 +252,9 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
             <div style={{ minWidth: 0, overflow: 'hidden' }}>
               <div style={{ fontSize: 14, color: ESP, fontWeight: n.nivel <= 1 ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.nome}</div>
               {/* §315 C-2: material × mão de obra separados também por nó da EAP (não só no total geral). */}
-              {(n.material > 0 || n.mao_obra > 0) && (
+              {(n.material > 0 || n.mao_obra > 0 || n.equipamento > 0) && (
                 <div style={{ fontSize: 11, color: MUT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  Material {brl(n.material)} · Mão de obra {brl(n.mao_obra)}
+                  Material {brl(n.material)} · Mão de obra {brl(n.mao_obra)}{n.equipamento > 0 ? ` · Equipamento ${brl(n.equipamento)}` : ''}
                 </div>
               )}
             </div>
@@ -284,7 +288,8 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     const q = num(quantidade) ?? 0
     const m = num(custoMat) ?? (servicoSel?.custo_material ?? 0)
     const o = num(custoMo) ?? (servicoSel?.custo_mao_obra ?? 0)
-    return q * (m + o)
+    const eq = num(custoEquip) ?? 0
+    return q * (m + o + eq)
   })()
 
   // Importador de orçamento por planilha (.xlsx) — tela 334. Porta de entrada visível (RD-98 p1/RD-99):
@@ -340,6 +345,10 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
               <span style={rotuloCampo}>Custo mão de obra (unit.) <AjudaCampo chave="projetos.orcamento_eap.item_custo_mao_obra" rota={ROTA} /></span>
               <input data-testid="orc-add-mo" inputMode="decimal" value={custoMo} onChange={(e) => setCustoMo(e.target.value)} placeholder="0,00" style={campo} />
             </label>
+            <label style={{ display: 'block' }}>
+              <span style={rotuloCampo}>Custo equipamento (unit.) <AjudaCampo chave="projetos.orcamento_eap.item_custo_equipamento" rota={ROTA} /></span>
+              <input data-testid="orc-add-equip" inputMode="decimal" value={custoEquip} onChange={(e) => setCustoEquip(e.target.value)} placeholder="0,00" style={campo} />
+            </label>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
             <label style={{ display: 'block' }}>
@@ -380,7 +389,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
         <Link href={`/dashboard/projetos/obras/${id}/cockpit?area=hub`} style={{ fontSize: 12, color: GOLD, textDecoration: 'none', fontWeight: 600 }}>← Cockpit da obra</Link>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 8 }}>Hub · Obra{obra ? ` · ${obra.numero}` : ''}</div>
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 24, fontWeight: 400, color: ESP, margin: '2px 0 4px' }}>Orçamento por EAP</h1>
-        <div style={{ fontSize: 13, color: MUT, marginBottom: 14 }}>O custo da obra estruturado pela EAP (serviço × local), com material e mão de obra separados. Veja o total e o peso de cada etapa.</div>
+        <div style={{ fontSize: 13, color: MUT, marginBottom: 14 }}>O custo da obra estruturado pela EAP (serviço × local), com material, mão de obra e equipamento separados. Veja o total e o peso de cada etapa.</div>
 
         {erro && <div role="alert" data-testid="orc-erro" style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 12 }}>{erro}</div>}
 
@@ -455,6 +464,13 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Mão de obra <AjudaCampo chave="projetos.orcamento_eap.mao_obra" rota={ROTA} /></div>
                 <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.mao_obra_geral)}{arvore.total_geral > 0 && <span style={{ fontSize: 12, color: MUT, fontWeight: 500 }}> · {pct((arvore.mao_obra_geral / arvore.total_geral) * 100)} do total</span>}</div>
               </div>
+              {/* KPI Equipamento (blueprint §315 essencial): parcela de equipamento além de material e mão de obra. Só aparece quando há. */}
+              {arvore.equipamento_geral > 0 && (
+                <div data-testid="orc-equipamento-geral">
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Equipamento <AjudaCampo chave="projetos.orcamento_eap.item_custo_equipamento" rota={ROTA} /></div>
+                  <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.equipamento_geral)}{arvore.total_geral > 0 && <span style={{ fontSize: 12, color: MUT, fontWeight: 500 }}> · {pct((arvore.equipamento_geral / arvore.total_geral) * 100)} do total</span>}</div>
+                </div>
+              )}
               {/* KPI Custo por m² (blueprint §315 essencial): total estruturado ÷ área construída da obra. */}
               {obra?.area_construida_m2 != null && obra.area_construida_m2 > 0 && (
                 <div data-testid="orc-custo-m2">
@@ -490,9 +506,9 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                     {/* §315 C-2: material × mão de obra também no agrupamento por Local, igual ao nó da EAP. */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, color: ESP, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.local_nome}</div>
-                      {(l.material > 0 || l.mao_obra > 0) && (
+                      {(l.material > 0 || l.mao_obra > 0 || l.equipamento > 0) && (
                         <div style={{ fontSize: 11, color: MUT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          Material {brl(l.material)} · Mão de obra {brl(l.mao_obra)}
+                          Material {brl(l.material)} · Mão de obra {brl(l.mao_obra)}{l.equipamento > 0 ? ` · Equipamento ${brl(l.equipamento)}` : ''}
                         </div>
                       )}
                     </div>
@@ -518,6 +534,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                   const q = it.quantidade ?? 0
                   const matTot = (it.custo_material_unit ?? 0) * q
                   const moTot = (it.custo_mao_obra_unit ?? 0) * q
+                  const equipTot = (it.custo_equipamento_unit ?? 0) * q
                   return (
                     <div key={it.item_id} data-testid={`orc-item-${it.item_id}`}
                       style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: `1px solid ${LINE}`, flexWrap: 'wrap' }}>
@@ -526,9 +543,9 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                         <div style={{ fontSize: 11, color: MUT, fontFamily: 'ui-monospace, monospace' }}>
                           EAP {it.eap_codigo}{loc} · {(it.quantidade ?? 0).toLocaleString('pt-BR')}{un}
                         </div>
-                        {(matTot > 0 || moTot > 0) && (
+                        {(matTot > 0 || moTot > 0 || equipTot > 0) && (
                           <div data-testid={`orc-item-split-${it.item_id}`} style={{ fontSize: 11, color: MUT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            Material {brl(matTot)} · Mão de obra {brl(moTot)}
+                            Material {brl(matTot)} · Mão de obra {brl(moTot)}{equipTot > 0 ? ` · Equipamento ${brl(equipTot)}` : ''}
                           </div>
                         )}
                       </div>
