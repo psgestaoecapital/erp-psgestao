@@ -248,3 +248,10 @@ INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher,
   'Mostra o custo de proteção separado do Material. Antes somava dentro de Material; agora é categoria própria (o total do serviço não muda).',
   'Máscara + óculos R$ 15', 'Achar que mudou o total — só saiu de Material para a linha de EPI.', 'projetos', 51)
 ON CONFLICT (chave) DO NOTHING;
+
+-- Guarda RD/CI (check-fn-guards Regra 1): funções SECURITY DEFINER não ficam abertas ao anon.
+-- Ambas têm guarda de empresa/param por company_id; mantém o padrão do repo (authenticated + service_role).
+REVOKE ALL ON FUNCTION public.fn_projetos_recalcular_custo_servico(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_projetos_recalcular_custo_servico(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_servico_composicao_detalhe(uuid, uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_servico_composicao_detalhe(uuid, uuid) TO authenticated, service_role;
