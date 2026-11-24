@@ -120,6 +120,28 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   }, [id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
+  // Sugestão de ponto: deriva lat/long do CEP pela BrasilAPI v2 (mesmo provedor do helper
+  // buscarCEP). Só PRÉ-PREENCHE quando a obra ainda não tem ponto salvo/digitado — nunca
+  // sobrescreve o que o usuário fixou; o ponto salvo é a fonte da verdade (RD-51). Só-leitura.
+  useEffect(() => {
+    const clean = cep.replace(/\D/g, '')
+    if (clean.length !== 8) return
+    let vivo = true
+    void (async () => {
+      try {
+        const res = await fetch(`https://brasilapi.com.br/api/cep/v2/${clean}`)
+        if (!vivo || !res.ok) return
+        const data = await res.json()
+        const c = data?.location?.coordinates
+        const la = Number(c?.latitude), lo = Number(c?.longitude)
+        if (!vivo || !Number.isFinite(la) || !Number.isFinite(lo) || (la === 0 && lo === 0)) return
+        setLat((prev: string) => (prev.trim() === '' ? String(la) : prev))
+        setLng((prev: string) => (prev.trim() === '' ? String(lo) : prev))
+      } catch { /* sem sugestão de ponto — o usuário digita ou usa a localização do aparelho */ }
+    })()
+    return () => { vivo = false }
+  }, [cep])
+
   const salvar = async () => {
     setBusy(true); setErro(null); setOk(false)
     const { data, error } = await supabase.rpc('fn_obra_ficha_salvar', {
