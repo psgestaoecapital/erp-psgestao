@@ -81,6 +81,12 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   const [salvando, setSalvando] = useState(false)
   const [erroForm, setErroForm] = useState<string | null>(null)
   const servicoSel = useMemo(() => servicos.find((s) => s.id === servicoId) ?? null, [servicos, servicoId])
+  // §315 C-2: memorial descritivo e especificação técnica por item (RPCs fn_projetos_orcamento_item_eap_memorial_*).
+  const [memoriais, setMemoriais] = useState<Record<string, { memorial: string; especificacao: string }>>({})
+  const [memAberto, setMemAberto] = useState<string | null>(null)
+  const [memForm, setMemForm] = useState<{ memorial: string; especificacao: string }>({ memorial: '', especificacao: '' })
+  const [memSalvando, setMemSalvando] = useState(false)
+  const [memErro, setMemErro] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
@@ -97,6 +103,13 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     // Lista dos itens individuais (com id) para editar/excluir.
     const { data: li } = await supabase.rpc('fn_projetos_orcamento_item_eap_listar', { p_orcamento_id: info.orcamento_id })
     setItens(((li as { itens?: ItemEap[] } | null)?.itens) ?? [])
+    // §315: memorial descritivo / especificação técnica por item (colunas em projetos_orcamento_item_eap).
+    const { data: mem } = await supabase.rpc('fn_projetos_orcamento_item_eap_memorial_listar', { p_orcamento_id: info.orcamento_id })
+    const mapaMem: Record<string, { memorial: string; especificacao: string }> = {}
+    for (const r of (mem as { orcamento_item_id: string; memorial_descritivo: string | null; especificacao_tecnica: string | null }[] | null) ?? []) {
+      mapaMem[r.orcamento_item_id] = { memorial: r.memorial_descritivo ?? '', especificacao: r.especificacao_tecnica ?? '' }
+    }
+    setMemoriais(mapaMem)
     // Total cheio do orçamento e nº de itens vivos — para distinguir a fatia EAP do total do orçamento.
     const { data: orc } = await supabase.from('erp_orcamentos').select('total,status').eq('id', info.orcamento_id).maybeSingle()
     setOrcTotal((orc as { total?: number } | null)?.total ?? null)
@@ -128,6 +141,24 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   const fecharForm = () => {
     setFormAberto(false); setEditId(null); setServicoId(''); setQuantidade(''); setLocalTipo(''); setLocalNome('')
     setCustoMat(''); setCustoMo(''); setEapOverride(''); setErroForm(null)
+  }
+
+  // §315: abrir/salvar o memorial descritivo e a especificação técnica de um item da EAP.
+  const abrirMemorial = (it: ItemEap) => {
+    setMemAberto(it.item_id)
+    setMemForm(memoriais[it.item_id] ?? { memorial: '', especificacao: '' })
+    setMemErro(null)
+  }
+  const salvarMemorial = async (itemId: string) => {
+    setMemSalvando(true); setMemErro(null)
+    const { data, error } = await supabase.rpc('fn_projetos_orcamento_item_eap_memorial_salvar', {
+      p_item_id: itemId, p_memorial: memForm.memorial, p_especificacao: memForm.especificacao,
+    })
+    setMemSalvando(false)
+    const j = data as { ok?: boolean } | null
+    if (error || !j?.ok) { setMemErro(erroAmigavel(error, 'Não foi possível salvar o memorial.')); return }
+    setMemoriais((m) => ({ ...m, [itemId]: { memorial: memForm.memorial.trim(), especificacao: memForm.especificacao.trim() } }))
+    setMemAberto(null)
   }
 
   // Abre o formulário em branco para um item novo.
@@ -518,9 +549,13 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                   const q = it.quantidade ?? 0
                   const matTot = (it.custo_material_unit ?? 0) * q
                   const moTot = (it.custo_mao_obra_unit ?? 0) * q
+                  const mem = memoriais[it.item_id]
+                  const temMem = !!(mem && (mem.memorial || mem.especificacao))
+                  const memOpen = memAberto === it.item_id
                   return (
-                    <div key={it.item_id} data-testid={`orc-item-${it.item_id}`}
-                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: `1px solid ${LINE}`, flexWrap: 'wrap' }}>
+                    <div key={it.item_id} style={{ borderBottom: `1px solid ${LINE}` }}>
+                    <div data-testid={`orc-item-${it.item_id}`}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', flexWrap: 'wrap' }}>
                       <div style={{ flex: 1, minWidth: 180 }}>
                         <div style={{ fontSize: 14, color: ESP, fontWeight: 500 }}>{it.servico_codigo ? `${it.servico_codigo} · ` : ''}{it.servico_descricao ?? 'Serviço'}</div>
                         <div style={{ fontSize: 11, color: MUT, fontFamily: 'ui-monospace, monospace' }}>
@@ -538,7 +573,31 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                           style={{ padding: '6px 12px', borderRadius: 999, border: `1px solid ${LINE}`, background: '#fff', color: ESP, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Editar</button>
                         <button data-testid={`orc-item-excluir-${it.item_id}`} onClick={() => void excluirItem(it)} disabled={excluindo}
                           style={{ padding: '6px 12px', borderRadius: 999, border: `1px solid ${VERM}`, background: '#fff', color: VERM, fontSize: 12, fontWeight: 700, cursor: excluindo ? 'default' : 'pointer' }}>{excluindo ? 'Excluindo…' : 'Excluir'}</button>
+                        <button data-testid={`orc-item-memorial-${it.item_id}`} onClick={() => (memOpen ? setMemAberto(null) : abrirMemorial(it))}
+                          style={{ padding: '6px 12px', borderRadius: 999, border: `1px solid ${temMem ? GOLD : LINE}`, background: temMem ? '#FBF3E0' : '#fff', color: temMem ? GOLD : ESP, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{temMem ? '✓ Memorial' : 'Memorial'}</button>
                       </div>
+                    </div>
+                    {memOpen && (
+                      <div data-testid={`orc-item-memorial-form-${it.item_id}`} style={{ padding: '2px 0 14px', display: 'grid', gap: 10 }}>
+                        {memErro && <div role="alert" style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: 8, fontSize: 12 }}>{memErro}</div>}
+                        <div>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700, marginBottom: 4 }}>Memorial descritivo <AjudaCampo chave="projetos.orcamento_eap.item_memorial" rota={ROTA} /></div>
+                          <textarea data-testid={`orc-item-memorial-texto-${it.item_id}`} value={memForm.memorial} onChange={(e) => setMemForm({ ...memForm, memorial: e.target.value })} rows={3}
+                            placeholder="O que será executado neste serviço: método, etapas e acabamento." style={{ ...campo, resize: 'vertical' }} />
+                        </div>
+                        <div>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700, marginBottom: 4 }}>Especificação técnica <AjudaCampo chave="projetos.orcamento_eap.item_especificacao" rota={ROTA} /></div>
+                          <textarea data-testid={`orc-item-especificacao-texto-${it.item_id}`} value={memForm.especificacao} onChange={(e) => setMemForm({ ...memForm, especificacao: e.target.value })} rows={3}
+                            placeholder="Materiais, normas técnicas (ex.: ABNT NBR), traço, resistência e referências." style={{ ...campo, resize: 'vertical' }} />
+                        </div>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button data-testid={`orc-item-memorial-salvar-${it.item_id}`} onClick={() => void salvarMemorial(it.item_id)} disabled={memSalvando}
+                            style={{ padding: '6px 14px', borderRadius: 999, border: 'none', background: ESP, color: '#fff', fontSize: 12, fontWeight: 700, cursor: memSalvando ? 'default' : 'pointer' }}>{memSalvando ? 'Salvando…' : 'Salvar'}</button>
+                          <button onClick={() => setMemAberto(null)} disabled={memSalvando}
+                            style={{ padding: '6px 14px', borderRadius: 999, border: `1px solid ${LINE}`, background: '#fff', color: MUT, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Cancelar</button>
+                        </div>
+                      </div>
+                    )}
                     </div>
                   )
                 })}
