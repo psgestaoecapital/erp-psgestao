@@ -125,7 +125,8 @@ export default function IncidentesPage() {
       if (error) throw error
       setRegistros((data || []) as Incidente[])
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao carregar os incidentes')
+      console.error('carregar incidentes', e)
+      setErro('Não foi possível carregar os incidentes. Tente novamente em instantes.')
     } finally {
       setLoading(false)
     }
@@ -147,15 +148,15 @@ export default function IncidentesPage() {
     if (motivo === null) return
     if (!motivo.trim()) { alert('Informe o motivo para desativar.'); return }
     try {
-      const novaDesc = ((i.descricao ? i.descricao + ' ' : '') + `[desativado: ${motivo.trim()}]`).slice(0, 4000)
-      const { error } = await supabase
-        .from('ehs_incidente')
-        .update({ ativo: false, descricao: novaDesc, atualizado_em: new Date().toISOString() })
-        .eq('id', i.id)
+      // RD-98 p4: o incidente é registro legal (NR-1) — a desativação grava quem/quando/motivo e um
+      // registro em audit_log_global via RPC (soft-delete rastreável), nunca um UPDATE solto pelo cliente.
+      const { data, error } = await supabase.rpc('fn_ehs_incidente_desativar', { p_id: i.id, p_motivo: motivo.trim() })
       if (error) throw error
+      if (data && data.ok === false) { alert(data.erro || 'Não foi possível desativar o incidente.'); return }
       carregar()
     } catch (e: any) {
-      alert(e?.message || 'Falha ao desativar')
+      console.error('fn_ehs_incidente_desativar', e)
+      alert('Não foi possível desativar o incidente. Tente novamente.')
     }
   }
 
@@ -308,6 +309,7 @@ function IncidenteFormModal({ companyId, incidente, onClose, onSaved }: { compan
         .from('ehs_incidente_testemunha')
         .select('id, nome, funcao, relato')
         .eq('incidente_id', incidente.id)
+        .eq('ativo', true)
         .order('nome', { ascending: true })
       if (!vivo) return
       setTestemunhas((data || []) as Testemunha[])
@@ -353,8 +355,6 @@ function IncidenteFormModal({ companyId, incidente, onClose, onSaved }: { compan
           .update({ ...comum, atualizado_em: new Date().toISOString() })
           .eq('id', incId)
         if (error) throw error
-        const { error: delErr } = await supabase.from('ehs_incidente_testemunha').delete().eq('incidente_id', incId)
-        if (delErr) throw delErr
       } else {
         const { data: nova, error } = await supabase.from('ehs_incidente')
           .insert({ company_id: companyId, ...comum })
@@ -362,14 +362,18 @@ function IncidenteFormModal({ companyId, incidente, onClose, onSaved }: { compan
         if (error) throw error
         incId = nova!.id
       }
-      if (participantes.length > 0) {
-        const payload = participantes.map((t) => ({ company_id: companyId, incidente_id: incId, nome: t.nome, funcao: t.funcao, relato: t.relato }))
-        const { error: insErr } = await supabase.from('ehs_incidente_testemunha').insert(payload)
-        if (insErr) throw insErr
-      }
+      // RD-98 p4: a coleção de testemunhas é reescrita por RPC (soft-delete das antigas + insert das novas,
+      // com rastro em audit_log_global) — nunca por DELETE físico de ehs_incidente_testemunha.
+      const { data: testData, error: testErr } = await supabase.rpc('fn_ehs_incidente_testemunhas_salvar', {
+        p_incidente_id: incId,
+        p_testemunhas: participantes.map((t) => ({ nome: t.nome, funcao: t.funcao, relato: t.relato })),
+      })
+      if (testErr) throw testErr
+      if (testData && testData.ok === false) { setErro(testData.erro || 'Não foi possível salvar as testemunhas.'); setSalvando(false); return }
       onSaved()
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao salvar o incidente')
+      console.error('salvar incidente', e)
+      setErro('Não foi possível salvar o incidente. Confira os dados e tente novamente.')
       setSalvando(false)
     }
   }
