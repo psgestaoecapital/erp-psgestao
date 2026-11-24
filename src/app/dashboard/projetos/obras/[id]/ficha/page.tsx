@@ -32,7 +32,7 @@ const EDIFICACAO = [
   { v: 'misto', l: 'Misto' },
 ]
 
-type Ficha = { ok: boolean; numero?: string; nome?: string | null; cliente_nome?: string | null; tipo_execucao?: string | null; modelo_contratacao?: string | null; matricula?: string | null; inscricao_imobiliaria?: string | null; tipo_edificacao?: string | null; area_construida_m2?: number | null; area_terreno_m2?: number | null; endereco?: string | null; bairro?: string | null; cidade?: string | null; uf?: string | null; cep?: string | null; erro?: string }
+type Ficha = { ok: boolean; numero?: string; nome?: string | null; cliente_nome?: string | null; tipo_execucao?: string | null; modelo_contratacao?: string | null; matricula?: string | null; inscricao_imobiliaria?: string | null; tipo_edificacao?: string | null; area_construida_m2?: number | null; area_terreno_m2?: number | null; endereco?: string | null; bairro?: string | null; cidade?: string | null; uf?: string | null; cep?: string | null; latitude?: number | null; longitude?: number | null; erro?: string }
 
 export default function FichaObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -53,14 +53,20 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [cidade, setCidade] = useState('')
   const [uf, setUf] = useState('')
   const [cep, setCep] = useState('')
+  // Ponto no mapa (tela 314 "ficha da obra" — latitude/longitude)
+  const [lat, setLat] = useState('')
+  const [lng, setLng] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [busyId, setBusyId] = useState(false)
   const [busyEnd, setBusyEnd] = useState(false)
+  const [busyMapa, setBusyMapa] = useState(false)
+  const [locBusy, setLocBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [ok, setOk] = useState(false)
   const [okId, setOkId] = useState(false)
   const [okEnd, setOkEnd] = useState(false)
+  const [okMapa, setOkMapa] = useState(false)
 
   // Área: aceita "1250" ou "1.250,50"; vira número só na hora de salvar (null quando vazio).
   const areaNum = (s: string): number | null => {
@@ -69,6 +75,21 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     const n = Number(t)
     return Number.isFinite(n) ? n : null
   }
+
+  // Coordenada: aceita "-27,1005" ou "-27.1005"; null quando vazio.
+  const coordNum = (s: string): number | null => {
+    const t = String(s).trim().replace(',', '.')
+    if (t === '') return null
+    const n = Number(t)
+    return Number.isFinite(n) ? n : null
+  }
+  const latN = coordNum(lat)
+  const lngN = coordNum(lng)
+  const temPonto = latN != null && lngN != null
+  // Mini-mapa OpenStreetMap (embed, sem dependência): bbox ~1km ao redor do pino.
+  const mapaSrc = temPonto
+    ? `https://www.openstreetmap.org/export/embed.html?bbox=${(lngN - 0.01).toFixed(6)}%2C${(latN - 0.01).toFixed(6)}%2C${(lngN + 0.01).toFixed(6)}%2C${(latN + 0.01).toFixed(6)}&layer=mapnik&marker=${latN.toFixed(6)}%2C${lngN.toFixed(6)}`
+    : null
 
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
@@ -88,6 +109,13 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     if (e && e.ok) {
       setEndereco(e.endereco ?? ''); setBairro(e.bairro ?? ''); setCidade(e.cidade ?? '')
       setUf(e.uf ?? ''); setCep(e.cep ?? '')
+    }
+    // Ponto no mapa: leitor próprio (collision-free; não toca fn_obra_ficha_ler)
+    const { data: mapaData } = await supabase.rpc('fn_obra_ficha_mapa_ler', { p_obra_id: id })
+    const m = mapaData as Ficha | null
+    if (m && m.ok) {
+      setLat(m.latitude != null ? String(m.latitude) : '')
+      setLng(m.longitude != null ? String(m.longitude) : '')
     }
   }, [id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
@@ -125,6 +153,30 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     const j = data as Ficha | null
     if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar o endereço da obra.')); return }
     setOkEnd(true)
+  }
+
+  const usarLocalizacao = () => {
+    setErro(null); setOkMapa(false)
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setErro('Este aparelho não informa a localização. Digite a latitude e a longitude, ou use o celular na obra.'); return
+    }
+    setLocBusy(true)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setLat(String(pos.coords.latitude)); setLng(String(pos.coords.longitude)); setLocBusy(false); setOkMapa(false) },
+      () => { setLocBusy(false); setErro('Não foi possível obter a localização. Autorize o acesso no navegador ou digite as coordenadas.') },
+      { enableHighAccuracy: true, timeout: 10000 },
+    )
+  }
+
+  const salvarMapa = async () => {
+    setBusyMapa(true); setErro(null); setOkMapa(false)
+    const { data, error } = await supabase.rpc('fn_obra_ficha_mapa_salvar', {
+      p_obra_id: id, p_latitude: coordNum(lat), p_longitude: coordNum(lng),
+    })
+    setBusyMapa(false)
+    const j = data as Ficha | null
+    if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar o ponto no mapa.')); return }
+    setOkMapa(true)
   }
 
   return (
@@ -240,6 +292,47 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                     {busyEnd ? 'Salvando…' : 'Salvar endereço'}
                   </button>
                   <AjudaCampo chave="projetos.obra_ficha.salvar_endereco" rota={ROTA} />
+                </div>
+              </div>
+
+              {/* Ponto no mapa — latitude/longitude + mini-mapa (tela 314 "ficha da obra") */}
+              <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 14 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700 }}>Ponto no mapa</div>
+                <div style={{ fontSize: 11, color: MUT }}>Marque onde fica a obra: digite as coordenadas ou, no celular dentro da obra, use a localização do aparelho.</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Latitude<AjudaCampo chave="projetos.obra_ficha.latitude" rota={ROTA} /></span>
+                    <input data-testid="ficha-latitude" inputMode="decimal" style={campo} value={lat} placeholder="-27.100500" onChange={(e) => { setLat(e.target.value); setOkMapa(false) }} />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Longitude<AjudaCampo chave="projetos.obra_ficha.longitude" rota={ROTA} /></span>
+                    <input data-testid="ficha-longitude" inputMode="decimal" style={campo} value={lng} placeholder="-52.615200" onChange={(e) => { setLng(e.target.value); setOkMapa(false) }} />
+                  </label>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button data-testid="ficha-usar-localizacao" type="button" disabled={locBusy} onClick={usarLocalizacao}
+                    style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${LINE}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 600, cursor: locBusy ? 'wait' : 'pointer' }}>
+                    {locBusy ? 'Localizando…' : '📍 Usar minha localização'}
+                  </button>
+                  <AjudaCampo chave="projetos.obra_ficha.usar_localizacao" rota={ROTA} />
+                </div>
+                {temPonto && mapaSrc
+                  ? (
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <iframe data-testid="ficha-mapa" title="Mapa da obra" src={mapaSrc}
+                        style={{ width: '100%', height: 200, border: `1px solid ${LINE}`, borderRadius: 8 }} loading="lazy" />
+                      <a data-testid="ficha-mapa-link" href={`https://www.openstreetmap.org/?mlat=${latN!.toFixed(6)}&mlon=${lngN!.toFixed(6)}#map=16/${latN!.toFixed(6)}/${lngN!.toFixed(6)}`}
+                        target="_blank" rel="noreferrer" style={{ fontSize: 12, color: GOLD, textDecoration: 'none', fontWeight: 600 }}>Abrir no mapa ↗</a>
+                    </div>
+                  )
+                  : <div data-testid="ficha-mapa-vazio" style={{ fontSize: 12, color: MUT, background: BG, border: `1px dashed ${LINE}`, borderRadius: 8, padding: 16, textAlign: 'center' }}>Sem ponto marcado. Informe latitude e longitude para ver a obra no mapa.</div>}
+                {okMapa && <div data-testid="ficha-mapa-ok" style={{ background: '#EAF6EC', color: VERDE, borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 600 }}>Ponto no mapa salvo.</div>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button data-testid="ficha-salvar-mapa" disabled={busyMapa} onClick={() => void salvarMapa()}
+                    style={{ flex: 1, padding: '12px 16px', borderRadius: 8, border: 'none', background: ESP, color: '#fff', fontSize: 14, fontWeight: 700, cursor: busyMapa ? 'wait' : 'pointer' }}>
+                    {busyMapa ? 'Salvando…' : 'Salvar ponto no mapa'}
+                  </button>
+                  <AjudaCampo chave="projetos.obra_ficha.salvar_mapa" rota={ROTA} />
                 </div>
               </div>
 
