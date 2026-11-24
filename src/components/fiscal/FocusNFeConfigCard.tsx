@@ -40,6 +40,20 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [sucesso, setSucesso] = useState(false)
+  const [salvouTokens, setSalvouTokens] = useState<string[]>([])
+  // estado do cofre por ambiente (só existência e data; o valor do token nunca sai do cofre)
+  type StatusToken = { configurado: boolean; atualizado_em: string | null }
+  const [tokenStatus, setTokenStatus] = useState<{ homologacao: StatusToken; producao: StatusToken } | null>(null)
+  async function carregarTokenStatus() {
+    const { data } = await supabase.rpc('fn_fiscal_token_status', { p_company_id: companyId })
+    const r = data as ({ ok?: boolean; homologacao?: StatusToken; producao?: StatusToken }) | null
+    if (r?.ok && r.homologacao && r.producao) setTokenStatus({ homologacao: r.homologacao, producao: r.producao })
+  }
+  useEffect(() => {
+    void carregarTokenStatus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId])
+  const quando = (iso: string | null) => (iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '')
 
   // Feedback de segredo (Pilar 2): mostra só o ESTADO (configurada/vazia), nunca o valor.
   // Baseado na presença real da chave — não em "existe alguma config" (uma config gov não tem key).
@@ -130,12 +144,15 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
         // com a empresa) — nunca vai em texto para a tabela nem passa pela rota.
         // #9428 slice2 · um token por ambiente: grava cada um no seu segredo do cofre. A emissão
         // (fn_fiscal_obter_token, por ambiente) usa o certo — o usuário não recola o token ao alternar o ambiente.
+        const gravados: string[] = []
         for (const [amb, val] of [['homologacao', apiKeyHomolog], ['producao', apiKeyProd]] as const) {
           if (!val.trim()) continue
           const { data: tok, error: tokErr } = await supabase.rpc('fn_fiscal_salvar_token', { p_company_id: companyId, p_token: val.trim(), p_ambiente: amb })
           const r = tok as { ok?: boolean; erro?: string } | null
           if (tokErr || !r?.ok) throw new Error(`Não foi possível guardar o token de ${amb === 'producao' ? 'produção' : 'homologação'} no cofre: ${tokErr?.message ?? r?.erro ?? 'erro desconhecido'}`)
+          gravados.push(amb === 'producao' ? 'produção' : 'homologação')
         }
+        setSalvouTokens(gravados)
       }
 
       const resp = await authFetch('/api/fiscal/provider-config', {
@@ -147,6 +164,7 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
 
       setApiKeyHomolog('')
       setApiKeyProd('')
+      await carregarTokenStatus()
       setSucesso(true)
       onAtualizado()
       setTimeout(() => setSucesso(false), 3000)
@@ -338,7 +356,9 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
               <label className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1 flex-wrap">
                 Token de Homologação
                 <AjudaCampo chave="fiscal.token_homolog" rota="/dashboard/configuracoes/fiscal" />
-                {temApiKey && <span className="text-[#3D2314]/50 font-normal">(deixe vazio para manter o atual)</span>}
+                {tokenStatus?.homologacao.configurado
+                  ? <span data-testid="focus-token-homolog-status" className="text-[#1F7A4D] font-normal">✓ gravado em {quando(tokenStatus.homologacao.atualizado_em)} (deixe vazio para manter)</span>
+                  : tokenStatus && <span data-testid="focus-token-homolog-status" className="text-[#B4471F] font-normal">⚠ não cadastrado</span>}
               </label>
               <input
                 type="password"
@@ -354,7 +374,9 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
               <label className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1 flex-wrap">
                 Token de Produção
                 <AjudaCampo chave="fiscal.token_prod" rota="/dashboard/configuracoes/fiscal" />
-                {temApiKey && <span className="text-[#3D2314]/50 font-normal">(deixe vazio para manter o atual)</span>}
+                {tokenStatus?.producao.configurado
+                  ? <span data-testid="focus-token-prod-status" className="text-[#1F7A4D] font-normal">✓ gravado em {quando(tokenStatus.producao.atualizado_em)} (deixe vazio para manter)</span>
+                  : tokenStatus && <span data-testid="focus-token-prod-status" className="text-[#B4471F] font-normal">⚠ não cadastrado</span>}
               </label>
               <input
                 type="password"
@@ -366,9 +388,29 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
                 className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 focus:border-[#C8941A]/40 font-mono disabled:bg-[#3D2314]/5"
               />
             </div>
-            <p className={`text-[11px] flex items-center gap-1 ${temApiKey ? 'text-[#1F7A4D]' : 'text-[#B4471F]'}`}>
-              {temApiKey ? '✓ ao menos um token já configurado' : '⚠ sem token — cadastre pelo menos o do ambiente que vai usar'}
-            </p>
+            {(() => {
+              // a NF-e usa o token do ambiente da NF-e; a NFS-e, o do ambiente da empresa — mostra o que falta de verdade
+              const faltaNfe = tokenStatus && !tokenStatus[ambienteNfe].configurado
+              const faltaNfse = tokenStatus && !tokenStatus[ambiente].configurado
+              const ok = tokenStatus ? (tokenStatus.homologacao.configurado || tokenStatus.producao.configurado) : temApiKey
+              return (
+                <div className="space-y-1">
+                  <p className={`text-[11px] flex items-center gap-1 ${ok ? 'text-[#1F7A4D]' : 'text-[#B4471F]'}`}>
+                    {ok ? '✓ ao menos um token já configurado' : '⚠ sem token — cadastre pelo menos o do ambiente que vai usar'}
+                  </p>
+                  {faltaNfe && (
+                    <p data-testid="focus-token-falta-nfe" className="text-[11px] text-[#B4471F]">
+                      ⚠ A NF-e está em {ambienteNfe === 'producao' ? 'Produção' : 'Homologação'}, mas o token de {ambienteNfe === 'producao' ? 'Produção' : 'Homologação'} não está cadastrado: a emissão vai falhar.
+                    </p>
+                  )}
+                  {faltaNfse && ambiente !== ambienteNfe && (
+                    <p className="text-[11px] text-[#B4471F]">
+                      ⚠ A NFS-e está em {ambiente === 'producao' ? 'Produção' : 'Homologação'}, mas o token de {ambiente === 'producao' ? 'Produção' : 'Homologação'} não está cadastrado.
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
           </div>
         )}
 
@@ -490,7 +532,7 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
         </div>
 
         {erro && <div className="text-[12px] text-[#791F1F] bg-[#FCEBEB] p-2.5 rounded-lg">{erro}</div>}
-        {sucesso && <div className="text-[12px] text-[#1B3608] bg-[#E8F4DC] p-2.5 rounded-lg">Configuração salva</div>}
+        {sucesso && <div data-testid="focus-config-salva" className="text-[12px] text-[#1B3608] bg-[#E8F4DC] p-2.5 rounded-lg">Configuração salva{salvouTokens.length > 0 ? ` · token de ${salvouTokens.join(' e ')} gravado no cofre` : ''}</div>}
 
         <button
           type="button"

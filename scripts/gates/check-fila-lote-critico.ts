@@ -12,6 +12,7 @@
 import { readFileSync } from 'node:fs'
 import { criticaSolo } from '../merge/critica-solo'
 import { soDemoBatelavel } from '../merge/so-demo-batelavel'
+import { independentes, analisar } from '../merge/migrations-independentes'
 import { SCRIPT_FILA, comFilaSimulada, merges, temFerramentas } from '../merge/fila-simulada'
 
 let falhas = 0
@@ -142,6 +143,60 @@ if (!temFerramentas()) {
       '8) sem a label so-demo: migration financeira cai no carve-out → SOLO (como hoje)')
   })
 }
+
+// ── Parte 4: catálogo aditivo por chave (erp_ajuda_campo) — CEO 24/11 ──
+const insAjuda = (ks: string[]) =>
+  `INSERT INTO erp_ajuda_campo (chave, rotulo) VALUES ${ks.map((k) => `('${k}','R')`).join(', ')};`
+ok(independentes(insAjuda(['pm.a']), [insAjuda(['pm.b'])]) === 'ok',
+  'ajuda: chaves diferentes → batelável (o ganho)')
+ok(independentes(insAjuda(['pm.a', 'pm.b']), [insAjuda(['pm.x'])]) === 'ok',
+  'ajuda: várias chaves disjuntas → batelável')
+ok(independentes(insAjuda(['pm.a']), [insAjuda(['pm.a'])]).startsWith('duvida'),
+  'ajuda: MESMA chave → dúvida (evita colisão de PK)')
+ok(independentes(insAjuda(['pm.a']), [`UPDATE erp_ajuda_campo SET rotulo='x' WHERE chave='pm.a';`]).startsWith('duvida'),
+  'ajuda: INSERT × UPDATE no catálogo → dúvida (dependência de linha)')
+ok(independentes(insAjuda(['pm.a']), [`ALTER TABLE erp_ajuda_campo ADD COLUMN novo text;`]).startsWith('duvida'),
+  'ajuda: INSERT × ALTER → dúvida')
+ok(independentes(`INSERT INTO erp_ajuda_campo (chave, rotulo) SELECT chave, rotulo FROM outra;`, [insAjuda(['pm.a'])]).startsWith('duvida'),
+  'ajuda: INSERT..SELECT → conservador (dúvida)')
+ok(independentes(`INSERT INTO erp_ajuda_campo (rotulo, chave) VALUES ('R','pm.a');`, [insAjuda(['pm.b'])]).startsWith('duvida'),
+  'ajuda: chave fora da 1ª coluna → conservador')
+ok([...analisar(insAjuda(['pm.x.y'])).tocados].includes('ajuda:erp_ajuda_campo:pm.x.y'),
+  'analisar extrai a chave como ajuda:<tab>:<chave>')
+ok(independentes(`CREATE OR REPLACE FUNCTION fn_y() RETURNS void LANGUAGE sql AS $$ SELECT 1 $$;`,
+  [`CREATE OR REPLACE FUNCTION fn_y() RETURNS void LANGUAGE sql AS $$ SELECT 2 $$;`]).startsWith('duvida'),
+  'regressão: mesma função nas duas → dúvida (comportamento antigo intacto)')
+
+// ── Parte 4b: as DUAS formas idempotentes REAIS da RD-95 (a forma crua nunca aparece em migration de verdade) ──
+// Toda migration de ajuda real é idempotente: ou `VALUES ... ON CONFLICT (chave) DO NOTHING`, ou
+// `INSERT (chave,...) SELECT ... FROM (VALUES ...) AS v(chave,...) WHERE NOT EXISTS`. Sem isto o recurso é NO-OP.
+const insConflict = (ks: string[]) =>
+  `INSERT INTO public.erp_ajuda_campo (chave, rotulo) VALUES ${ks.map((k) => `('${k}','R')`).join(', ')} ON CONFLICT (chave) DO NOTHING;`
+const insSelectValues = (ks: string[]) =>
+  `INSERT INTO public.erp_ajuda_campo (chave, rota, rotulo)\n` +
+  `SELECT v.chave, v.rota, v.rotulo FROM (VALUES ${ks.map((k) => `('${k}','/r','R')`).join(', ')})\n` +
+  `AS v(chave, rota, rotulo) WHERE NOT EXISTS (SELECT 1 FROM public.erp_ajuda_campo a WHERE a.chave = v.chave);`
+ok(independentes(insConflict(['pm.a']), [insConflict(['pm.b'])]) === 'ok',
+  'ajuda REAL: VALUES … ON CONFLICT (chave) DO NOTHING, chaves diferentes → batelável')
+ok(independentes(insConflict(['pm.a']), [insConflict(['pm.a'])]).startsWith('duvida'),
+  'ajuda REAL: ON CONFLICT DO NOTHING, MESMA chave → dúvida')
+ok(independentes(insConflict(['pm.a']),
+  [`INSERT INTO public.erp_ajuda_campo (chave, rotulo) VALUES ('pm.b','R') ON CONFLICT (chave) DO UPDATE SET rotulo='R';`]).startsWith('duvida'),
+  'ajuda REAL: ON CONFLICT DO UPDATE (muda linha existente) → conservador (dúvida)')
+ok(independentes(insSelectValues(['pm.a']), [insSelectValues(['pm.b'])]) === 'ok',
+  'ajuda REAL: INSERT … SELECT FROM (VALUES …) WHERE NOT EXISTS, chaves diferentes → batelável')
+ok(independentes(insSelectValues(['pm.a']), [insSelectValues(['pm.a'])]).startsWith('duvida'),
+  'ajuda REAL: INSERT..SELECT (VALUES), MESMA chave → dúvida')
+ok(independentes(`INSERT INTO public.erp_ajuda_campo (chave, rota, rotulo) SELECT * FROM (VALUES ('pm.a','/r','R')) AS v(chave, rota, rotulo);`,
+  [insSelectValues(['pm.b'])]) === 'ok',
+  'ajuda REAL: SELECT * FROM (VALUES …) (projeção identidade, alias chave em 1º) → batelável')
+ok([...analisar(insConflict(['pm.q'])).tocados].includes('ajuda:erp_ajuda_campo:pm.q'),
+  'analisar extrai a chave da forma ON CONFLICT como ajuda:<tab>:<chave>')
+ok([...analisar(insSelectValues(['pm.z'])).tocados].includes('ajuda:erp_ajuda_campo:pm.z'),
+  'analisar extrai a chave da forma INSERT..SELECT(VALUES) como ajuda:<tab>:<chave>')
+ok(independentes(`INSERT INTO public.erp_ajuda_campo (chave, rotulo) SELECT chave, rotulo FROM outra_tabela;`,
+  [insConflict(['pm.a'])]).startsWith('duvida'),
+  'ajuda: INSERT..SELECT de uma TABELA (não de VALUES) → conservador')
 
 if (falhas) {
   console.error(`\ncheck-fila-lote-critico: ${falhas} falha(s)`)
