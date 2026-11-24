@@ -6,11 +6,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Package, HardHat, Wrench, ChevronDown, ChevronRight, Loader2, Info } from "lucide-react";
+import { Package, HardHat, Wrench, ShieldCheck, Hammer, ChevronDown, ChevronRight, Loader2, Info } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
-type Tipo = "material" | "mao_obra" | "equipamento";
+type Tipo = "material" | "mao_obra" | "equipamento" | "epi" | "ferramentas";
 interface CpuItem {
   tipo: Tipo;
   codigo: string | null;
@@ -80,6 +80,8 @@ const TIPO_META: Record<Tipo, { label: string; icon: typeof Package; chip: strin
   material: { label: "Material", icon: Package, chip: "bg-emerald-50 text-emerald-700" },
   mao_obra: { label: "Mão de obra", icon: HardHat, chip: "bg-blue-50 text-blue-700" },
   equipamento: { label: "Equipamento", icon: Wrench, chip: "bg-purple-50 text-purple-700" },
+  epi: { label: "EPI", icon: ShieldCheck, chip: "bg-amber-50 text-amber-700" },
+  ferramentas: { label: "Ferramentas", icon: Hammer, chip: "bg-orange-50 text-orange-700" },
 };
 
 export function ComposicaoCpu({
@@ -197,7 +199,7 @@ export function ComposicaoCpu({
               </thead>
               <tbody>
                 {data.itens.map((it, i) => {
-                  const meta = TIPO_META[it.tipo];
+                  const meta = TIPO_META[it.tipo] ?? TIPO_META.material;
                   const Icon = meta.icon;
                   return (
                     <tr key={i} className="border-b border-[#3D2314]/6 last:border-0">
