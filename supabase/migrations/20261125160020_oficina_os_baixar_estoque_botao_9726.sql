@@ -207,3 +207,15 @@ FROM (VALUES (
   'Clicar duas vezes achando que não baixou: o sistema não baixa em dobro — ele mostra a data e quem baixou. Se o botão não aparece, a empresa está no modo "baixa no faturamento".'
 )) AS v(rota, chave, grupo, ordem, rotulo, status, versao, vertical, o_que_preencher, para_que_serve, exemplo, erro_comum)
 WHERE NOT EXISTS (SELECT 1 FROM public.erp_ajuda_campo e WHERE e.chave = v.chave);
+
+-- ── 6. backfill do marcador para OSs já faturadas antes desta migration (RD-97/RD-55) ───────────────────────
+-- Os fn_os_faturar/fn_os_vincular_financeiro ANTIGOS já davam baixa de estoque inline em toda OS avulsa faturada.
+-- Sem este backfill, essas OSs históricas ficariam com estoque_baixado=false (DEFAULT) e, numa empresa trocada para o
+-- modo 'baixar_estoque', o botão apareceria ATIVO nelas e um clique baixaria o estoque pela 2ª vez. O UPDATE reflete a
+-- realidade (o estoque dessas OSs já saiu). Aditivo e idempotente (só toca linhas ainda em false).
+-- RD-38 (provado em 2026-11-24 na produção): 234 de 467 OSs já faturadas (titulos_gerados OR lancamento_id).
+UPDATE public.erp_os
+   SET estoque_baixado = true,
+       estoque_baixado_em = COALESCE(estoque_baixado_em, now())
+ WHERE (titulos_gerados = true OR lancamento_id IS NOT NULL)
+   AND COALESCE(estoque_baixado, false) = false;
