@@ -63,3 +63,8 @@ BEGIN
     jsonb_build_object('total_antes',v_total_antes,'total_depois',v_total_depois,'itens',v_count));
   RETURN jsonb_build_object('ok',true,'itens',v_count,'total',v_total_depois);
 END; $function$;
+
+-- Reafirma a ACL após o CREATE OR REPLACE (check-fn-guards regra 1/3): função SECURITY DEFINER
+-- não pode ficar aberta ao anon; execução só para usuário logado e serviço.
+REVOKE ALL ON FUNCTION public.fn_orcamento_salvar_itens(uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_orcamento_salvar_itens(uuid, jsonb) TO authenticated, service_role;
