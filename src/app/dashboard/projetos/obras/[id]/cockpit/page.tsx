@@ -32,6 +32,9 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   const [erro, setErro] = useState<string | null>(null)
   // Código curto de referência do erro para o suporte triar o motivo (RD-98 p2: erro amigável + código + CTA).
   const [codigoErro, setCodigoErro] = useState<string | null>(null)
+  // Regularização (alvará e licenças) — alerta de documento vencido/a vencer vira pendência do cockpit (tela 314).
+  // Dado real de fn_obra_licenca_listar; falha aqui não trava a tela.
+  const [reg, setReg] = useState<{ vencidos: number; vence30: number } | null>(null)
 
   const consulta = useCallback(async () => await supabase.from('v_obra_resultado_alocado').select('*').eq('obra_id', id).maybeSingle(), [id])
   const carregar = useCallback(async () => {
@@ -56,6 +59,18 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
     // financeiros seguem aparecendo (não trava a tela).
     const { data: oi } = await supabase.from('projetos_obras').select('pct_conclusao,data_inicio,data_prevista_fim,cliente_nome,cidade').eq('id', id).maybeSingle()
     if (oi) setInfo(oi as ObraInfo)
+    // Regularização: conta documentos vencidos / a vencer em 30 dias para virar pendência. Não trava a tela.
+    try {
+      const { data: licData } = await supabase.rpc('fn_obra_licenca_listar', { p_obra_id: id })
+      const lic = licData as { ok?: boolean; itens?: { situacao: string }[] } | null
+      if (lic && lic.ok) {
+        const itens = lic.itens ?? []
+        setReg({
+          vencidos: itens.filter((l) => l.situacao === 'vencido').length,
+          vence30: itens.filter((l) => l.situacao === 'vence_30').length,
+        })
+      }
+    } catch { /* leitura de licença é opcional no cockpit */ }
   }, [consulta, id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
@@ -125,6 +140,9 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
       ? 'Margem negativa porque há custo lançado e nenhuma medição — lance a medição da obra.'
       : 'Margem negativa — o custo lançado superou a receita medida; revise custos.')
     if (prazoVencido) pendencias.push(`Prazo vencido em ${prazoBR} — replaneje a entrega ou ajuste a data.`)
+    // Regularização: documento vencido é mais urgente que a vencer; mostra o alerta mais grave (não os dois).
+    if (reg && reg.vencidos > 0) pendencias.push(`${reg.vencidos} documento(s) de regularização vencido(s) (alvará/licença/ART) — regularize em Regularização da obra.`)
+    else if (reg && reg.vence30 > 0) pendencias.push(`${reg.vence30} documento(s) de regularização vence(m) em até 30 dias — renove em Regularização da obra.`)
     // Desvio físico × financeiro: alerta só quando a diferença é relevante (≥ 15 pontos) e há os dois números.
     if (fisicoPct != null && avancoPct != null && Math.abs(fisicoPct - avancoPct) >= 15) {
       pendencias.push(fisicoPct > avancoPct
