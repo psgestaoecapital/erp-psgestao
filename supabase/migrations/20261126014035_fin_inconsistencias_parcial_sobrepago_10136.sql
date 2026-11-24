@@ -135,3 +135,7 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'ini', p_ini, 'fim', p_fim, 'achados', v_achados, 'n', jsonb_array_length(v_achados));
 END $function$;
+
+-- ACL reafirmada após CREATE OR REPLACE (SECURITY DEFINER) — iguais à ACL viva, exigência do gate check_fn_guards.
+REVOKE ALL ON FUNCTION public.fn_fin_inconsistencias(uuid[], date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_fin_inconsistencias(uuid[], date, date) TO authenticated, service_role;
