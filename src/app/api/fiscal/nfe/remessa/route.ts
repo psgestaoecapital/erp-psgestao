@@ -19,7 +19,11 @@ interface RemessaBody {
   tipoId?: string  // erp_fiscal_remessa_tipos.id (informativo)
   cfop: string     // CFOP final (vem do tipo mas editavel)
   naturezaOperacao: string
-  itens: Array<{ produtoId: string; quantidade: number; valorUnitarioOverride?: number; cfop?: string }>
+  // #9929 (Gean) · impostos do ICMS por item (opcional): CST/CSOSN, base, alíquota e valor do ICMS do item
+  itens: Array<{
+    produtoId: string; quantidade: number; valorUnitarioOverride?: number; cfop?: string
+    icmsCst?: string; icmsBase?: number; icmsAliquota?: number; icmsValor?: number
+  }>
   ambiente?: 'homologacao' | 'producao'
   // #3861 · NF-e avulsa: finalidade + chave referenciada, ICMS da operação (CSOSN/CST), informações complementares, frete
   finalidade?: FinalidadeNFe
@@ -142,6 +146,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       icmsCodigo: body.icmsCodigo,
       simples,
       catalogo: (catalogo ?? []) as CfopSaida[],
+      // #9929 · impostos do ICMS por item para a validação de consistência
+      itensIcms: body.itens.map((it) => ({ cst: it.icmsCst, base: it.icmsBase, aliquota: it.icmsAliquota, valor: it.icmsValor })),
       destinatario: { doc, ie: destAny.ie as string | null, contribuinteIcms: destAny.contribuinte_icms as string | null },
     })
     if (avulsa.erros.length > 0) {
@@ -167,16 +173,32 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     }
 
     const icmsCodigo = soDigitos(body.icmsCodigo)
-    // ICMS escolhido para a operação (remessa não destaca imposto): sem base, alíquota nem valor
-    const icmsOverride = icmsCodigo ? { csosn: icmsCodigo, base: 0, aliquota: 0, valor: 0 } : undefined
+    // ICMS da OPERAÇÃO (nível da nota): remessa não destaca imposto — sem base, alíquota nem valor.
+    // É o default de TODOS os itens; cada item pode sobrescrever (#9929).
+    const icmsOverrideOperacao = icmsCodigo ? { csosn: icmsCodigo, base: 0, aliquota: 0, valor: 0 } : undefined
 
-    const itensBuilder: NFeBuilderItemInput[] = body.itens.map((it, i) => ({
-      produtoId: it.produtoId,
-      quantidade: Number(it.quantidade),
-      valorUnitarioOverride: it.valorUnitarioOverride !== undefined ? Number(it.valorUnitarioOverride) : undefined,
-      cfopOverride: avulsa.itensCfop[i] ?? avulsa.cfop,
-      ...(icmsOverride ? { icmsOverride } : {}),
-    }))
+    const itensBuilder: NFeBuilderItemInput[] = body.itens.map((it, i) => {
+      // #9929 (Gean) · ICMS POR ITEM: quando o item traz CST/base/alíquota/valor, ele destaca o próprio ICMS.
+      // O icmsOverride do builder manda sobre o cadastro do produto. Nada preenchido → cai no ICMS da operação
+      // (comportamento atual, sem regressão nas remessas que não informam imposto por item).
+      const itemCst = soDigitos(it.icmsCst)
+      const temItemIcms = !!itemCst || it.icmsBase !== undefined || it.icmsAliquota !== undefined || it.icmsValor !== undefined
+      const icmsOverride = temItemIcms
+        ? {
+            csosn: itemCst || icmsCodigo || undefined,
+            base: it.icmsBase !== undefined ? Number(it.icmsBase) : 0,
+            aliquota: it.icmsAliquota !== undefined ? Number(it.icmsAliquota) : 0,
+            valor: it.icmsValor !== undefined ? Number(it.icmsValor) : 0,
+          }
+        : icmsOverrideOperacao
+      return {
+        produtoId: it.produtoId,
+        quantidade: Number(it.quantidade),
+        valorUnitarioOverride: it.valorUnitarioOverride !== undefined ? Number(it.valorUnitarioOverride) : undefined,
+        cfopOverride: avulsa.itensCfop[i] ?? avulsa.cfop,
+        ...(icmsOverride ? { icmsOverride } : {}),
+      }
+    })
     const chaveRef = soDigitos(body.chaveReferenciada)
 
     const enderecoBuilder = destAny.logradouro
