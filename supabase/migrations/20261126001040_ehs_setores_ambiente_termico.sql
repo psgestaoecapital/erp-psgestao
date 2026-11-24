@@ -69,3 +69,22 @@ VALUES
    'Deixar como "Não classificado" um setor que é claramente de frio ou calor — a pausa térmica depende dessa classificação.',
    'ehs', 15, 1, 'publicado')
 ON CONFLICT (chave) DO NOTHING;
+
+-- SÓ-DEMO: classifica os setores da "EHS Modelo - DEMO" (frigorífico) para a tela provar o
+-- recurso populado (aud8/PDCA). Guardado pelo ID da empresa DEMO; só preenche onde ainda está
+-- NULL (idempotente; não sobrescreve ajuste manual). Não toca nenhuma empresa real.
+UPDATE public.compliance_setores s SET
+  ambiente_temp_min = v.tmin, ambiente_temp_max = v.tmax, ambiente_regime = v.regime
+FROM (VALUES
+  ('abate',          10::numeric,  16::numeric, 'frio_artificial'),
+  ('camara-fria',   -22::numeric, -18::numeric, 'frio_artificial'),
+  ('desossa',         8::numeric,  12::numeric, 'frio_artificial'),
+  ('embalagem',       8::numeric,  14::numeric, 'frio_artificial'),
+  ('administrativo', 20::numeric,  24::numeric, 'normal'),
+  ('manutencao',     18::numeric,  28::numeric, 'normal')
+) AS v(slug, tmin, tmax, regime)
+WHERE s.company_id = 'b0700000-0000-4000-a000-00000000000b'
+  AND s.slug = v.slug
+  AND s.ambiente_regime IS NULL
+  AND s.ambiente_temp_min IS NULL
+  AND s.ambiente_temp_max IS NULL;
