@@ -200,7 +200,7 @@ INSERT INTO public.erp_ajuda_campo (rota, chave, grupo, ordem, rotulo, status, v
 SELECT v.rota, v.chave, v.grupo, v.ordem, v.rotulo, v.status, v.versao, v.vertical,
   v.o_que_preencher, v.para_que_serve, v.exemplo, v.erro_comum
 FROM (VALUES (
-  '/dashboard/os', 'oficina.os.baixar_estoque', 'Oficina', 60, 'Baixar estoque', 'ativo', 1, 'oficina',
+  '/dashboard/os', 'oficina.os.baixar_estoque', 'Oficina', 60, 'Baixar estoque', 'publicado', 1, 'oficina',
   'Clique para dar saída, do estoque, de todas as peças desta OS (as com nota "quente" e as sem nota "frio").',
   'Serve para quem baixa o estoque na hora de usar a peça, e não só no faturamento. O botão só aparece quando a empresa está configurada assim em Oficina → Parâmetros. A peça "frio" sai do estoque, aparece no histórico do veículo, mas continua sem poder ir na NF de venda.',
   'Abriu a OS, usou 1 óleo (quente) e 1 bucha (frio): clique em "Baixar estoque" e os dois saem do saldo. Clicar de novo não baixa nada, e faturar a OS também não baixa de novo.',
