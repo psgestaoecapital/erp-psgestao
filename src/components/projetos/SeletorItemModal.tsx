@@ -7,7 +7,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Search, X, Package, HardHat, Wrench, ShieldCheck, Pencil } from "lucide-react";
+import { Search, X, Package, HardHat, Wrench, ShieldCheck, Pencil, Hammer } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { erroAmigavel } from "@/lib/erroAmigavel";
@@ -16,7 +16,7 @@ import { parseNumBR } from "@/lib/num";
 // RD-95: abre dentro da ficha do serviço (rota dinâmica) → textos do "?" na rota fixa dela
 const ROTA_AJUDA_SERVICO = "/dashboard/projetos/catalogo/[id]";
 
-export type TipoItem = "insumo" | "mao_obra" | "equipamento" | "epi";
+export type TipoItem = "insumo" | "mao_obra" | "equipamento" | "epi" | "ferramenta";
 
 export interface ItemEscolhido {
   tipo: TipoItem;
@@ -54,6 +54,7 @@ interface EquipeRow {
 }
 interface PessoaRow {
   id: string;
+  equipe_id: string | null;
   nome_pessoa: string | null;
   funcao_nome: string | null;
   custo_hora: number | null;
@@ -69,6 +70,7 @@ const ABAS: Array<{ tipo: TipoItem; label: string; icon: typeof Package }> = [
   { tipo: "insumo", label: "Material", icon: Package },
   { tipo: "mao_obra", label: "Mão de obra", icon: HardHat },
   { tipo: "equipamento", label: "Equipamento", icon: Wrench },
+  { tipo: "ferramenta", label: "Ferramentas", icon: Hammer },
   { tipo: "epi", label: "EPI", icon: ShieldCheck },
 ];
 
@@ -142,7 +144,7 @@ export function SeletorItemModal({
             .limit(200),
           supabase
             .from("projetos_equipe_membro")
-            .select("id, nome_pessoa, funcao_nome, custo_hora")
+            .select("id, equipe_id, nome_pessoa, funcao_nome, custo_hora")
             .eq("company_id", companyId)
             .order("nome_pessoa")
             .limit(500),
@@ -190,11 +192,16 @@ export function SeletorItemModal({
         if (q && !rotulo.toLowerCase().includes(q)) continue;
         out.push({ key: `p:${p.id}`, selo: "Pessoa", item: { tipo: "mao_obra", item_id: "", produto_id: null, local_id: null, manual: true, nome: rotulo, unidade: "h", custo: p.custo_hora } });
       }
-      // EQUIPE — duas opções na hora: custo médio/h e custo efetivo/h (congelados).
+      // EQUIPE — 3 opções na hora, com rótulo claro (congeladas):
+      //  • TOTAL/h = soma do custo/h de todas as pessoas da equipe (equipe inteira em 1h) → PADRÃO sugerido (vem 1º);
+      //  • MÉDIO/h = média por pessoa;  • EFETIVO/h = o fixado da equipe.
+      // Coerência do coeficiente: total/h → horas de EQUIPE por unidade; médio/efetivo → horas-PESSOA (ver o "?").
       for (const e of equipes) {
         if (q && !e.nome.toLowerCase().includes(q)) continue;
-        if (e.custo_medio_hora != null) out.push({ key: `e:${e.id}:med`, selo: "Equipe · médio", item: { tipo: "mao_obra", item_id: "", produto_id: null, local_id: null, manual: true, nome: `Equipe ${e.nome} (médio)`, unidade: "h", custo: e.custo_medio_hora } });
-        if (e.custo_hora_efetivo != null) out.push({ key: `e:${e.id}:ef`, selo: "Equipe · efetivo", item: { tipo: "mao_obra", item_id: "", produto_id: null, local_id: null, manual: true, nome: `Equipe ${e.nome} (efetivo)`, unidade: "h", custo: e.custo_hora_efetivo } });
+        const totalH = pessoas.filter((p) => p.equipe_id === e.id).reduce((s, p) => s + (Number(p.custo_hora) || 0), 0);
+        if (totalH > 0) out.push({ key: `e:${e.id}:tot`, selo: "Equipe · total/h", item: { tipo: "mao_obra", item_id: "", produto_id: null, local_id: null, manual: true, nome: `Equipe ${e.nome} (total/h — equipe inteira)`, unidade: "h", custo: Math.round(totalH * 100) / 100 } });
+        if (e.custo_medio_hora != null) out.push({ key: `e:${e.id}:med`, selo: "Equipe · médio", item: { tipo: "mao_obra", item_id: "", produto_id: null, local_id: null, manual: true, nome: `Equipe ${e.nome} (médio/pessoa)`, unidade: "h", custo: e.custo_medio_hora } });
+        if (e.custo_hora_efetivo != null) out.push({ key: `e:${e.id}:ef`, selo: "Equipe · efetivo", item: { tipo: "mao_obra", item_id: "", produto_id: null, local_id: null, manual: true, nome: `Equipe ${e.nome} (efetivo/pessoa)`, unidade: "h", custo: e.custo_hora_efetivo } });
       }
       return out;
     }
