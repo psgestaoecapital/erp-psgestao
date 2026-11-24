@@ -204,6 +204,11 @@ BEGIN
 END;
 $function$;
 
+-- Guarda da leitura (SECURITY DEFINER): o CREATE OR REPLACE acima reseta a ACL, então
+-- reaplicamos REVOKE anon/public + GRANT authenticated (check_fn_guards · [revoke_anon]).
+REVOKE ALL ON FUNCTION public.fn_projetos_orcamento_item_eap_listar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_projetos_orcamento_item_eap_listar(uuid) TO authenticated;
+
 -- 4) RD-95: "?" do novo campo (idempotente por chave).
 INSERT INTO public.erp_ajuda_campo
   (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, versao, status)
