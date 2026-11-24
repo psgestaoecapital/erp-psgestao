@@ -26,6 +26,7 @@
 -- ============================================================================================
 -- 1) Seed idempotente do aparato NR-36 da DEMO Indústria (…005)
 -- ============================================================================================
+-- ci-sem-guarda: fn_demo_seed_industria_nr36 — seed de empresa DEMO; confere is_demo (aborta em empresa real) e escopa tudo à …005; dado 100% fictício (RD-69), roda pelo fn_demo_reset (service_role), nunca toca dado de cliente real.
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_industria_nr36(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -147,6 +148,7 @@ GRANT EXECUTE ON FUNCTION public.fn_demo_seed_industria_nr36(uuid) TO authentica
 -- ============================================================================================
 -- 2) Wire no reset recorrente da DEMO (para NÃO re-envelhecer). Corpo IDÊNTICO ao vivo + 1 bloco …005.
 -- ============================================================================================
+-- ci-sem-guarda: fn_demo_reset — reset de empresa DEMO; confere is_demo e aborta ('nao_e_demo') em empresa real; só repopula seeds de demonstração, nunca dado de cliente real.
 CREATE OR REPLACE FUNCTION public.fn_demo_reset(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
