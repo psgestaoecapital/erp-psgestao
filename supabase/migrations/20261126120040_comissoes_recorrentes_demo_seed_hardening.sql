@@ -102,6 +102,7 @@ GRANT EXECUTE ON FUNCTION public.fn_comissao_recorrente_painel(uuid) TO authenti
 -- 2) SEED demonstrável da jornada de comissão recorrente na DEMO GE
 --    (idempotente · só empresa is_demo · reexecutável)
 -- ============================================================================
+-- ci-sem-guarda: fn_demo_ge_comissao_recorrente_seed — seed de demonstração executado só pela conexão de serviço (GRANT só service_role, sem auth.uid()); já guardado por companies.is_demo = true (retorna 'so_empresa_demo' fora da DEMO), nunca toca empresa de cliente real.
 CREATE OR REPLACE FUNCTION public.fn_demo_ge_comissao_recorrente_seed(p_company uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
