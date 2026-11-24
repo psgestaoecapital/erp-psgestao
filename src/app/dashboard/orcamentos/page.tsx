@@ -55,6 +55,7 @@ type Orcamento = {
   id:string; company_id:string; numero:string; versao:number;
   pdf_anexo_path?:string|null; // Tryo #264 · PDF do orçamento feito fora (fn_orcamento_anexar_pdf)
   cliente_id:string; cliente_nome:string; cliente_cnpj:string; cliente_email:string; cliente_telefone:string;
+  gestora_nome?:string|null; gestora_logo_url?:string|null; gestora_cadastro_id?:string|null; cliente_logo_url?:string|null; // logos das 3 partes
   data_emissao:string; data_validade:string; data_aprovacao:string; data_previsao_faturamento?:string|null;
   status:string; vendedor_nome:string; comissao_percentual:number;
   condicao_pagamento:string; prazo_entrega_dias:number; forma_pagamento:string;
@@ -157,6 +158,7 @@ export default function OrcamentosPage(){
 
   // Form state
   const [form,setForm]=useState<Partial<Orcamento>>({});
+  const [logoBusy,setLogoBusy]=useState<string|null>(null); // upload de logo da gestora/cliente em andamento
   const [itens,setItens]=useState<ItemOrc[]>([]);
   const [dividirFrente,setDividirFrente]=useState(false); // mostra o campo "frente" por item + subtotal por frente
   // Centros de custo p/ rateio do item (erp_centros_custo — cadastro certo, não setor de RH)
@@ -473,6 +475,23 @@ export default function OrcamentosPage(){
     setShowBuscaCliente(false);
   };
 
+  // Logo da gestora/cliente por orçamento: bucket público company-assets (mesmo padrão do logo da empresa). PNG/JPG/SVG ≤ 2 MB.
+  async function enviarLogo(parte:"gestora"|"cliente", file:File){
+    const cid = editing?.company_id || clientesBusca.find(c=>c.id===form.cliente_id)?.company_id || companyIdParaCadastro;
+    if(!cid){setMsg("❌ Escolha a empresa antes de enviar o logo.");return;}
+    if(!/^image\/(png|jpe?g|svg\+xml)$/.test(file.type)){setMsg("❌ O logo deve ser PNG, JPG ou SVG.");return;}
+    if(file.size>2*1024*1024){setMsg("❌ O logo pode ter até 2 MB.");return;}
+    setLogoBusy(parte);
+    try{
+      const ext=(file.name.split(".").pop()||"png").toLowerCase();
+      const path=`orcamentos/${cid}/${parte}-${Date.now()}.${ext}`;
+      const up=await supabase.storage.from("company-assets").upload(path,file,{upsert:true,contentType:file.type});
+      if(up.error){setMsg("❌ "+erroAmigavel(up.error,"Não foi possível enviar o logo."));return;}
+      const pub=supabase.storage.from("company-assets").getPublicUrl(path);
+      setForm(f=>({...f,[parte==="gestora"?"gestora_logo_url":"cliente_logo_url"]:pub.data.publicUrl}));
+    } finally { setLogoBusy(null); }
+  }
+
   const selecionarProduto=(idx:number,p:any)=>{
     const novosItens=[...itens];
     novosItens[idx]={...novosItens[idx],produto_id:p.id,produto_codigo:p.codigo,produto_nome:p.nome,unidade:p.unidade||'UN',preco_unitario:Number(p.preco_venda)||0,preco_custo:Number(p.preco_custo)||0};
@@ -592,6 +611,9 @@ export default function OrcamentosPage(){
       versao:form.versao||1,
       cliente_id:form.cliente_id,cliente_nome:form.cliente_nome,cliente_cnpj:(form.cliente_cnpj||'').replace(/\D/g,''),
       cliente_email:form.cliente_email,cliente_telefone:form.cliente_telefone,
+      // Logos das 3 partes (nullable; proposta sem gestora/logo segue como antes)
+      gestora_nome:form.gestora_nome||null, gestora_logo_url:form.gestora_logo_url||null,
+      gestora_cadastro_id:form.gestora_cadastro_id||null, cliente_logo_url:form.cliente_logo_url||null,
       data_emissao:form.data_emissao,data_validade:form.data_validade,
       data_previsao_faturamento:form.data_previsao_faturamento||null,
       status:form.status||'rascunho',
@@ -985,6 +1007,37 @@ export default function OrcamentosPage(){
                 <input type="checkbox" checked={visitaVaiOrcar} onChange={e=>salvarVisitaVaiOrcar(e.target.checked)}/> Ligado nesta empresa</label></div>
             <div><div style={{fontSize:10,color:TXD,marginBottom:3}} title="Quando se espera faturar — alimenta a previsão de receita">Previsão de Faturamento</div>
               <input type="date" value={form.data_previsao_faturamento??''} onChange={e=>setForm({...form,data_previsao_faturamento:e.target.value||null})} style={inp}/></div>
+          </div>
+
+          {/* Logomarcas da proposta (opcional) — Prestadora (logo da empresa) · Gestão da obra · Cliente */}
+          <div style={{background:BG3,borderRadius:8,padding:"10px 12px",marginBottom:12}}>
+            <div style={{fontSize:11,fontWeight:600,color:B,marginBottom:6}}>🏷️ Logomarcas da proposta (opcional)</div>
+            <div style={{fontSize:10.5,color:TXD,marginBottom:8}}>Até 3 logos no cabeçalho da proposta (tela, PDF e link público). A <b>Prestadora</b> usa o logo da sua empresa (Configurações › Empresa); informe abaixo <b>Gestão da obra</b> e <b>Cliente</b> se quiser.</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <label style={{fontSize:10,color:TXD}}><span style={{display:"flex",alignItems:"center",gap:3}}>Gestora da obra (nome)<AjudaCampo chave="orcamentos.logos.gestora_nome" rota="/dashboard/orcamentos"/></span>
+                <input value={form.gestora_nome??""} onChange={e=>setForm({...form,gestora_nome:e.target.value||null})} placeholder="Ex.: Construtora Alfa" data-testid="orc-gestora-nome" style={{...inp,marginTop:3}}/></label>
+              <div/>
+              <label style={{fontSize:10,color:TXD}}><span style={{display:"flex",alignItems:"center",gap:3}}>Logo da gestão da obra<AjudaCampo chave="orcamentos.logos.gestora_logo" rota="/dashboard/orcamentos"/></span>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3,flexWrap:"wrap"}}>
+                  {form.gestora_logo_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={form.gestora_logo_url} alt="Logo da gestora" style={{height:30,maxWidth:90,objectFit:"contain",background:"#fff",borderRadius:4,padding:2,border:`1px solid ${BD}`}}/>
+                  )}
+                  <input type="file" accept="image/png,image/jpeg,image/svg+xml" data-testid="orc-logo-gestora" disabled={logoBusy==="gestora"} onChange={e=>{const f=e.target.files?.[0]; if(f)void enviarLogo("gestora",f); e.currentTarget.value="";}} style={{fontSize:11}}/>
+                  {logoBusy==="gestora" && <span style={{fontSize:10,color:TXD}}>enviando…</span>}
+                  {form.gestora_logo_url && <button type="button" onClick={()=>setForm({...form,gestora_logo_url:null})} style={{fontSize:10,color:R,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>remover</button>}
+                </div></label>
+              <label style={{fontSize:10,color:TXD}}><span style={{display:"flex",alignItems:"center",gap:3}}>Logo do cliente<AjudaCampo chave="orcamentos.logos.cliente_logo" rota="/dashboard/orcamentos"/></span>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3,flexWrap:"wrap"}}>
+                  {form.cliente_logo_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={form.cliente_logo_url} alt="Logo do cliente" style={{height:30,maxWidth:90,objectFit:"contain",background:"#fff",borderRadius:4,padding:2,border:`1px solid ${BD}`}}/>
+                  )}
+                  <input type="file" accept="image/png,image/jpeg,image/svg+xml" data-testid="orc-logo-cliente" disabled={logoBusy==="cliente"} onChange={e=>{const f=e.target.files?.[0]; if(f)void enviarLogo("cliente",f); e.currentTarget.value="";}} style={{fontSize:11}}/>
+                  {logoBusy==="cliente" && <span style={{fontSize:10,color:TXD}}>enviando…</span>}
+                  {form.cliente_logo_url && <button type="button" onClick={()=>setForm({...form,cliente_logo_url:null})} style={{fontSize:10,color:R,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>remover</button>}
+                </div></label>
+            </div>
           </div>
 
           {/* #82③ · obra é ESCOLHA: só aparece p/ empresa com Hub de Obras. Marcado = cria obra ao aprovar. */}
