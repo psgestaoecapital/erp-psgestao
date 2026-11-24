@@ -5,7 +5,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2, Package, HardHat, Wrench, ShieldCheck, Loader2 } from "lucide-react";
+import { Plus, Trash2, Package, HardHat, Wrench, ShieldCheck, Hammer, Loader2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { SeletorItemModal, type ItemEscolhido, type TipoItem } from "./SeletorItemModal";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -40,6 +40,7 @@ interface Props {
 function tipoIcone(tipo: string | TipoItem) {
   if (tipo === "mao_obra") return HardHat;
   if (tipo === "equipamento") return Wrench;
+  if (tipo === "ferramenta") return Hammer;
   if (tipo === "epi") return ShieldCheck;
   return Package;
 }
@@ -47,6 +48,7 @@ function tipoIcone(tipo: string | TipoItem) {
 function tipoLabel(tipo: string | TipoItem) {
   if (tipo === "mao_obra") return "Mão de obra";
   if (tipo === "equipamento") return "Equipamento";
+  if (tipo === "ferramenta") return "Ferramentas";
   if (tipo === "epi") return "EPI";
   return "Material";
 }
@@ -54,6 +56,7 @@ function tipoLabel(tipo: string | TipoItem) {
 function tipoCorChip(tipo: string | TipoItem) {
   if (tipo === "mao_obra") return "bg-blue-50 text-blue-800";
   if (tipo === "equipamento") return "bg-purple-50 text-purple-800";
+  if (tipo === "ferramenta") return "bg-orange-50 text-orange-800";
   if (tipo === "epi") return "bg-amber-50 text-amber-800";
   return "bg-emerald-50 text-emerald-800";
 }
