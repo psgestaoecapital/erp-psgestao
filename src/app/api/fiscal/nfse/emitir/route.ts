@@ -100,6 +100,14 @@ interface DadosNFSeRPC {
 function humanizarErroFiscal(msg: string | null | undefined): string | null | undefined {
   if (!msg) return msg
   const m = String(msg)
+  // #11040: erro de pattern num campo de CÓDIGO (cTribMun = código de tributação municipal), NÃO no texto.
+  // A mensagem genérica de "símbolo no texto" abaixo confundia o atendente. Dá a ação certa.
+  if (/cTribMun/i.test(m)) {
+    return 'A prefeitura recusou a nota no código de tributação municipal (cTribMun): o formato do código não é ' +
+      'aceito por este município. Em geral é porque o município aderiu à NFS-e Nacional e a nota deve sair no padrão ' +
+      'nacional (sem código municipal). Avise o suporte para revisar a configuração fiscal do município da empresa. ' +
+      '(Detalhe técnico: ' + m.slice(0, 200) + ')'
+  }
   if (/facet '?pattern'?|is not accepted by the pattern|xInfComp|xDiscrim|caractere n[aã]o/i.test(m)) {
     return 'A prefeitura recusou a nota por um símbolo não permitido no texto (ex.: •, — ou aspas curvas). ' +
       'Revise a descrição do serviço e as observações, remova símbolos especiais, e emita de novo. ' +
