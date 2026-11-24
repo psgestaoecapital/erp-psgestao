@@ -143,7 +143,9 @@ export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unkno
     const infoCompl = sanitizeTextoFiscal(req.observacoes).slice(0, 2000)
     if (infoCompl) p.informacoes_complementares = infoCompl
   }
-  if (req.prestador.inscricaoMunicipal && String(req.prestador.inscricaoMunicipal).trim()) {
+  // #9726 · a IM do prestador vai só se cadastrada E se o município emissor informa IM (por município:
+  // ausência evita E0120 onde a IM não deve ir; presença evita E0116 onde ela é exigida). Ausente/true = manda.
+  if (req.prestador.informaInscricaoMunicipal !== false && req.prestador.inscricaoMunicipal && String(req.prestador.inscricaoMunicipal).trim()) {
     p.inscricao_municipal_prestador = String(req.prestador.inscricaoMunicipal).trim()
   }
   // Tomador COMPLETO. ORDEM sensível ao XSD (endereço): cMun → cep → logradouro → numero → complemento → bairro.
