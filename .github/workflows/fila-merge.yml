@@ -14,14 +14,16 @@ on:
     types: [opened, reopened, labeled, unlabeled, synchronize, ready_for_review]
   issue_comment:
     types: [created]
+  # CEO 24/11 (tempestade de disparos): a fila disparou 100x numa hora (78 superadas) e abriu ~58 min sem publicar com
+  # 94 PRs prontas. Causa: 4 destes workflows rodam POR PR — com N PRs abertas, cada fim de CI de CADA PR re-disparava a
+  # fila (cascata; 29/40 eventos = workflow_run), as rodadas se cancelavam antes de completar. É o mesmo mal do `status:`
+  # (removido em 22/10). FIX cirúrgico: no workflow_run ficam SÓ os workflows de MAIN — os que de fato liberam a próxima
+  # migration (deploy/@pos da main). Os eventos por-PR já chegam por pull_request_target; o backlog é varrido pelo
+  # schedule */15. Menos gatilho = a rodada completa e publica.
   workflow_run:
     workflows:
-      - 'Aceitação (preview)'
       - 'Aceitação @pos-migration (produção)'
       - 'Deploy Migrations (Production)'
-      - 'Guarda de funções do banco (REVOKE anon + autoria auth.uid)'
-      - 'Régua de menu (rota × página)'
-      - 'Régua de migrations (versão única · sem colisão com o ledger)'
     types: [completed]
   # CEO 22/10 (esteira contínua): o gatilho `status:` (cada atualização de status de commit de TODAS as PRs — Vercel,
   # cada check) disparava a fila dezenas de vezes por minuto; com a concorrência, as rodadas se cancelavam antes de
