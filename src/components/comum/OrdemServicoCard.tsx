@@ -69,6 +69,10 @@ interface OS {
   data_abertura: string | null
   data_execucao: string | null
   data_conclusao: string | null
+  // #9726 item 3 · baixa de estoque pelo botão "Baixar estoque" (modo 'baixar_estoque')
+  estoque_baixado?: boolean | null
+  estoque_baixado_em?: string | null
+  estoque_baixado_por?: string | null
 }
 
 interface Props {
@@ -192,6 +196,10 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   // #135 (Triches) · atendimento centralizado: aprovar o orçamento na própria OS (sem a tela de Aprovação)
   const [aprovandoOrc, setAprovandoOrc] = useState(false)
   const [avancando, setAvancando] = useState(false)   // #135 · Iniciar/Finalizar/Entregar (centralizado)
+  // #9726 item 3 · modo de baixa da empresa + ação "Baixar estoque" na OS (só modo 'baixar_estoque')
+  const [modoBaixaEstoque, setModoBaixaEstoque] = useState<string>('faturamento')
+  const [baixandoEstoque, setBaixandoEstoque] = useState(false)
+  const [baixadoPorNome, setBaixadoPorNome] = useState<string | null>(null)
 
   const faturada = Boolean(os?.titulos_gerados) || os?.lancamento_id != null
   const podeFaturar = !faturada && ['pronta', 'entregue', 'concluida', 'concluída', 'finalizada'].includes(String(os?.status ?? ''))
@@ -216,6 +224,24 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao faturar'); return }
     const v = r?.valor != null ? ` — R$ ${Number(r.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''
     flash(`Financeiro gravado ✓ título gerado na GE${v}. Veja em Financeiro → Contas a Receber.`)
+    void carregar()
+  }
+
+  // #9726 item 3 · "Baixar estoque": dá saída das peças da OS (quente e frio) reaproveitando a MESMA baixa do
+  // faturamento (fn_os_baixar_estoque → núcleo compartilhado). Idempotente: não baixa duas vezes.
+  async function baixarEstoque() {
+    if (!os) return
+    setBaixandoEstoque(true); setErro(null); setMsgOk(null)
+    const { data, error } = await supabase.rpc('fn_os_baixar_estoque', { p_os_id: os.id })
+    setBaixandoEstoque(false)
+    const r = data as { ok?: boolean; erro?: string; itens_baixados?: number; ja_baixado?: boolean } | null
+    if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao baixar o estoque'); return }
+    if (r?.ja_baixado) {
+      flash('O estoque desta OS já tinha sido baixado — nada foi baixado de novo.')
+    } else {
+      const n = r?.itens_baixados ?? 0
+      flash(`Estoque baixado ✓ ${n} ${n === 1 ? 'peça saiu' : 'peças saíram'} do estoque.`)
+    }
     void carregar()
   }
 
@@ -381,7 +407,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const carregar = useCallback(async () => {
     setLoading(true)
     // ONDA-OS-MECANICO-MOBILE-v1 · osId tem prioridade · permite OS avulsa
-    const cols = 'id,numero,status,nasceu_orcamento,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,placa,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
+    const cols = 'id,numero,status,nasceu_orcamento,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,placa,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao,estoque_baixado,estoque_baixado_em,estoque_baixado_por'
     const q = supabase.from('erp_os').select(cols)
     const { data, error } = osId
       ? await q.eq('id', osId).maybeSingle()
@@ -430,6 +456,24 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     } else {
       setItensDiag([])
       setSpedPorProduto({})
+    }
+    // #9726 item 3 · modo de baixa da empresa (faturamento × baixar_estoque) + quem baixou (nome)
+    if (row?.company_id) {
+      const { data: par } = await supabase
+        .from('erp_oficina_parametros')
+        .select('modo_baixa_estoque')
+        .eq('company_id', row.company_id)
+        .maybeSingle()
+      setModoBaixaEstoque((par as { modo_baixa_estoque?: string | null } | null)?.modo_baixa_estoque ?? 'faturamento')
+      if (row.estoque_baixado && row.estoque_baixado_por) {
+        const { data: nome } = await supabase.rpc('fn_usuario_nome', { p_id: row.estoque_baixado_por })
+        setBaixadoPorNome(typeof nome === 'string' && nome.trim() ? nome : null)
+      } else {
+        setBaixadoPorNome(null)
+      }
+    } else {
+      setModoBaixaEstoque('faturamento')
+      setBaixadoPorNome(null)
     }
     setLoading(false)
   }, [pedidoId, osId])
@@ -1217,6 +1261,35 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         >
           🖨️ {entregue ? 'Reimprimir OS' : 'Imprimir OS'}
         </button>
+        {/* #9726 item 3 · "Baixar estoque": só em empresa no modo 'baixar_estoque' e OS avulsa (não-pedido).
+            OS via pedido baixa pelas parcelas do pedido (fn_faturar), não por este botão. */}
+        {modoBaixaEstoque === 'baixar_estoque' && !os.pedido_id && os.status !== 'cancelada' && (
+          os.estoque_baixado ? (
+            <span
+              title={`Estoque já baixado${os.estoque_baixado_em ? ' em ' + new Date(os.estoque_baixado_em).toLocaleString('pt-BR') : ''}${baixadoPorNome ? ' por ' + baixadoPorNome : ''}. Faturar a OS não baixa de novo.`}
+              style={{ fontSize: 12, fontWeight: 700, color: C.green, background: C.greenBg, borderRadius: 8, padding: '10px 14px', minHeight: 44, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            >
+              <Package size={14} /> Estoque baixado
+              {os.estoque_baixado_em ? ` · ${fmtData(String(os.estoque_baixado_em).slice(0, 10))}` : ''}
+              {baixadoPorNome ? ` · ${baixadoPorNome}` : ''}
+              <AjudaCampo chave="oficina.os.baixar_estoque" rota="/dashboard/os" />
+            </span>
+          ) : (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <button
+                type="button"
+                onClick={() => void baixarEstoque()}
+                disabled={baixandoEstoque}
+                data-testid="os-baixar-estoque"
+                title="Dá saída, do estoque, de todas as peças desta OS (quente e frio), pela mesma baixa do faturamento. Não baixa duas vezes."
+                style={{ ...btnSec, display: 'inline-flex', alignItems: 'center', gap: 4, opacity: baixandoEstoque ? 0.6 : 1 }}
+              >
+                <Package size={14} /> {baixandoEstoque ? 'Baixando…' : 'Baixar estoque'}
+              </button>
+              <AjudaCampo chave="oficina.os.baixar_estoque" rota="/dashboard/os" />
+            </span>
+          )
+        )}
         {faturada ? (
           // §2.5 · mostra o estado e LEVA à GE (alterar o título é ação da GE, não da OS — fronteira [→GE])
           <>
