@@ -19,6 +19,7 @@ import {
   ICMS_OPCOES_SIMPLES, ICMS_OPCOES_NORMAL, type CfopSaida, type FinalidadeNFe,
 } from '@/lib/fiscal/nfeAvulsa'
 import { termosBuscaProduto, filtroTermoProduto, filtroPrefixoProduto, juntarResultados } from '@/lib/fiscal/buscaProdutoAvulsa'
+import { buscarDestinatarios, termoValido, textoOpcao, type OpcaoDestinatario } from '@/lib/fiscal/destinatarioBusca'
 import { ArrowLeft, Loader2, AlertCircle, FileText, Plus, Trash2, Info, Save, FolderOpen, Percent } from 'lucide-react'
 
 interface DestPessoa {
@@ -135,7 +136,9 @@ export default function RemessaClient() {
   const [simples, setSimples] = useState(false)
 
   const [destTabela, setDestTabela] = useState<'erp_clientes' | 'erp_fornecedores'>('erp_clientes')
-  const [pessoas, setPessoas] = useState<DestPessoa[]>([])
+  // destinatário escolhido (linha completa, lida por id) e resultado da busca feita no servidor (chamado #11084)
+  const [destSelecionado, setDestSelecionado] = useState<DestPessoa | null>(null)
+  const [destResultado, setDestResultado] = useState<{ chave: string; opcoes: OpcaoDestinatario[]; erro: string | null } | null>(null)
   const [destinatarioId, setDestinatarioId] = useState('')
 
   const [tipos, setTipos] = useState<RemessaTipo[]>([])
@@ -278,43 +281,51 @@ export default function RemessaClient() {
     })()
   }, [companyId])
 
+  // reenvio: o destinatário da nota recusada já entra escolhido
   useEffect(() => {
-    if (!companyId) return
+    if (!destPendente) return
+    setDestSelecionado(destPendente)
+    setDestinatarioId(destPendente.id)
+  }, [destPendente])
+
+  // escolhido por id (clique na busca, rascunho aberto): lê a linha completa (UF, IE, contribuinte) do cadastro da empresa
+  useEffect(() => {
+    if (!companyId || !destinatarioId || destSelecionado?.id === destinatarioId) return
     let cancelado = false
     void (async () => {
       const { data } = await supabase
         .from(destTabela)
         .select('id, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, uf, ie, contribuinte_icms')
-        .eq('company_id', companyId)
-        .eq('ativo', true)
-        .order('razao_social')
-        .limit(500)
+        .eq('id', destinatarioId).eq('company_id', companyId).maybeSingle()
       if (cancelado) return
-      const lista = (data ?? []) as DestPessoa[]
-      // reenvio: garante o destinatário da nota recusada na lista (a lista corta em 500)
-      if (destPendente && !lista.some((p) => p.id === destPendente.id)) lista.unshift(destPendente)
-      setPessoas(lista)
-      setDestinatarioId(destPendente && lista.some((p) => p.id === destPendente.id) ? destPendente.id : '')
+      if (data) setDestSelecionado(data as DestPessoa)
+      else setDestinatarioId('')   // cadastro não é desta empresa/tipo (rascunho antigo): pede para escolher de novo
     })()
     return () => { cancelado = true }
-  }, [companyId, destTabela, destPendente])
+  }, [companyId, destinatarioId, destTabela, destSelecionado?.id])
 
-  const destinatario = pessoas.find((p) => p.id === destinatarioId)
+  const destinatario = destSelecionado && destSelecionado.id === destinatarioId ? destSelecionado : undefined
   const [destBusca, setDestBusca] = useState('')
   const [destAberto, setDestAberto] = useState(false)
   const textoDest = (p: DestPessoa) =>
     `${p.razao_social ?? p.nome_fantasia ?? p.id}${p.cnpj_cpf || p.cpf_cnpj ? ` · ${p.cnpj_cpf ?? p.cpf_cnpj}` : ''}${p.uf ? ` · ${p.uf}` : ''}`
-  // busca por qualquer parte do nome/razão/fantasia (sem acento) e por CPF/CNPJ com ou sem pontuação
-  const pessoasFiltradas = useMemo(() => {
-    const norm = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
-    const q = norm(destBusca)
-    const d = soDigitos(destBusca)
-    if (!q) return pessoas.slice(0, 50)
-    return pessoas.filter((p) => {
-      if (norm(`${p.razao_social ?? ''} ${p.nome_fantasia ?? ''}`).includes(q)) return true
-      return d.length > 0 && soDigitos(p.cnpj_cpf ?? p.cpf_cnpj).includes(d)
-    }).slice(0, 50)
-  }, [pessoas, destBusca])
+
+  // busca NO SERVIDOR pela função canônica (fn_cliente_buscar / fn_fornecedor_buscar): nome fantasia OU razão social OU
+  // CPF/CNPJ — pessoa física (razão social vazia) aparece igual a pessoa jurídica, em qualquer tamanho de cadastro
+  const termoDest = destBusca.trim()
+  const chaveBusca = `${destTabela}|${companyId}|${termoDest}`
+  useEffect(() => {
+    if (!destAberto || !companyId || !termoValido(termoDest)) return
+    let vivo = true
+    const t = setTimeout(async () => {
+      const r = await buscarDestinatarios(async (fn, args) => await supabase.rpc(fn, args), destTabela, companyId, termoDest)
+      if (vivo) setDestResultado({ chave: chaveBusca, opcoes: r.opcoes, erro: r.erro })
+    }, 250)
+    return () => { vivo = false; clearTimeout(t) }
+  }, [destAberto, companyId, destTabela, termoDest, chaveBusca])
+  const buscaPronta = destResultado?.chave === chaveBusca
+  const opcoesDest = buscaPronta ? destResultado.opcoes : []
+  const buscandoDest = destAberto && termoValido(termoDest) && !buscaPronta
   const ufDest = ufDestino(destinatario?.uf)
 
   function escolherCfop(codigo: string) {
@@ -812,7 +823,7 @@ export default function RemessaClient() {
             <span className={rotuloCls}>Tipo de pessoa <AjudaCampo chave="fiscal.nfe_avulsa.destinatario_tipo" /></span>
             <select
               value={destTabela}
-              onChange={(e) => { setDestPendente(null); setDestTabela(e.target.value as 'erp_clientes' | 'erp_fornecedores') }}
+              onChange={(e) => { setDestPendente(null); setDestSelecionado(null); setDestinatarioId(''); setDestTabela(e.target.value as 'erp_clientes' | 'erp_fornecedores') }}
               className={inputCls}
             >
               <option value="erp_clientes">Cliente</option>
@@ -834,14 +845,19 @@ export default function RemessaClient() {
             />
             {destAberto && (
               <div className="absolute z-20 left-0 right-0 mt-1 max-h-72 overflow-y-auto bg-white border border-[#3D2314]/15 rounded-lg shadow-lg">
-                {pessoasFiltradas.map((p) => (
-                  <button key={p.id} type="button"
-                    onMouseDown={() => { setDestinatarioId(p.id); setDestAberto(false) }}
+                {opcoesDest.map((o) => (
+                  <button key={o.id} type="button" data-testid="nfe-avulsa-destinatario-opcao"
+                    onMouseDown={() => { setDestinatarioId(o.id); setDestAberto(false) }}
                     className="w-full text-left px-3 py-2 hover:bg-[#FAF7F2] border-b border-[#3D2314]/5 last:border-0 text-[12px] text-[#3D2314]">
-                    {textoDest(p)}
+                    {textoOpcao(o)}
                   </button>
                 ))}
-                {pessoasFiltradas.length === 0 && (
+                {!termoValido(termoDest) && (
+                  <div className="px-3 py-2 text-[12px] text-[#3D2314]/55">Digite ao menos 2 letras do nome ou o CPF/CNPJ.</div>
+                )}
+                {buscandoDest && <div className="px-3 py-2 text-[12px] text-[#3D2314]/55">Buscando…</div>}
+                {buscaPronta && destResultado.erro && <div className="px-3 py-2 text-[12px] text-[#A32D2D]">{destResultado.erro}</div>}
+                {buscaPronta && !destResultado.erro && opcoesDest.length === 0 && (
                   <div className="px-3 py-2 text-[12px] text-[#3D2314]/55">Nenhum cadastro encontrado.</div>
                 )}
               </div>
