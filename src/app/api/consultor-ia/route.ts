@@ -210,10 +210,24 @@ export async function POST(req: NextRequest) {
       const contas = r.contas ?? []
       const semExtrato = r.contas_sem_extrato ?? []
       const notaSem = semExtrato.length ? ` Sem extrato para comparar: ${semExtrato.map((c) => c.conta_nome).join(', ')}.` : ''
+      // Já traz, na MESMA resposta, os lançamentos sem conciliar que causam a diferença (RPC do banco — NÃO vai ao LLM),
+      // para a Julia concluir sem 2º clique. Uma chamada por conta divergente; cada linha carrega o nome da conta.
+      const divergentes = contas.filter((c) => Math.abs(Number(c.diferenca)) > 0.005)
+      const linhas: Record<string, unknown>[] = []
+      if (divergentes.length) {
+        const detalhes = await Promise.all(divergentes.map((c) =>
+          sb.rpc('fn_consultor_lancamentos_detalhe', { p_company_id: companyId, p_filtro: 'nao_conciliados', p_termo: null, p_conta: c.conta_nome, p_limite: 50 })))
+        divergentes.forEach((c, i) => {
+          const dd = detalhes[i].data as { ok?: boolean; linhas?: Record<string, unknown>[] } | null
+          if (dd?.ok && Array.isArray(dd.linhas)) for (const ln of dd.linhas) linhas.push({ ...ln, conta: (ln as { conta?: unknown }).conta ?? c.conta_nome })
+        })
+      }
       const resumo = r.tem_divergencia
-        ? 'Não batem: ' + contas.map((c) => `conta ${c.conta_nome} tem ${brl(Math.abs(c.diferenca))} de diferença (sistema ${brl(c.saldo_sistema)} × banco ${brl(c.saldo_banco)})`).join('; ') + '.' + notaSem
+        ? 'Não batem: ' + contas.map((c) => `conta ${c.conta_nome} tem ${brl(Math.abs(c.diferenca))} de diferença (sistema ${brl(c.saldo_sistema)} × banco ${brl(c.saldo_banco)})`).join('; ') + '.'
+          + (linhas.length ? ` Encontrei ${linhas.length} lançamento(s) sem conciliar que explicam a maior parte da diferença — veja a lista abaixo.` : '')
+          + notaSem
         : 'Sim, todas as contas com extrato estão batendo com o banco.' + notaSem
-      return NextResponse.json({ ok: true, tipo: 'divergencia', titulo: 'saldo do sistema × banco', resumo, contas, contas_sem_extrato: semExtrato })
+      return NextResponse.json({ ok: true, tipo: 'divergencia', titulo: 'saldo do sistema × banco', resumo, contas, contas_sem_extrato: semExtrato, linhas })
     }
     if (tool === 'lancamentos_sem_conciliar' || tool === 'lancamentos_sem_cnpj' || tool === 'buscar_lancamento') {
       const filtro = tool === 'lancamentos_sem_conciliar' ? 'nao_conciliados' : tool === 'lancamentos_sem_cnpj' ? 'sem_cnpj' : 'por_termo'
