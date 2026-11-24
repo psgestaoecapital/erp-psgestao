@@ -104,33 +104,18 @@ BEGIN
   -- ── Órfãs históricas (23/11): baixa VIVA cujo título pai já está soft-deletado — leak do cascade (#5747 não
   --    cobriu as já excluídas) e o lado PAGAR, nunca coberto. Reversível (backup) e idempotente (deleted_at IS NULL).
   --    Guarda p_company (is_demo, já validada acima) + pai deleted_at IS NOT NULL: nunca toca empresa real nem baixa viva.
-  --    O gatilho de recompute (fn_*_baixa_recompute) é DESLIGADO em volta do UPDATE em volume: o pai JÁ está
-  --    soft-deletado, então recomputar seu valor_pago é inútil — e disparar função por linha em ~59k baixas repetiria
-  --    o padrão do incidente 03/10. SET-BASED, sem função por linha. É reativado logo após (bloco idempotente).
+  --    RD-97 (AJUSTES revisor 24/11): o gatilho de recompute é silenciado com `SET LOCAL session_replication_role=
+  --    'replica'` — escopo TRANSAÇÃO, NÃO pega ACCESS EXCLUSIVE table-wide (ao contrário do `ALTER TABLE … DISABLE
+  --    TRIGGER`, que travaria as tabelas de baixa COMPARTILHADAS p/ todos os tenants). Também evita disparar a função
+  --    de recompute por-linha no volume acumulado da DEMO (lição do incidente 03/10): o pai JÁ está soft-deletado,
+  --    recomputar seu valor_pago é inútil. Restaurado para 'origin' logo após o par de UPDATEs (não vaza p/ o resto
+  --    do fn_demo_reset). Set-based, idempotente (deleted_at IS NULL).
   INSERT INTO public.erp_receber_baixa_lixo_teste_bkp_c3 (baixa_id, receber_id, company_id, valor, data, deleted_at_old)
   SELECT b.id, b.receber_id, b.company_id, b.valor, b.data, b.deleted_at
     FROM public.erp_receber_baixa b
     JOIN public.erp_receber er ON er.id = b.receber_id
    WHERE b.company_id = p_company AND b.deleted_at IS NULL AND er.deleted_at IS NOT NULL
   ON CONFLICT (baixa_id) DO NOTHING;
-
-  -- RD-97: só pega ACCESS EXCLUSIVE na tabela COMPARTILHADA erp_receber_baixa quando HÁ órfã desta empresa.
-  -- No estado permanente (0 órfã, DEMO auto-curada) o reset não trava a tabela de todos os tenants.
-  IF EXISTS (
-      SELECT 1 FROM public.erp_receber_baixa b
-        JOIN public.erp_receber er ON er.id = b.receber_id
-       WHERE b.company_id = p_company AND b.deleted_at IS NULL AND er.deleted_at IS NOT NULL
-  ) THEN
-    SET LOCAL lock_timeout = '5s';
-    ALTER TABLE public.erp_receber_baixa DISABLE TRIGGER trg_receber_baixa_recompute;
-    UPDATE public.erp_receber_baixa b
-       SET deleted_at = now()
-      FROM public.erp_receber er
-     WHERE er.id = b.receber_id
-       AND b.company_id = p_company AND b.deleted_at IS NULL AND er.deleted_at IS NOT NULL;
-    GET DIAGNOSTICS v_orf_rec = ROW_COUNT;
-    ALTER TABLE public.erp_receber_baixa ENABLE TRIGGER trg_receber_baixa_recompute;
-  END IF;
 
   INSERT INTO public.erp_pagar_baixa_lixo_teste_bkp_c3 (baixa_id, pagar_id, company_id, valor, data, deleted_at_old)
   SELECT b.id, b.pagar_id, b.company_id, b.valor, b.data, b.deleted_at
@@ -139,22 +124,24 @@ BEGIN
    WHERE b.company_id = p_company AND b.deleted_at IS NULL AND ep.deleted_at IS NOT NULL
   ON CONFLICT (baixa_id) DO NOTHING;
 
-  -- RD-97: idem para a tabela COMPARTILHADA erp_pagar_baixa — só trava quando há órfã desta empresa.
-  IF EXISTS (
-      SELECT 1 FROM public.erp_pagar_baixa b
-        JOIN public.erp_pagar ep ON ep.id = b.pagar_id
-       WHERE b.company_id = p_company AND b.deleted_at IS NULL AND ep.deleted_at IS NOT NULL
-  ) THEN
-    SET LOCAL lock_timeout = '5s';
-    ALTER TABLE public.erp_pagar_baixa DISABLE TRIGGER trg_pagar_baixa_recompute;
-    UPDATE public.erp_pagar_baixa b
-       SET deleted_at = now()
-      FROM public.erp_pagar ep
-     WHERE ep.id = b.pagar_id
-       AND b.company_id = p_company AND b.deleted_at IS NULL AND ep.deleted_at IS NOT NULL;
-    GET DIAGNOSTICS v_orf_pag = ROW_COUNT;
-    ALTER TABLE public.erp_pagar_baixa ENABLE TRIGGER trg_pagar_baixa_recompute;
-  END IF;
+  -- Silencia o recompute por-linha só nesta transação (sem lock de tabela). Restaura 'origin' logo após.
+  SET LOCAL session_replication_role = 'replica';
+
+  UPDATE public.erp_receber_baixa b
+     SET deleted_at = now()
+    FROM public.erp_receber er
+   WHERE er.id = b.receber_id
+     AND b.company_id = p_company AND b.deleted_at IS NULL AND er.deleted_at IS NOT NULL;
+  GET DIAGNOSTICS v_orf_rec = ROW_COUNT;
+
+  UPDATE public.erp_pagar_baixa b
+     SET deleted_at = now()
+    FROM public.erp_pagar ep
+   WHERE ep.id = b.pagar_id
+     AND b.company_id = p_company AND b.deleted_at IS NULL AND ep.deleted_at IS NOT NULL;
+  GET DIAGNOSTICS v_orf_pag = ROW_COUNT;
+
+  SET LOCAL session_replication_role = 'origin';
 
   RETURN jsonb_build_object('ok', true, 'company', p_company,
     'titulos_purgados', v_tit, 'baixas_purgadas', v_bx,
@@ -166,7 +153,8 @@ $function$;
 -- A purga do acumulado (~59k baixas órfãs da DEMO) NÃO roda inline no `supabase db push`: isso pegaria lock pesado
 -- nas tabelas de baixa compartilhadas durante o deploy. A auto-cura cobre o acumulado no PRÓXIMO fn_demo_reset:
 -- esta migration estende fn_demo_ge_receber_purgar_lixo_teste para TAMBÉM soft-deletar as órfãs históricas (bloco
--- acima, guardado por is_demo + IF EXISTS por empresa). O gatilho da auto-cura é a chamada
+-- acima, guardado por is_demo (p_company) + pai soft-deletado; recompute silenciado por session_replication_role,
+-- sem lock de tabela). O gatilho da auto-cura é a chamada
 -- `PERFORM fn_demo_ge_receber_purgar_lixo_teste(b0700000-…-004)` dentro de fn_demo_seed_ge_financeiro, instalada
 -- pela irmã #5929 (que religa o seed p/ chamar receber+pagar). Quando as duas estiverem na main, o 1º reset da DEMO
 -- limpa o acumulado sem lock no deploy. Idempotente (deleted_at IS NULL): re-rodar não altera nada.
