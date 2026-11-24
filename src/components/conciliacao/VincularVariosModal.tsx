@@ -105,6 +105,11 @@ export default function VincularVariosModal({
   const [parcialDe, setParcialDe] = useState<string | null>(null)       // vinculo_id em edição
   const [parcialValor, setParcialValor] = useState('')
   const [parcialSaldo, setParcialSaldo] = useState<number | null>(null)
+  // #10136 · ajuste POR TÍTULO: cada conta vinculada recebe o SEU juros/multa/desconto. Resolve o caso
+  // da sócia Jordana — banco paga N contas atrasadas com encargos DIFERENTES e, no modo âncora, só uma
+  // recebia o juros e as demais ficavam "parcial". Ligado ⇒ monta p_ajustes jsonb na rpc.
+  const [modoAjustePorTitulo, setModoAjustePorTitulo] = useState(false)
+  const [ajustesTitulo, setAjustesTitulo] = useState<Record<string, { juros: string; multa: string; desconto: string }>>({})
 
   const naturezaBusca: 'debito' | 'credito' = natureza === 'credito' ? 'credito' : 'debito'
   const parseNum = (s: string) => Number((s || '0').replace(/\s/g, '').replace(',', '.')) || 0
@@ -220,28 +225,45 @@ export default function VincularVariosModal({
   }
 
   async function fecharFatura() {
-    const acrNum = parseNum(acrescimo)
-    const descNum = parseNum(desconto)
-    const somaVinc = resumo?.soma_vinculada ?? 0
-    const saldoAjustado = Math.round((Math.abs(valorMovimento) - (somaVinc + acrNum - descNum)) * 100) / 100
-    if (!(somaVinc > 0 && Math.abs(saldoAjustado) <= 0.05)) return
-    // #5672 · define a âncora do ajuste. 1 título → ele mesmo; 2+ → o operador precisa ter escolhido.
+    const somaV = resumo?.soma_vinculada ?? 0
+    // acr/desc efetivos (por título somados, ou do campo único) — mesma conta do render.
+    const acr = modoAjustePorTitulo ? somaAcrTitulo : parseNum(acrescimo)
+    const desc = modoAjustePorTitulo ? somaDescTitulo : parseNum(desconto)
+    const saldo = Math.round((Math.abs(valorMovimento) - (somaV + acr - desc)) * 100) / 100
+    if (!(somaV > 0 && Math.abs(saldo) <= 0.05)) return
     const itens = resumo?.itens ?? []
-    const temAjusteLocal = acrNum > 0 || descNum > 0
+
+    // #10136 · modo POR TÍTULO: monta p_ajustes [{lancamento_id, lancamento_tabela, juros, multa, desconto}]
+    let pAjustes: Array<{ lancamento_id: string; lancamento_tabela: string; juros: number; multa: number; desconto: number }> | null = null
     let ajusteId: string | null = null
-    if (temAjusteLocal) {
-      if (itens.length <= 1) {
-        ajusteId = itens[0]?.lancamento_id ?? null
-      } else if (itens.some((v) => v.lancamento_id === ajusteTitulo)) {
-        ajusteId = ajusteTitulo
-      } else {
-        setErro('Escolha a qual título pertence o acréscimo/desconto antes de conciliar.')
-        return
+    if (modoAjustePorTitulo) {
+      pAjustes = itens
+        .map((v) => {
+          const a = ajTit(v.lancamento_id)
+          return { lancamento_id: v.lancamento_id, lancamento_tabela: v.tabela, juros: parseNum(a.juros), multa: parseNum(a.multa), desconto: parseNum(a.desconto) }
+        })
+        .filter((x) => x.juros > 0 || x.multa > 0 || x.desconto > 0)
+      if (pAjustes.length === 0) pAjustes = null  // nada informado → trata como fechamento simples
+    } else {
+      // #5672 · modo âncora: 1 título → ele mesmo; 2+ → o operador precisa ter escolhido.
+      const temAjusteLocal = acr > 0 || desc > 0
+      if (temAjusteLocal) {
+        if (itens.length <= 1) {
+          ajusteId = itens[0]?.lancamento_id ?? null
+        } else if (itens.some((v) => v.lancamento_id === ajusteTitulo)) {
+          ajusteId = ajusteTitulo
+        } else {
+          setErro('Escolha a qual título pertence o acréscimo/desconto antes de conciliar.')
+          return
+        }
       }
     }
+
     const nQtd = resumo?.qtd_vinculos ?? resumo?.itens?.length ?? 0
-    const linhaAjuste = acrNum > 0 ? `\nAcréscimo (juros/multa) de R$ ${fmt(acrNum)} registrado no título.`
-      : descNum > 0 ? `\nDesconto de R$ ${fmt(descNum)} registrado no título.` : ''
+    const linhaAjuste = pAjustes
+      ? `\nAjuste POR TÍTULO: ${pAjustes.length} título(s) com juros/multa/desconto próprios (acr. R$ ${fmt(acr)}, desc. R$ ${fmt(desc)}).`
+      : acr > 0 ? `\nAcréscimo (juros/multa) de R$ ${fmt(acr)} registrado no título.`
+      : desc > 0 ? `\nDesconto de R$ ${fmt(desc)} registrado no título.` : ''
     if (!window.confirm(`CONCILIAR a fatura?\n\n${nQtd} conta(s) baixadas pelo valor vinculado a cada uma (baixa parcial deixa o saldo em aberto no título).${linhaAjuste}`)) return
     setFechando(true)
     setErro(null)
@@ -250,11 +272,12 @@ export default function VincularVariosModal({
       p_movimento_id: movimentoId,
       p_operador_id: user?.id ?? null,
       p_tolerancia: 0.05,
-      p_juros: acrNum,
+      p_juros: pAjustes ? 0 : acr,
       p_multa: 0,
-      p_desconto: descNum,
-      p_ajuste_lancamento_id: ajusteId,
+      p_desconto: pAjustes ? 0 : desc,
+      p_ajuste_lancamento_id: pAjustes ? null : ajusteId,
       p_observacao: obsAjuste.trim() || null,
+      p_ajustes: pAjustes,
     })
     setFechando(false)
     if (error) { setErro(error.message); return }
@@ -315,17 +338,25 @@ export default function VincularVariosModal({
 
   const valorAbs = Math.abs(valorMovimento)
   const somaVinc = resumo?.soma_vinculada ?? 0
-  const acrNum = parseNum(acrescimo)
-  const descNum = parseNum(desconto)
+  const itensVinc = resumo?.itens ?? []
+  const acrNumManual = parseNum(acrescimo)
+  const descNumManual = parseNum(desconto)
+  // #10136 · somatório dos ajustes POR TÍTULO (juros+multa = acréscimo; desconto à parte)
+  const ajTit = (id: string) => ajustesTitulo[id] ?? { juros: '', multa: '', desconto: '' }
+  const somaAcrTitulo = Math.round(itensVinc.reduce((s, v) => { const a = ajTit(v.lancamento_id); return s + parseNum(a.juros) + parseNum(a.multa) }, 0) * 100) / 100
+  const somaDescTitulo = Math.round(itensVinc.reduce((s, v) => s + parseNum(ajTit(v.lancamento_id).desconto), 0) * 100) / 100
+  // acr/desc efetivos: no modo por título vêm do somatório das linhas; no modo âncora, dos campos únicos.
+  const acrNum = modoAjustePorTitulo ? somaAcrTitulo : acrNumManual
+  const descNum = modoAjustePorTitulo ? somaDescTitulo : descNumManual
   const diffRaw = Math.round((valorAbs - somaVinc) * 100) / 100
   const saldoAjustado = Math.round((valorAbs - (somaVinc + acrNum - descNum)) * 100) / 100
   const fechaAjuste = somaVinc > 0 && Math.abs(saldoAjustado) <= 0.05
   const mostrarAjuste = somaVinc > 0 && (Math.abs(diffRaw) > 0.05 || acrNum > 0 || descNum > 0)
-  // #5672 · quando há ajuste e 2+ títulos vinculados, exigir a escolha de a qual título ele pertence.
-  const itensVinc = resumo?.itens ?? []
+  // #5672 · no modo âncora, com ajuste e 2+ títulos, exigir a escolha de a qual título ele pertence.
+  // No modo POR TÍTULO (#10136) não há âncora: cada título já tem o seu ajuste.
   const temAjuste = acrNum > 0 || descNum > 0
   const ajusteTituloValido = itensVinc.some((v) => v.lancamento_id === ajusteTitulo)
-  const precisaEscolherAjuste = temAjuste && itensVinc.length >= 2 && !ajusteTituloValido
+  const precisaEscolherAjuste = !modoAjustePorTitulo && temAjuste && itensVinc.length >= 2 && !ajusteTituloValido
   const pct = fechaAjuste ? 100 : (resumo ? Math.min(100, (somaVinc / valorAbs) * 100) : 0)
   const corBarra = fechaAjuste ? '#3B6D11' : '#C8941A'
   // #22 · rateio
@@ -393,46 +424,109 @@ export default function VincularVariosModal({
           {/* Ajuste — acréscimo/desconto para fechar a diferença banco × título */}
           {mostrarAjuste && (
             <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(200,148,26,0.55)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#3D2314', marginBottom: 2 }}>Ajuste · fechar a diferença</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 2 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#3D2314' }}>Ajuste · fechar a diferença</div>
+                {/* #10136 · com 2+ títulos, permite ajustar o encargo de CADA conta (Jordana) */}
+                {itensVinc.length >= 2 && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <button
+                      type="button"
+                      onClick={() => setModoAjustePorTitulo((m) => !m)}
+                      data-testid="vv-ajuste-por-titulo"
+                      style={{ ...ghostBtn, minHeight: 32, padding: '4px 10px', borderColor: modoAjustePorTitulo ? '#C8941A' : 'rgba(61,35,20,0.2)', background: modoAjustePorTitulo ? '#FBF2DD' : 'transparent' }}
+                    >
+                      {modoAjustePorTitulo ? '◉ Ajuste por título' : '○ Ajustar por título'}
+                    </button>
+                    <AjudaCampo chave="financeiro.conciliacao.ajuste_por_titulo" rota={ROTA} />
+                  </span>
+                )}
+              </div>
               <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.6)', marginBottom: 10 }}>
-                {diffRaw >= 0
+                {modoAjustePorTitulo
+                  ? 'Informe o juros/multa/desconto de CADA título — cada conta quita com o seu encargo (nenhuma fica parcial por causa do encargo da outra).'
+                  : diffRaw >= 0
                   ? 'O banco recebeu a mais que os títulos — registre como acréscimo (juros/multa recebido).'
                   : 'O banco recebeu a menos que os títulos — registre como desconto concedido.'}
               </div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <label style={{ flex: 1, minWidth: 150, fontSize: 11, color: '#3D2314', fontWeight: 600 }}>
-                  Acréscimo (juros/multa recebido)<AjudaCampo chave="financeiro.conciliacao.vincular_acrescimo" rota={ROTA} />
-                  <input value={acrescimo} onChange={(e) => { setAjusteTouched(true); setAcrescimo(e.target.value) }} inputMode="decimal" placeholder="0,00" style={{ ...inputStyle, marginTop: 4, width: '100%' }} />
-                </label>
-                <label style={{ flex: 1, minWidth: 150, fontSize: 11, color: '#3D2314', fontWeight: 600 }}>
-                  Desconto concedido<AjudaCampo chave="financeiro.conciliacao.vincular_desconto" rota={ROTA} />
-                  <input value={desconto} onChange={(e) => { setAjusteTouched(true); setDesconto(e.target.value) }} inputMode="decimal" placeholder="0,00" style={{ ...inputStyle, marginTop: 4, width: '100%' }} />
-                </label>
-              </div>
-              {/* #5672 · com 2+ títulos, o operador escolhe a qual deles o ajuste pertence (âncora) */}
-              {itensVinc.length >= 2 && temAjuste && (
-                <label style={{ display: 'block', marginTop: 10, fontSize: 11, color: '#3D2314', fontWeight: 600 }}>
-                  A qual título pertence este ajuste?<AjudaCampo chave="financeiro.conciliacao.vincular_ajuste_titulo" rota={ROTA} />
-                  <select
-                    value={ajusteTitulo}
-                    onChange={(e) => setAjusteTitulo(e.target.value)}
-                    data-testid="vv-ajuste-titulo"
-                    style={{ ...inputStyle, marginTop: 4, width: '100%', cursor: 'pointer' }}
-                  >
-                    <option value="">Selecione o título…</option>
-                    {itensVinc.map((v) => (
-                      <option key={v.vinculo_id} value={v.lancamento_id}>
-                        {(v.descricao ?? '(sem descrição)')} · venc {fmtDate(v.vencimento)} · R$ {fmt(v.valor)}
-                      </option>
-                    ))}
-                  </select>
-                  {!ajusteTituloValido && (
-                    <span style={{ display: 'block', marginTop: 4, fontWeight: 500, color: '#BA7517' }}>
-                      Com 2 ou mais títulos, escolha a qual deles o acréscimo/desconto se refere — senão o ajuste cai no título de maior valor.
-                    </span>
+
+              {/* Modo ÂNCORA (único) — comportamento padrão */}
+              {!modoAjustePorTitulo && (
+                <>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <label style={{ flex: 1, minWidth: 150, fontSize: 11, color: '#3D2314', fontWeight: 600 }}>
+                      Acréscimo (juros/multa recebido)<AjudaCampo chave="financeiro.conciliacao.vincular_acrescimo" rota={ROTA} />
+                      <input value={acrescimo} onChange={(e) => { setAjusteTouched(true); setAcrescimo(e.target.value) }} inputMode="decimal" placeholder="0,00" style={{ ...inputStyle, marginTop: 4, width: '100%' }} />
+                    </label>
+                    <label style={{ flex: 1, minWidth: 150, fontSize: 11, color: '#3D2314', fontWeight: 600 }}>
+                      Desconto concedido<AjudaCampo chave="financeiro.conciliacao.vincular_desconto" rota={ROTA} />
+                      <input value={desconto} onChange={(e) => { setAjusteTouched(true); setDesconto(e.target.value) }} inputMode="decimal" placeholder="0,00" style={{ ...inputStyle, marginTop: 4, width: '100%' }} />
+                    </label>
+                  </div>
+                  {/* #5672 · com 2+ títulos, o operador escolhe a qual deles o ajuste pertence (âncora) */}
+                  {itensVinc.length >= 2 && temAjuste && (
+                    <label style={{ display: 'block', marginTop: 10, fontSize: 11, color: '#3D2314', fontWeight: 600 }}>
+                      A qual título pertence este ajuste?<AjudaCampo chave="financeiro.conciliacao.vincular_ajuste_titulo" rota={ROTA} />
+                      <select
+                        value={ajusteTitulo}
+                        onChange={(e) => setAjusteTitulo(e.target.value)}
+                        data-testid="vv-ajuste-titulo"
+                        style={{ ...inputStyle, marginTop: 4, width: '100%', cursor: 'pointer' }}
+                      >
+                        <option value="">Selecione o título…</option>
+                        {itensVinc.map((v) => (
+                          <option key={v.vinculo_id} value={v.lancamento_id}>
+                            {(v.descricao ?? '(sem descrição)')} · venc {fmtDate(v.vencimento)} · R$ {fmt(v.valor)}
+                          </option>
+                        ))}
+                      </select>
+                      {!ajusteTituloValido && (
+                        <span style={{ display: 'block', marginTop: 4, fontWeight: 500, color: '#BA7517' }}>
+                          Com 2 ou mais títulos, escolha a qual deles o acréscimo/desconto se refere — ou use &quot;Ajustar por título&quot; para informar o encargo de cada uma.
+                        </span>
+                      )}
+                    </label>
                   )}
-                </label>
+                </>
               )}
+
+              {/* Modo POR TÍTULO (#10136) — juros/multa/desconto de cada conta vinculada */}
+              {modoAjustePorTitulo && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {itensVinc.map((v) => {
+                    const a = ajTit(v.lancamento_id)
+                    const setCampo = (campo: 'juros' | 'multa' | 'desconto', val: string) =>
+                      setAjustesTitulo((m) => ({ ...m, [v.lancamento_id]: { ...ajTit(v.lancamento_id), [campo]: val } }))
+                    return (
+                      <div key={v.vinculo_id} style={{ background: '#FAF7F2', borderRadius: 6, padding: '8px 10px' }}>
+                        <div style={{ fontSize: 11.5, fontWeight: 600, color: '#3D2314', marginBottom: 6 }}>
+                          {v.descricao ?? '(sem descrição)'} · venc {fmtDate(v.vencimento)} · R$ {fmt(v.valor)}
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <label style={{ flex: 1, minWidth: 90, fontSize: 10.5, color: '#3D2314', fontWeight: 600 }}>
+                            Juros R$<AjudaCampo chave="financeiro.conciliacao.ajuste_titulo_juros" rota={ROTA} />
+                            <input value={a.juros} onChange={(e) => setCampo('juros', e.target.value)} inputMode="decimal" placeholder="0,00"
+                              data-testid={`vv-ajt-juros-${v.lancamento_id}`} style={{ ...inputStyle, marginTop: 3, width: '100%' }} />
+                          </label>
+                          <label style={{ flex: 1, minWidth: 90, fontSize: 10.5, color: '#3D2314', fontWeight: 600 }}>
+                            Multa R$<AjudaCampo chave="financeiro.conciliacao.ajuste_titulo_multa" rota={ROTA} />
+                            <input value={a.multa} onChange={(e) => setCampo('multa', e.target.value)} inputMode="decimal" placeholder="0,00"
+                              data-testid={`vv-ajt-multa-${v.lancamento_id}`} style={{ ...inputStyle, marginTop: 3, width: '100%' }} />
+                          </label>
+                          <label style={{ flex: 1, minWidth: 90, fontSize: 10.5, color: '#3D2314', fontWeight: 600 }}>
+                            Desconto R$<AjudaCampo chave="financeiro.conciliacao.ajuste_titulo_desconto" rota={ROTA} />
+                            <input value={a.desconto} onChange={(e) => setCampo('desconto', e.target.value)} inputMode="decimal" placeholder="0,00"
+                              data-testid={`vv-ajt-desconto-${v.lancamento_id}`} style={{ ...inputStyle, marginTop: 3, width: '100%' }} />
+                          </label>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.7)' }}>
+                    Soma dos ajustes: acréscimo R$ {fmt(somaAcrTitulo)} · desconto R$ {fmt(somaDescTitulo)}
+                  </div>
+                </div>
+              )}
+
               <label style={{ display: 'block', marginTop: 10, fontSize: 11, color: '#3D2314', fontWeight: 600 }}>
                 Observação (opcional)<AjudaCampo chave="financeiro.conciliacao.vincular_obs_ajuste" rota={ROTA} />
                 <input value={obsAjuste} onChange={(e) => setObsAjuste(e.target.value)} placeholder="Observação (opcional)" style={{ ...inputStyle, marginTop: 4, width: '100%' }} />
