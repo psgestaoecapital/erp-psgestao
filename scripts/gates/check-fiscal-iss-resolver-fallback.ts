@@ -23,6 +23,13 @@ ok(sql.includes('(m.company_id = p_company_id OR m.company_id IS NULL)'), 'prece
 ok(/FROM fiscal_iss_municipio_aliquota a\b/.test(sql), 'fallback para a tabela nacional')
 ok(sql.includes("a.status_validacao = 'validada'"), 'nacional só quando validada')
 ok(sql.includes('a.aliquota IS NOT NULL'), 'nacional só com alíquota preenchida')
+// granularidade 07.05 (pai) x 07.05.01/02 (subitem): casa exato E agrega subitens do pai de 2 níveis
+ok(sql.includes('a.codigo_lc116 = v_lc'), 'casa o subitem exato quando informado')
+ok(sql.includes("v_lc ~ '^[0-9]{2}"), 'detecta código "pai" de 2 níveis (ex.: 07.05)')
+ok(sql.includes("a.codigo_lc116 LIKE v_lc || '.%'"), 'agrega os subitens do pai (07.05.%)')
+ok(sql.includes('count(DISTINCT a.aliquota)'), 'conta alíquotas distintas entre os subitens')
+ok(sql.includes("'nacional_agregado'"), 'alíquota única -> usa (origem nacional_agregado)')
+ok(sql.includes("'subitem_necessario'"), 'alíquotas divergentes -> ok:false pedindo o subitem (não chuta)')
 // o manual é retornado ANTES do fallback nacional (IF FOUND ... antes do SELECT da nacional)
 ok(sql.indexOf('FROM fiscal_iss_municipio m') < sql.indexOf('FROM fiscal_iss_municipio_aliquota a'), 'manual é resolvido antes da nacional')
 // relaxamento aditivo p/ representar "sem fonte" sem alíquota inventada

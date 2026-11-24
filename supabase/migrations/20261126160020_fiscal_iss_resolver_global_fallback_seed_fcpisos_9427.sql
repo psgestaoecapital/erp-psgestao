@@ -17,11 +17,18 @@
 -- Prova (RD-38): SELECT count(*) FROM fiscal_iss_municipio_aliquota era 0; manual = 3 linhas.
 -- RD-38 (não inventar): nenhuma alíquota é gravada aqui — só a lista de municípios sem fonte.
 --
+--  4) Granularidade 07.05 x 07.05.01/07.05.02: o cadastro de serviço (erp_servicos) guarda só o nível
+--     "pai" da LC 116 ('07.05') e fn_nfse_validar_emissao chama o resolver com esse código; a tabela
+--     nacional é por subitem ('07.05.01','07.05.02'). O fallback nacional passa a: (a) casar exato quando
+--     o código já vem no subitem; (b) quando vem o pai de 2 níveis, agregar os subitens validados do
+--     município — alíquota única usa; alíquotas divergentes devolve ok:false pedindo o subitem (nunca
+--     chuta); nenhum subitem validado mantém o ok:false 'aliquota_nao_cadastrada'. O manual (07.05 exato
+--     da empresa) continua com prioridade.
+--
 -- Observações para a revisão (não alteram esta PR):
 --  - A tabela nacional ainda não é lida por nenhuma tela; estas linhas são worklist no banco. Exibir
 --    na tela "ISS por município" é slice seguinte.
---  - Granularidade: o manual está em '07.05'; a execução/nacional usa '07.05.01'/'07.05.02'. O resolver
---    casa codigo_lc116 EXATAMENTE como já fazia (esta PR não muda essa semântica).
+--  - fn_nfse_validar_emissao NÃO muda: ela já chama o resolver com o codigo_lc116 e só olha o 'ok'.
 
 -- 1) Permitir representar "sem fonte oficial" de forma honesta (tabela hoje vazia; mudança aditiva e
 --    idempotente — DROP NOT NULL é no-op se já estiver nulável; os CHECK de range/enum já passam em NULL).
@@ -45,6 +52,7 @@ DECLARE
   v_ibge text := btrim(COALESCE(p_codigo_ibge, ''));
   v_data date := COALESCE(p_data, CURRENT_DATE);
   v_mun text; v_uf text; v_label text; r record; g record;
+  v_n int; v_nd int;  -- agregação de subitens quando o serviço vem no nível "pai" (ex.: 07.05)
 BEGIN
   -- d) guard de tenant
   IF NOT (p_company_id IN (SELECT get_user_company_ids()) OR is_admin()) THEN
@@ -80,6 +88,7 @@ BEGIN
 
   -- 2) fallback: tabela nacional (fiscal_iss_municipio_aliquota). SO linha VALIDADA e com alíquota.
   --    'sem_fonte_oficial'/'pendente' ou alíquota nula NUNCA entram no cálculo.
+  -- 2a) casamento EXATO (quando o serviço já traz o subitem, ex.: 07.05.01).
   SELECT * INTO g
     FROM fiscal_iss_municipio_aliquota a
    WHERE a.codigo_ibge = v_ibge AND a.codigo_lc116 = v_lc
@@ -95,6 +104,43 @@ BEGIN
       'retido_na_fonte', g.retido_na_fonte, 'vigencia_inicio', g.vigencia_inicio,
       'municipio', v_label, 'codigo_lc116', v_lc, 'informado_por', NULL,
       'origem', 'nacional');
+  END IF;
+
+  -- 2b) o cadastro do serviço guarda só o nível "pai" da LC 116 (ex.: 07.05), mas a tabela nacional é
+  --     por subitem (07.05.01, 07.05.02). Se o código recebido é um pai de 2 níveis, agrega os subitens
+  --     VALIDADOS do município: alíquota única -> usa; alíquotas divergentes -> NÃO escolhe (pede o subitem,
+  --     nunca chuta); nenhum subitem validado -> cai no ok:false padrão abaixo.
+  IF v_lc ~ '^[0-9]{2}\.[0-9]{2}$' THEN
+    SELECT count(*), count(DISTINCT a.aliquota) INTO v_n, v_nd
+      FROM fiscal_iss_municipio_aliquota a
+     WHERE a.codigo_ibge = v_ibge AND a.codigo_lc116 LIKE v_lc || '.%'
+       AND a.status_validacao = 'validada'
+       AND a.aliquota IS NOT NULL
+       AND a.vigencia_inicio <= v_data
+       AND (a.vigencia_fim IS NULL OR a.vigencia_fim >= v_data);
+
+    IF v_n > 0 AND v_nd = 1 THEN
+      -- alíquota igual em todos os subitens -> usa a linha vigente mais recente
+      SELECT * INTO g
+        FROM fiscal_iss_municipio_aliquota a
+       WHERE a.codigo_ibge = v_ibge AND a.codigo_lc116 LIKE v_lc || '.%'
+         AND a.status_validacao = 'validada'
+         AND a.aliquota IS NOT NULL
+         AND a.vigencia_inicio <= v_data
+         AND (a.vigencia_fim IS NULL OR a.vigencia_fim >= v_data)
+       ORDER BY a.vigencia_inicio DESC
+       LIMIT 1;
+      RETURN jsonb_build_object('ok', true, 'aliquota', g.aliquota, 'fonte', g.fonte,
+        'retido_na_fonte', g.retido_na_fonte, 'vigencia_inicio', g.vigencia_inicio,
+        'municipio', v_label, 'codigo_lc116', v_lc, 'informado_por', NULL,
+        'origem', 'nacional_agregado');
+    ELSIF v_n > 0 AND v_nd > 1 THEN
+      -- divergência entre subitens -> não escolhe; pede o subitem exato
+      RETURN jsonb_build_object('ok', false, 'motivo', 'subitem_necessario',
+        'municipio', v_label, 'codigo_lc116', v_lc,
+        'acao', 'Este município tem alíquotas diferentes por subitem de ' || v_lc
+                || '. Informe o subitem exato do serviço (ex.: ' || v_lc || '.01).');
+    END IF;
   END IF;
 
   -- 3) sem cadastro conhecido -> ok:false (nunca um numero padrao)
