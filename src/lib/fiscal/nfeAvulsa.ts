@@ -95,6 +95,8 @@ export interface EntradaAvulsa {
   catalogo: CfopSaida[]
   // #3861 · cadastro do destinatário (cliente OU fornecedor): documento, IE e "Contribuinte ICMS"
   destinatario?: CadastroIE
+  // #9929 (Gean) · impostos do ICMS POR ITEM (opcional): só valida consistência quando o item destaca o próprio ICMS
+  itensIcms?: Array<{ cst?: string | null; base?: number; aliquota?: number; valor?: number } | undefined>
 }
 
 export interface ResultadoAvulsa {
@@ -196,6 +198,29 @@ export function validarNFeAvulsa(e: EntradaAvulsa): ResultadoAvulsa {
         : `Empresa do regime normal: o ICMS da operação usa CST (${validos.join(', ')}), não ${icms}.`)
     }
   }
+
+  // #9929 (Gean) · ICMS por item: valida consistência só quando o usuário destaca o imposto do item.
+  // Item sem nada preenchido segue o ICMS da operação (acima), sem cobrança nova — compatível com o fluxo atual.
+  const codigosIcms = (e.simples ? ICMS_OPCOES_SIMPLES : ICMS_OPCOES_NORMAL).map((o) => o.codigo)
+  ;(e.itensIcms ?? []).forEach((ii, i) => {
+    if (!ii) return
+    const cst = soDigitos(ii.cst)
+    const temAlgum = !!cst || ii.base != null || ii.aliquota != null || ii.valor != null
+    if (!temAlgum) return
+    const rotulo = `Item ${i + 1}`
+    if (cst && !codigosIcms.includes(cst)) {
+      erros.push(e.simples
+        ? `${rotulo}: ICMS do item usa CSOSN (${codigosIcms.join(', ')}), não ${cst}.`
+        : `${rotulo}: ICMS do item usa CST (${codigosIcms.join(', ')}), não ${cst}.`)
+    }
+    for (const [nome, v] of [['base de cálculo', ii.base], ['alíquota', ii.aliquota], ['valor', ii.valor]] as const) {
+      if (v != null && (!Number.isFinite(v) || v < 0)) erros.push(`${rotulo}: ${nome} do ICMS não pode ser negativa.`)
+    }
+    if (ii.aliquota != null && ii.aliquota > 100) erros.push(`${rotulo}: alíquota do ICMS acima de 100%.`)
+    if (ii.valor != null && ii.valor > 0 && (ii.base == null || ii.base <= 0)) {
+      avisos.push(`${rotulo}: valor de ICMS informado sem base de cálculo — confira os impostos do item antes de emitir.`)
+    }
+  })
 
   const ie = e.destinatario ? ieDestinatario(e.destinatario) : undefined
   if (ie?.erro) erros.push(ie.erro)

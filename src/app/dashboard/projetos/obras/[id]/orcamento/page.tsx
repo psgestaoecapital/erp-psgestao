@@ -487,7 +487,15 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 ? raizes.map((n) => linhaNo(n))
                 : locais.map((l, i) => (
                   <div key={`${l.local_tipo ?? 'x'}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: `1px solid ${LINE}` }}>
-                    <span style={{ fontSize: 14, color: ESP, fontWeight: 500, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.local_nome}</span>
+                    {/* §315 C-2: material × mão de obra também no agrupamento por Local, igual ao nó da EAP. */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, color: ESP, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.local_nome}</div>
+                      {(l.material > 0 || l.mao_obra > 0) && (
+                        <div style={{ fontSize: 11, color: MUT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          Material {brl(l.material)} · Mão de obra {brl(l.mao_obra)}
+                        </div>
+                      )}
+                    </div>
                     <span style={{ fontSize: 13, color: ESP, fontWeight: 600, flex: '0 0 auto', textAlign: 'right' }}>{brl(l.total)}</span>
                     {barra(l.pct)}
                     <span style={{ fontSize: 11, color: MUT, flex: '0 0 44px', textAlign: 'right' }}>{pct(l.pct)}</span>
@@ -505,6 +513,11 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                   const loc = it.local_nome ? ` · ${it.local_nome}` : ''
                   const un = it.unidade ? ` ${it.unidade}` : ''
                   const excluindo = excluindoId === it.item_id
+                  // §315 C-2: material × mão de obra separados também no item (não só no nó da EAP).
+                  // Dados já vêm da listagem (custo unitário × quantidade) — sem nova chamada.
+                  const q = it.quantidade ?? 0
+                  const matTot = (it.custo_material_unit ?? 0) * q
+                  const moTot = (it.custo_mao_obra_unit ?? 0) * q
                   return (
                     <div key={it.item_id} data-testid={`orc-item-${it.item_id}`}
                       style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: `1px solid ${LINE}`, flexWrap: 'wrap' }}>
@@ -513,6 +526,11 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                         <div style={{ fontSize: 11, color: MUT, fontFamily: 'ui-monospace, monospace' }}>
                           EAP {it.eap_codigo}{loc} · {(it.quantidade ?? 0).toLocaleString('pt-BR')}{un}
                         </div>
+                        {(matTot > 0 || moTot > 0) && (
+                          <div data-testid={`orc-item-split-${it.item_id}`} style={{ fontSize: 11, color: MUT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            Material {brl(matTot)} · Mão de obra {brl(moTot)}
+                          </div>
+                        )}
                       </div>
                       <span style={{ fontSize: 13, color: ESP, fontWeight: 600, textAlign: 'right' }}>{brl(it.subtotal)}</span>
                       <div style={{ display: 'flex', gap: 6 }}>
