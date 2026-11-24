@@ -60,6 +60,7 @@ GRANT EXECUTE ON FUNCTION public.fn_demo_seed_construtora_equipes(uuid) TO postg
 -- 2) Hook durável: fn_demo_seed_construtora (chamada por fn_demo_reset) passa a semear a equipe a
 -- cada reset. Reemissão FIEL da função viva + 1 linha "PERFORM fn_demo_seed_construtora_equipes(c);"
 -- logo após "PERFORM fn_demo_seed_construtora_partes(c);".
+-- ci-sem-guarda: fn_demo_seed_construtora — seed SÓ-DEMO, empresa fixa b0700000-…-006 + guarda is_demo (não recebe empresa variável)
 
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_construtora(p_company_id uuid)
  RETURNS jsonb
@@ -277,6 +278,10 @@ BEGIN
 END
 $function$
 ;
+
+-- ACL do mestre reemitido: CREATE OR REPLACE preserva os grants vivos (proacl = {postgres=X, service_role=X};
+-- authenticated/anon sem EXECUTE). REVOKE PUBLIC, anon reafirma o fechamento sem escalonar privilégio.
+REVOKE ALL ON FUNCTION public.fn_demo_seed_construtora(uuid) FROM PUBLIC, anon;
 
 -- 3) Semeia AGORA na DEMO 006 existente (idempotente), sem esperar o próximo reset.
 SELECT public.fn_demo_seed_construtora_equipes('b0700000-0000-4000-a000-000000000006'::uuid);
