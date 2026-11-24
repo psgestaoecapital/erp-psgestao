@@ -1,5 +1,10 @@
 -- URGENTE — Chamado #9726 (PR #5973): RE-APLICA o item 3 ("Baixar estoque" na OS), que NUNCA chegou ao banco.
 --
+-- RENUMERADA de 20261126160030 → 20261126235930 (PR #6081 → esta): a versão 20261126160030 COLIDIU com
+-- 20261126160030_nr36_dono_pode_importar.sql (mesma versão em 2 arquivos). A régua check:migrations do
+-- deploy-migrations abortava ("versão em 2 arquivos; renomeie os demais"), travando TODO o deploy (ledger parado em
+-- 20261126150035). Nova versão: folga grande acima do topo vivo do ledger e única. Conteúdo idêntico ao da #6081.
+--
 -- CAUSA-RAIZ (RD-38, provado na produção em 2026-11-24):
 --   • o front do #5973 (OrdemServicoCard: SELECT com estoque_baixado/_em/_por em erp_os) estourava a Ficha de OS com
 --     "column erp_os.estoque_baixado does not exist" — toda ação na OS quebrava (163, Mecânica Pesada e Borracharia);
