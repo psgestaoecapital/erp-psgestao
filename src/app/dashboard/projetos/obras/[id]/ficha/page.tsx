@@ -393,6 +393,7 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                   </button>
                   <AjudaCampo chave="projetos.obra_ficha.salvar_resp_tecnico" rota={ROTA} />
                 </div>
+              </div>
               {/* Regularização (alvará e licenças) — tela 314 "Na ficha: alvará e licenças com validade, CNO, ARTs e RRTs".
                   Resumo do dado real (fn_obra_licenca_listar); o detalhe e o cadastro ficam na Regularização da obra. */}
               <div data-testid="ficha-regularizacao" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 12 }}>
