@@ -11,6 +11,7 @@ import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
 import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/types'
 import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
 import { SELECT_CONFIG_EMISSOR, dadosEmissorDaConfig } from '@/lib/fiscal/emissorConfig'
+import { municipioInformaIm } from '@/lib/fiscal/municipioInformaIm'
 import { dataBrasil } from '@/lib/fiscal/dataBrasil'
 import { CAMPOS_CADASTRO_TOMADOR, enderecoFiscalDoCliente, escolherCadastroTomador, filtroCadastroTomador, nomeCadastro, type CadastroTomador } from '@/lib/fiscal/tomadorEndereco'
 import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, totaisLiquidosNfse, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
@@ -217,6 +218,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       const { data: cfgEmissor } = await supabaseAdmin.from('erp_fiscal_provider_config').select(SELECT_CONFIG_EMISSOR)
         .eq('company_id', body.companyId).eq('provider', 'focusnfe').eq('ativo', true).maybeSingle()
       const emissor = dadosEmissorDaConfig(cfgEmissor, body.manual.cnae)
+      // #9726 · a IM do prestador vai na DPS só se o município emissor informa IM (Guarujá do Sul → E0120).
+      const informaImEmissor = await municipioInformaIm(emissor.codigoMunicipio)
       nfseReq = {
         serie: emissor.serie,
         dataEmissao: new Date().toISOString(),
@@ -231,6 +234,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           razaoSocial: emp.razao_social,
           inscricaoMunicipal: emp.inscricao_municipal ?? undefined,
           codigoMunicipio: emissor.codigoMunicipio,
+          informaInscricaoMunicipal: informaImEmissor,
         },
         tomador: body.manual.tomador,
       }

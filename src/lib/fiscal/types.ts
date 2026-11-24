@@ -57,6 +57,9 @@ export interface NFSeRequest {
     razaoSocial: string
     inscricaoMunicipal?: string
     codigoMunicipio?: string
+    // #9726 · false quando o município emissor (erp_gov_nfse_municipios.informa_im) NÃO deve receber a IM do
+    // prestador na DPS (ex.: Guarujá do Sul 4206603 → E0120). Ausente/true = manda a IM (comportamento atual).
+    informaInscricaoMunicipal?: boolean
   }
   tomador: {
     cnpj?: string
