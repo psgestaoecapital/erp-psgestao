@@ -67,6 +67,9 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [okId, setOkId] = useState(false)
   const [okEnd, setOkEnd] = useState(false)
   const [okMapa, setOkMapa] = useState(false)
+  // Regularização na ficha (tela 314: "Na ficha: alvará e licenças com validade, CNO, ARTs e RRTs").
+  // Resumo a partir do dado real já existente (fn_obra_licenca_listar); sem migration, só leitura.
+  const [reg, setReg] = useState<{ total: number; vencidos: number; vence30: number; proxima: string | null } | null>(null)
 
   // Área: aceita "1250" ou "1.250,50"; vira número só na hora de salvar (null quando vazio).
   const areaNum = (s: string): number | null => {
@@ -117,6 +120,23 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
       setLat(m.latitude != null ? String(m.latitude) : '')
       setLng(m.longitude != null ? String(m.longitude) : '')
     }
+    // Resumo da regularização (alvará e licenças) a partir do dado real. Falha aqui não derruba a ficha.
+    try {
+      const { data: licData } = await supabase.rpc('fn_obra_licenca_listar', { p_obra_id: id })
+      const lic = licData as { ok?: boolean; itens?: { validade: string | null; situacao: string }[] } | null
+      if (lic && lic.ok) {
+        const itens = lic.itens ?? []
+        const vencidos = itens.filter((l) => l.situacao === 'vencido').length
+        const vence30 = itens.filter((l) => l.situacao === 'vence_30').length
+        const proxima = itens
+          .filter((l) => l.validade && l.situacao !== 'vencido')
+          .map((l) => l.validade as string)
+          .sort()[0] ?? null
+        setReg({ total: itens.length, vencidos, vence30, proxima })
+      } else {
+        setReg({ total: 0, vencidos: 0, vence30: 0, proxima: null })
+      }
+    } catch { setReg({ total: 0, vencidos: 0, vence30: 0, proxima: null }) }
   }, [id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
@@ -199,6 +219,13 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     const j = data as Ficha | null
     if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar o ponto no mapa.')); return }
     setOkMapa(true)
+  }
+
+  // dd/mm/aaaa a partir de 'YYYY-MM-DD' (sem fuso: a validade é uma data, não um instante).
+  const fmtData = (iso: string | null): string => {
+    if (!iso) return '—'
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso)
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : iso
   }
 
   return (
@@ -356,6 +383,47 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                   </button>
                   <AjudaCampo chave="projetos.obra_ficha.salvar_mapa" rota={ROTA} />
                 </div>
+              </div>
+
+              {/* Regularização (alvará e licenças) — tela 314 "Na ficha: alvará e licenças com validade, CNO, ARTs e RRTs".
+                  Resumo do dado real (fn_obra_licenca_listar); o detalhe e o cadastro ficam na Regularização da obra. */}
+              <div data-testid="ficha-regularizacao" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    Regularização (alvará e licenças)<AjudaCampo chave="projetos.cockpit.regularizacao" rota={ROTA} />
+                  </span>
+                  <Link href={`/dashboard/projetos/obras/${id}/regularizacao?area=hub`} data-testid="ficha-regularizacao-link"
+                    style={{ fontSize: 13, color: GOLD, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                    Abrir →
+                  </Link>
+                </div>
+                {reg === null ? (
+                  <div style={{ fontSize: 12, color: MUT }}>Carregando…</div>
+                ) : reg.total === 0 ? (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    <div style={{ fontSize: 13, color: MUT }}>Nenhum documento de regularização cadastrado. Cadastre alvará, licenças, CNO, ART/RRT e habite-se com validade para acompanhar o que vence.</div>
+                    <Link href={`/dashboard/projetos/obras/${id}/regularizacao?area=hub`} data-testid="ficha-regularizacao-cta"
+                      style={{ justifySelf: 'start', padding: '10px 14px', borderRadius: 8, background: ESP, color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+                      Cadastrar documento
+                    </Link>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                      <span data-testid="ficha-reg-total" style={{ fontSize: 13, color: ESP, fontWeight: 600 }}>{reg.total} {reg.total === 1 ? 'documento' : 'documentos'}</span>
+                      {reg.vencidos > 0 && (
+                        <span data-testid="ficha-reg-vencidos" style={{ fontSize: 12, fontWeight: 700, color: VERM, background: '#FBEAEA', borderRadius: 999, padding: '2px 10px' }}>{reg.vencidos} vencido{reg.vencidos === 1 ? '' : 's'}</span>
+                      )}
+                      {reg.vence30 > 0 && (
+                        <span data-testid="ficha-reg-vence30" style={{ fontSize: 12, fontWeight: 700, color: '#92600A', background: '#FBF1DD', borderRadius: 999, padding: '2px 10px' }}>{reg.vence30} vence em 30 dias</span>
+                      )}
+                      {reg.vencidos === 0 && reg.vence30 === 0 && (
+                        <span style={{ fontSize: 12, fontWeight: 700, color: VERDE, background: '#EAF6EC', borderRadius: 999, padding: '2px 10px' }}>Em dia</span>
+                      )}
+                    </div>
+                    {reg.proxima && <div style={{ fontSize: 12, color: MUT }}>Próxima validade: {fmtData(reg.proxima)}.</div>}
+                  </div>
+                )}
               </div>
 
               {erro && <div role="alert" data-testid="ficha-erro" style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: 10, fontSize: 13 }}>{erro}</div>}
