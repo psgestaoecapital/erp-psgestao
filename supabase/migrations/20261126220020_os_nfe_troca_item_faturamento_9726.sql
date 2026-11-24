@@ -267,5 +267,5 @@ SELECT
   'Permite faturar com um produto fiscalmente emitível quando o item usado é "99 - Outras" (que não pode ir na nota). Mantém a quantidade e o valor da linha original, para o total da nota não divergir do total da OS.',
   'A peça usada é "99 - Outras"; troque pelo produto equivalente de tipo 00 (com NCM). Na OS continua a peça usada; na nota sai o produto escolhido.',
   'Só produto tipo 00 com NCM de 8 dígitos pode ser escolhido. O saldo mostrado é informativo — a emissão da nota não baixa estoque (a baixa é pelo botão "Baixar estoque").',
-  'oficina', 60, 1, 'ativo'
+  'oficina', 60, 1, 'publicado'
 WHERE NOT EXISTS (SELECT 1 FROM public.erp_ajuda_campo WHERE chave = 'oficina.os.nfe_trocar_item_faturamento');
