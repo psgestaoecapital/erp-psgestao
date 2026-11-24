@@ -1144,3 +1144,18 @@ BEGIN
   SELECT COUNT(DISTINCT company_id), COUNT(*) FILTER (WHERE severity='critical') INTO v_empresas, v_criticas FROM erp_truth_alerts WHERE rule_id='dre_receita_bate_nfs' AND status='novo';
   RETURN QUERY SELECT v_alertas, v_empresas, v_criticas;
 END $function$;
+
+-- check:fn-guards (régua da CI) — estas funções são SECURITY DEFINER re-definidas acima (CREATE OR REPLACE
+-- NÃO altera ACL; nenhuma tem anon/PUBLIC hoje). Reafirma o REVOKE de anon/PUBLIC exigido pela régua, sem
+-- tocar os grants de authenticated/service_role já existentes. fn_psgc_balanco_gerencial é STABLE (não DEFINER).
+-- ci-sem-guarda: fn_ge_painel_contador — grava só contador_acessos_log (LGPD) do PRÓPRIO acesso, escopo por
+-- p_contador_id (contador_clientes); SECURITY DEFINER sem GRANT a authenticated/anon (só service_role), chamada
+-- server-side; não grava dado de negócio por empresa, então não há "empresa do registro" a conferir.
+REVOKE ALL ON FUNCTION public.fn_contador_resumo_competencia(uuid,date) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_ge_painel_contador(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_psgc_dre_analise_pessoas(uuid[],date,date,text,text[],integer) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_psgc_dre_conciliacao(uuid[],date,date,text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_psgc_dre_diario(uuid[],text,integer,integer,text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_psgc_dre_horizontal_dia(uuid[],integer,integer,text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_psgc_dre_lancamentos(uuid[],text,date,date,text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_truth_audit_dre() FROM PUBLIC, anon;
