@@ -202,3 +202,11 @@ SELECT jsonb_build_object(
   ), '[]'::jsonb)
 );
 $function$;
+
+
+-- Guarda de acesso (check_fn_guards · [revoke_anon]): reafirma a ACL VIVA, que é
+-- SÓ service_role. NÃO conceder a authenticated: a _calc não confere o acesso do
+-- chamador ao p_company_id (confia no wrapper) — dar execute a authenticated
+-- abriria leitura cross-tenant.
+REVOKE ALL ON FUNCTION public.fn_ge_resultado_por_negocio_calc(uuid, date, date, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_resultado_por_negocio_calc(uuid, date, date, text) TO service_role;
