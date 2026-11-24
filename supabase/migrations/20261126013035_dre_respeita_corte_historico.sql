@@ -11,10 +11,9 @@
 --   • coluna erp_empresa_corte_historico.ocultar_dre EXISTE;
 --   • fn_psgc_recalcular_dre_mes JÁ contém o corte por ocultar_dre;
 --   • 2 empresas com ocultar_dre = true.
--- Ou seja, o conteúdo abaixo JÁ RODOU em produção. O órfão do ledger foi
--- RENOMEADO para esta versão (20261126013035, acima da última da main) para o
--- `db push` encontrar o arquivo e PULAR a execução (versão já no ledger).
--- O SQL abaixo é idêntico ao que rodou; não re-executa (já aplicado).
+-- Ou seja, o conteúdo abaixo JÁ RODOU em produção. Este arquivo é IDEMPOTENTE:
+-- re-rodar não altera dado (ADD COLUMN IF NOT EXISTS; UPDATE só em linha ainda
+-- não marcada; patch de função com early-return; DELETE guardado por corte).
 -- Governança: aplicação direta de migration de NÚCLEO FINANCEIRO sem PR/arquivo
 -- é violação de RD-52 — alertado ao Eng. Chefe/CEO no handoff.
 -- ============================================================================
@@ -22,8 +21,10 @@
 ALTER TABLE public.erp_empresa_corte_historico ADD COLUMN IF NOT EXISTS ocultar_dre boolean NOT NULL DEFAULT false;
 COMMENT ON COLUMN public.erp_empresa_corte_historico.ocultar_dre IS 'Quando true, a DRE (psgc_dre) não é calculada para meses anteriores a data_corte.';
 
+-- idempotente: só toca linha ainda NÃO marcada (não re-apênda motivo nem re-bumpa atualizado_em)
 UPDATE public.erp_empresa_corte_historico SET ocultar_dre = true, atualizado_em = now(), motivo = motivo || ' | DRE também a partir do corte'
-WHERE company_id IN ('b26c19c0-bf6d-495b-b8d1-9fa8d6896725','25305b15-09e1-4abe-944f-9bff31743350');
+WHERE company_id IN ('b26c19c0-bf6d-495b-b8d1-9fa8d6896725','25305b15-09e1-4abe-944f-9bff31743350')
+  AND ocultar_dre IS DISTINCT FROM true;
 
 DO $mig$
 DECLARE d text; alvo text;
