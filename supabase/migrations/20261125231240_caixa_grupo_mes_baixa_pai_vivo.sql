@@ -101,3 +101,10 @@ BEGIN
     'por_empresa', v_empresas, 'consolidado', v_cons);
 END;
 $function$;
+
+
+-- Guarda de acesso (check_fn_guards · [revoke_anon]): CREATE OR REPLACE não mexe
+-- nos grants; o bloco só reafirma a ACL VIVA (authenticated + service_role),
+-- sem ampliar acesso.
+REVOKE ALL ON FUNCTION public.fn_caixa_grupo_mes(uuid[], date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_caixa_grupo_mes(uuid[], date) TO authenticated, service_role;
