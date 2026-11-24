@@ -29,6 +29,8 @@ interface CpuHeader {
   custo_material: number;
   custo_mao_obra: number;
   custo_equipamento: number;
+  custo_epi: number;
+  custo_ferramentas: number;
   custo_total: number;
   preco_venda: number | null;
   margem_rs: number | null;
@@ -236,6 +238,8 @@ export function ComposicaoCpu({
               <Rodape label="Custo material" valor={data.header.custo_material} chave="projetos.catalogo.cpu.custo_material" rota={rotaAjuda} />
               <Rodape label="Custo mão de obra" valor={data.header.custo_mao_obra} chave="projetos.catalogo.cpu.custo_mao_obra" rota={rotaAjuda} />
               <Rodape label="Custo equipamento" valor={data.header.custo_equipamento} chave="projetos.catalogo.cpu.custo_equipamento" rota={rotaAjuda} />
+              <Rodape label="Custo ferramentas" valor={data.header.custo_ferramentas ?? 0} chave="projetos.catalogo.cpu.custo_ferramentas" rota={rotaAjuda} />
+              <Rodape label="Custo EPI" valor={data.header.custo_epi ?? 0} chave="projetos.catalogo.cpu.custo_epi" rota={rotaAjuda} />
               <div className="flex items-center justify-between border-t border-[#3D2314]/8 pt-1.5">
                 <span className="inline-flex items-center gap-1 text-sm font-medium text-[#3D2314]">Custo total (direto) <AjudaCampo chave="projetos.catalogo.cpu.custo_total" rota={rotaAjuda} /></span>
                 <span className="font-mono text-base font-medium text-[#3D2314]">{brl(data.header.custo_total)}</span>
