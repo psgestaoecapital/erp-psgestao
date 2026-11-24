@@ -37,11 +37,29 @@ export default function VendedoresAcesso() {
   }, [empresa])
   useEffect(() => { void carregar() }, [carregar])
 
+  // Gerente/diretor são LÍDERES (fn_bi_comercial_scope os coloca em modo 'lider' — veem a equipe toda); NÃO recebem
+  // a função restritiva "Vendedor Comercial" aqui. Vendedor/supervisor recebem (passam a ver só painel/app deles).
+  const ehLider = (cargo: string | null) => /^\s*(gerente|diretor)/i.test(cargo || '')
+
   async function salvar(m: Membro) {
-    const { data, error } = await supabase.rpc('fn_com_vendedor_acesso_salvar', { p_company_id: empresa, p_codigo: m.codigo, p_user_id: escolha[m.codigo] || null })
+    const user = escolha[m.codigo] || null
+    const { data, error } = await supabase.rpc('fn_com_vendedor_acesso_salvar', { p_company_id: empresa, p_codigo: m.codigo, p_user_id: user })
     const r = data as { ok: boolean; erro?: string; acao?: string } | null
-    const motivo = r?.erro ? (ERRO_SALVAR[r.erro] ?? 'Não foi possível concluir. Confira os dados e tente de novo.') : ''
-    setMsg(error ? `Não salvou: ${erroAmigavel(error)}` : r?.ok ? `${m.nome}: ${r.acao === 'vinculado' ? 'acesso liberado' : 'acesso retirado'}.` : `Não salvou: ${motivo}`)
+    if (error || !r?.ok) {
+      const motivo = r?.erro ? (ERRO_SALVAR[r.erro] ?? 'Não foi possível concluir. Confira os dados e tente de novo.') : ''
+      setMsg(error ? `Não salvou: ${erroAmigavel(error)}` : `Não salvou: ${motivo}`)
+      void carregar(); return
+    }
+    // Ao LIGAR um vendedor/supervisor, aplica a função "Vendedor Comercial" (industria_comercial): ela restringe o
+    // menu dele ao Meu painel de vendas + App de vendas (rbac_papel_modulo). Sem função, o RD-97 libera tudo — não é o
+    // que queremos para o vendedor. O dado continua isolado pelo código (com_vendedor_acesso / fn_bi_comercial_scope).
+    let aviso = ''
+    if (user && r.acao === 'vinculado' && !ehLider(m.cargo)) {
+      const { data: pr, error: pe } = await supabase.rpc('fn_acessos_definir_papel_rbac', { p_company_id: empresa, p_user_id: user, p_papel_slug: 'industria_comercial' })
+      const prr = pr as { ok: boolean; erro?: string } | null
+      if (pe || !prr?.ok) aviso = ` Atenção: liberei o acesso, mas não consegui aplicar a função Vendedor Comercial (${pe ? erroAmigavel(pe) : prr?.erro}). Aplique em Administração › Acessos.`
+    }
+    setMsg(`${m.nome}: ${r.acao === 'vinculado' ? `acesso liberado${!ehLider(m.cargo) ? ' (função Vendedor Comercial aplicada)' : ' (líder — vê a equipe)'}` : 'acesso retirado'}.${aviso}`)
     void carregar()
   }
 
@@ -69,7 +87,15 @@ export default function VendedoresAcesso() {
                   <tr key={m.codigo} style={{ borderTop: `1px solid ${C.bg2}` }}>
                     <td style={{ padding: 6, fontVariantNumeric: 'tabular-nums' }}>{m.codigo}</td>
                     <td style={{ padding: 6 }}>{m.nome}</td>
-                    <td style={{ padding: 6 }}>{m.cargo}</td>
+                    <td style={{ padding: 6 }}>
+                      {m.cargo}
+                      {m.ativo && m.user_id && !ehLider(m.cargo) && (
+                        <div style={{ fontSize: 11, color: C.m, marginTop: 2 }}>Função: <strong style={{ color: C.gold }}>Vendedor Comercial</strong> (vê só painel/app)</div>
+                      )}
+                      {m.ativo && m.user_id && ehLider(m.cargo) && (
+                        <div style={{ fontSize: 11, color: C.m, marginTop: 2 }}>Líder — vê a equipe</div>
+                      )}
+                    </td>
                     <td style={{ padding: 6 }}>
                       <select aria-label={`Usuário de ${m.nome}`} value={escolha[m.codigo] ?? ''} onChange={(e) => setEscolha({ ...escolha, [m.codigo]: e.target.value })}
                         style={{ font: 'inherit', padding: '6px 8px', borderRadius: 8, border: `1px solid ${C.bd}`, maxWidth: 260 }}>
