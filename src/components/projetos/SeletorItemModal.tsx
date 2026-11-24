@@ -7,7 +7,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Search, X, Package, HardHat, Wrench, ShieldCheck, Pencil } from "lucide-react";
+import { Search, X, Package, HardHat, Wrench, ShieldCheck, Pencil, Hammer } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { erroAmigavel } from "@/lib/erroAmigavel";
@@ -16,7 +16,7 @@ import { parseNumBR } from "@/lib/num";
 // RD-95: abre dentro da ficha do serviço (rota dinâmica) → textos do "?" na rota fixa dela
 const ROTA_AJUDA_SERVICO = "/dashboard/projetos/catalogo/[id]";
 
-export type TipoItem = "insumo" | "mao_obra" | "equipamento" | "epi";
+export type TipoItem = "insumo" | "mao_obra" | "equipamento" | "epi" | "ferramenta";
 
 export interface ItemEscolhido {
   tipo: TipoItem;
@@ -70,6 +70,7 @@ const ABAS: Array<{ tipo: TipoItem; label: string; icon: typeof Package }> = [
   { tipo: "insumo", label: "Material", icon: Package },
   { tipo: "mao_obra", label: "Mão de obra", icon: HardHat },
   { tipo: "equipamento", label: "Equipamento", icon: Wrench },
+  { tipo: "ferramenta", label: "Ferramentas", icon: Hammer },
   { tipo: "epi", label: "EPI", icon: ShieldCheck },
 ];
 
