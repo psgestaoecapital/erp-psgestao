@@ -6,7 +6,7 @@
 // complementares. A regra 5/6/7 pela UF é a mesma da rota (src/lib/fiscal/nfeAvulsa.ts) e aparece antes de emitir.
 // Os 5 tipos de erp_fiscal_remessa_tipos continuam como atalhos. Nesta etapa a nota não gera título nem mexe no estoque.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
@@ -20,7 +20,7 @@ import {
 } from '@/lib/fiscal/nfeAvulsa'
 import { termosBuscaProduto, filtroTermoProduto, filtroPrefixoProduto, juntarResultados } from '@/lib/fiscal/buscaProdutoAvulsa'
 import { buscarDestinatarios, termoValido, textoOpcao, type OpcaoDestinatario } from '@/lib/fiscal/destinatarioBusca'
-import { ArrowLeft, Loader2, AlertCircle, FileText, Plus, Trash2, Info, Save, FolderOpen } from 'lucide-react'
+import { ArrowLeft, Loader2, AlertCircle, FileText, Plus, Trash2, Info, Save, FolderOpen, Percent } from 'lucide-react'
 
 interface DestPessoa {
   id: string
@@ -55,6 +55,15 @@ interface ItemRem {
   valorUnitarioOverride?: number
   cfop?: string
   valorUnitarioTexto?: string // #5660 · buffer de digitação (pt-BR vírgula); não vai ao payload
+  // #9929 (Gean) · impostos do ICMS POR ITEM (opcional). Em branco mantém o "ICMS da operação" da nota /
+  // o cadastro do produto — comportamento atual, sem regressão. Preenchido, vira o icmsOverride do item na rota.
+  icmsCst?: string
+  icmsBase?: number
+  icmsAliquota?: number
+  icmsValor?: number
+  icmsBaseTexto?: string // buffers de digitação pt-BR; não vão ao payload
+  icmsAliquotaTexto?: string
+  icmsValorTexto?: string
 }
 
 // #5660 · aceita vírgula pt-BR em campo monetário: texto + replace(',', '.') (padrão do Perfil fiscal da revenda)
@@ -105,7 +114,8 @@ interface RascunhoPayload {
   modalidadeFrete: number
   valorFrete: number
   observacoes: string
-  itens: Array<Pick<ItemRem, 'produtoId' | 'produtoLabel' | 'quantidade' | 'valorUnitarioOverride' | 'cfop'>>
+  itens: Array<Pick<ItemRem, 'produtoId' | 'produtoLabel' | 'quantidade' | 'valorUnitarioOverride' | 'cfop'
+    | 'icmsCst' | 'icmsBase' | 'icmsAliquota' | 'icmsValor'>>
 }
 
 const fmtBRL = (v: number) =>
@@ -148,6 +158,8 @@ export default function RemessaClient() {
 
   const [produtosFiltrados, setProdutosFiltrados] = useState<Produto[]>([])
   const [itens, setItens] = useState<ItemRem[]>([])
+  // #9929 · índices dos itens com o painel "Impostos (ICMS)" aberto
+  const [impostosAbertos, setImpostosAbertos] = useState<Set<number>>(new Set())
   const [produtoBusca, setProdutoBusca] = useState('')
   const buscaProdutoRef = useRef<HTMLInputElement>(null)
 
@@ -353,6 +365,21 @@ export default function RemessaClient() {
 
   function removerItem(idx: number) {
     setItens((arr) => arr.filter((_, i) => i !== idx))
+    // #9929 · ao remover, acompanha os painéis de imposto abertos (os índices acima descem 1)
+    setImpostosAbertos((s) => {
+      const n = new Set<number>()
+      for (const i of s) { if (i < idx) n.add(i); else if (i > idx) n.add(i - 1) }
+      return n
+    })
+  }
+
+  // #9929 · abre/fecha o painel de impostos (ICMS) do item
+  function alternarImpostos(idx: number) {
+    setImpostosAbertos((s) => {
+      const n = new Set(s)
+      if (n.has(idx)) n.delete(idx); else n.add(idx)
+      return n
+    })
   }
 
   // #3861: busca no banco (todos os produtos ativos da empresa), não numa lista dos 500 primeiros.
@@ -404,6 +431,8 @@ export default function RemessaClient() {
       simples,
       catalogo,
       destinatario: { doc: destinatario.cnpj_cpf ?? destinatario.cpf_cnpj, ie: destinatario.ie, contribuinteIcms: destinatario.contribuinte_icms },
+      // #9929 · impostos do ICMS por item (prévia valida a consistência ao vivo)
+      itensIcms: itens.map((it) => ({ cst: it.icmsCst, base: it.icmsBase, aliquota: it.icmsAliquota, valor: it.icmsValor })),
     })
   }, [cfop, destinatario, itens, ufEmpresa, ufDest, finalidade, chaveRef, icmsCodigo, simples, catalogo])
 
@@ -462,6 +491,11 @@ export default function RemessaClient() {
         quantidade: Number(it.quantidade),
         valorUnitarioOverride: Number(it.valorUnitarioOverride ?? 0),
         ...(it.cfop ? { cfop: soDigitos(it.cfop) } : {}),
+        // #9929 · impostos (ICMS) por item — só vão ao payload quando preenchidos
+        ...(it.icmsCst ? { icmsCst: soDigitos(it.icmsCst) } : {}),
+        ...(it.icmsBase != null ? { icmsBase: Number(it.icmsBase) } : {}),
+        ...(it.icmsAliquota != null ? { icmsAliquota: Number(it.icmsAliquota) } : {}),
+        ...(it.icmsValor != null ? { icmsValor: Number(it.icmsValor) } : {}),
       })),
     }
   }
@@ -565,6 +599,11 @@ export default function RemessaClient() {
       itens: itens.map((it) => ({
         produtoId: it.produtoId, produtoLabel: it.produtoLabel, quantidade: it.quantidade,
         valorUnitarioOverride: it.valorUnitarioOverride, ...(it.cfop ? { cfop: it.cfop } : {}),
+        // #9929 · guarda os impostos por item no rascunho
+        ...(it.icmsCst ? { icmsCst: it.icmsCst } : {}),
+        ...(it.icmsBase != null ? { icmsBase: it.icmsBase } : {}),
+        ...(it.icmsAliquota != null ? { icmsAliquota: it.icmsAliquota } : {}),
+        ...(it.icmsValor != null ? { icmsValor: it.icmsValor } : {}),
       })),
     }
   }
@@ -618,7 +657,13 @@ export default function RemessaClient() {
       produtoId: it.produtoId, produtoLabel: it.produtoLabel,
       quantidade: Number(it.quantidade ?? 1), valorUnitarioOverride: Number(it.valorUnitarioOverride ?? 0),
       ...(it.cfop ? { cfop: it.cfop } : {}),
+      // #9929 · restaura os impostos por item do rascunho
+      ...(it.icmsCst ? { icmsCst: it.icmsCst } : {}),
+      ...(it.icmsBase != null ? { icmsBase: Number(it.icmsBase) } : {}),
+      ...(it.icmsAliquota != null ? { icmsAliquota: Number(it.icmsAliquota) } : {}),
+      ...(it.icmsValor != null ? { icmsValor: Number(it.icmsValor) } : {}),
     })))
+    setImpostosAbertos(new Set())
     setRascunhoId(id); setErro(null); setSucesso(null)
     setRascunhoMsg('Rascunho carregado. Confira os dados e emita quando quiser.')
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -987,8 +1032,11 @@ export default function RemessaClient() {
               <tbody>
                 {itens.map((it, idx) => {
                   const subtotal = (it.valorUnitarioOverride ?? 0) * it.quantidade
+                  const impAberto = impostosAbertos.has(idx)
+                  const temImposto = !!it.icmsCst || it.icmsBase != null || it.icmsAliquota != null || it.icmsValor != null
                   return (
-                    <tr key={idx} className="border-t border-[#3D2314]/5">
+                    <Fragment key={idx}>
+                    <tr className="border-t border-[#3D2314]/5">
                       <td className="px-2 py-1.5 text-[#3D2314]">{it.produtoLabel}</td>
                       <td className="px-2 py-1.5 text-right">
                         <input
@@ -1018,11 +1066,84 @@ export default function RemessaClient() {
                       </td>
                       <td className="px-2 py-1.5 text-right tabular-nums text-[#3D2314]">{fmtBRL(subtotal)}</td>
                       <td className="px-2 py-1.5">
-                        <button type="button" onClick={() => removerItem(idx)} className="text-[#A32D2D] hover:bg-[#A32D2D]/10 p-1 rounded" aria-label="Remover item">
-                          <Trash2 size={13} />
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => alternarImpostos(idx)}
+                            aria-label="Impostos do item"
+                            aria-expanded={impAberto}
+                            title="Impostos (ICMS) deste item"
+                            className={`p-1 rounded ${impAberto || temImposto ? 'text-[#C8941A] bg-[#FBF3E0]' : 'text-[#3D2314]/55 hover:bg-[#3D2314]/5'}`}
+                          >
+                            <Percent size={13} />
+                          </button>
+                          <button type="button" onClick={() => removerItem(idx)} className="text-[#A32D2D] hover:bg-[#A32D2D]/10 p-1 rounded" aria-label="Remover item">
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
+                    {impAberto && (
+                      <tr className="bg-[#FBF9F5]">
+                        <td colSpan={6} className="px-3 py-3">
+                          <div className="flex items-center gap-1.5 mb-2">
+                            <Percent size={12} className="text-[#C8941A]" />
+                            <span className="text-[10.5px] font-semibold text-[#3D2314]/70 uppercase tracking-wide">Impostos do item — ICMS</span>
+                            <AjudaCampo chave="fiscal.nfe_avulsa.item_icms" />
+                          </div>
+                          <p className="text-[11px] text-[#3D2314]/55 mb-2.5">
+                            Em branco, o item segue o “ICMS da operação” da nota (ou o cadastro do produto). Preencha para destacar o ICMS deste item na NF-e.
+                          </p>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                            <label className="block">
+                              <span className="block text-[10.5px] text-[#3D2314]/65 mb-1">{simples ? 'CSOSN' : 'CST'} <AjudaCampo chave="fiscal.nfe_avulsa.item_icms_cst" /></span>
+                              <select
+                                value={it.icmsCst ?? ''}
+                                onChange={(e) => atualizarItem(idx, { icmsCst: e.target.value || undefined })}
+                                className="w-full px-2 py-1 text-[12px] border border-[#3D2314]/15 rounded bg-white"
+                              >
+                                <option value="">Do ICMS da operação</option>
+                                {icmsOpcoes.map((o) => <option key={o.codigo} value={o.codigo}>{o.rotulo}</option>)}
+                              </select>
+                            </label>
+                            <label className="block">
+                              <span className="block text-[10.5px] text-[#3D2314]/65 mb-1">Base de cálculo (R$) <AjudaCampo chave="fiscal.nfe_avulsa.item_icms_base" /></span>
+                              <input
+                                type="text" inputMode="decimal"
+                                value={it.icmsBaseTexto ?? (it.icmsBase != null ? String(it.icmsBase).replace('.', ',') : '')}
+                                onChange={(e) => atualizarItem(idx, { icmsBaseTexto: e.target.value, icmsBase: numOrNull(e.target.value) ?? undefined })}
+                                onBlur={() => atualizarItem(idx, { icmsBaseTexto: undefined })}
+                                placeholder="0,00"
+                                className="w-full px-2 py-1 text-right text-[12px] border border-[#3D2314]/15 rounded"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="block text-[10.5px] text-[#3D2314]/65 mb-1">Alíquota (%) <AjudaCampo chave="fiscal.nfe_avulsa.item_icms_aliquota" /></span>
+                              <input
+                                type="text" inputMode="decimal"
+                                value={it.icmsAliquotaTexto ?? (it.icmsAliquota != null ? String(it.icmsAliquota).replace('.', ',') : '')}
+                                onChange={(e) => atualizarItem(idx, { icmsAliquotaTexto: e.target.value, icmsAliquota: numOrNull(e.target.value) ?? undefined })}
+                                onBlur={() => atualizarItem(idx, { icmsAliquotaTexto: undefined })}
+                                placeholder="0,00"
+                                className="w-full px-2 py-1 text-right text-[12px] border border-[#3D2314]/15 rounded"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="block text-[10.5px] text-[#3D2314]/65 mb-1">Valor do ICMS (R$) <AjudaCampo chave="fiscal.nfe_avulsa.item_icms_valor" /></span>
+                              <input
+                                type="text" inputMode="decimal"
+                                value={it.icmsValorTexto ?? (it.icmsValor != null ? String(it.icmsValor).replace('.', ',') : '')}
+                                onChange={(e) => atualizarItem(idx, { icmsValorTexto: e.target.value, icmsValor: numOrNull(e.target.value) ?? undefined })}
+                                onBlur={() => atualizarItem(idx, { icmsValorTexto: undefined })}
+                                placeholder="0,00"
+                                className="w-full px-2 py-1 text-right text-[12px] border border-[#3D2314]/15 rounded"
+                              />
+                            </label>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   )
                 })}
               </tbody>

@@ -1,5 +1,5 @@
 // Chamado #11084 — Emitir NF-e avulsa: a busca do destinatário acha pessoa física (razão social vazia, nome só em
-// nome_fantasia), cliente e fornecedor, pela função canônica no servidor. Migration 20261125200030 (fn_fornecedor_buscar,
+// nome_fantasia), cliente e fornecedor, pela função canônica no servidor. Migration 20261126110030 (fn_fornecedor_buscar,
 // @pos-migration). Prova na Demonstração Comércio (GE) com 1 cliente PF e 1 fornecedor PF de teste, sem razão social.
 // Os cadastros de teste ficam inativos no fim (RD-30: nada é apagado). NUNCA roda em empresa real.
 

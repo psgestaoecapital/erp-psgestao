@@ -10,7 +10,7 @@ import { orFiltroClienteBusca } from '../../src/lib/clienteBusca'
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
 const src = readFileSync('src/app/dashboard/fiscal/nfe/remessa/RemessaClient.tsx', 'utf8')
-const mig = readFileSync('supabase/migrations/20261125200030_fn_fornecedor_buscar_11084.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261126110030_fn_fornecedor_buscar_11084.sql', 'utf8')
 
 // ---- tela ----
 ok(/data-testid="nfe-avulsa-destinatario"/.test(src), 'campo de destinatário é caixa de busca (input), não lista fixa')
