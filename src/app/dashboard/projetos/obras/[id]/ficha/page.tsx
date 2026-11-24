@@ -32,7 +32,7 @@ const EDIFICACAO = [
   { v: 'misto', l: 'Misto' },
 ]
 
-type Ficha = { ok: boolean; numero?: string; nome?: string | null; cliente_nome?: string | null; tipo_execucao?: string | null; modelo_contratacao?: string | null; matricula?: string | null; inscricao_imobiliaria?: string | null; tipo_edificacao?: string | null; area_construida_m2?: number | null; area_terreno_m2?: number | null; erro?: string }
+type Ficha = { ok: boolean; numero?: string; nome?: string | null; cliente_nome?: string | null; tipo_execucao?: string | null; modelo_contratacao?: string | null; matricula?: string | null; inscricao_imobiliaria?: string | null; tipo_edificacao?: string | null; area_construida_m2?: number | null; area_terreno_m2?: number | null; endereco?: string | null; bairro?: string | null; cidade?: string | null; uf?: string | null; cep?: string | null; erro?: string }
 
 export default function FichaObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -47,12 +47,23 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [tipoEdif, setTipoEdif] = useState('')
   const [areaConstruida, setAreaConstruida] = useState('')
   const [areaTerreno, setAreaTerreno] = useState('')
+  // Endereço da obra
+  const [endereco, setEndereco] = useState('')
+  const [bairro, setBairro] = useState('')
+  const [cidade, setCidade] = useState('')
+  const [uf, setUf] = useState('')
+  const [cep, setCep] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [busyId, setBusyId] = useState(false)
+  const [busyEnd, setBusyEnd] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [ok, setOk] = useState(false)
   const [okId, setOkId] = useState(false)
+  const [okEnd, setOkEnd] = useState(false)
+  // Localização no mapa (tela 314 crit. h): pino lat/long derivado do CEP, sem migration.
+  const [coord, setCoord] = useState<{ lat: number; lon: number } | null>(null)
+  const [mapaMsg, setMapaMsg] = useState<string | null>(null)
 
   // Área: aceita "1250" ou "1.250,50"; vira número só na hora de salvar (null quando vazio).
   const areaNum = (s: string): number | null => {
@@ -74,8 +85,39 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     setMatricula(j.matricula ?? ''); setInscricao(j.inscricao_imobiliaria ?? ''); setTipoEdif(j.tipo_edificacao ?? '')
     setAreaConstruida(j.area_construida_m2 != null ? String(j.area_construida_m2) : '')
     setAreaTerreno(j.area_terreno_m2 != null ? String(j.area_terreno_m2) : '')
+    // Endereço vem de um leitor próprio (collision-free; fn_obra_ficha_ler não é tocado por esta fatia)
+    const { data: endData } = await supabase.rpc('fn_obra_ficha_endereco_ler', { p_obra_id: id })
+    const e = endData as Ficha | null
+    if (e && e.ok) {
+      setEndereco(e.endereco ?? ''); setBairro(e.bairro ?? ''); setCidade(e.cidade ?? '')
+      setUf(e.uf ?? ''); setCep(e.cep ?? '')
+    }
   }, [id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
+
+  // Deriva lat/long do CEP pela BrasilAPI v2 (mesmo provedor do helper buscarCEP). A v2 traz
+  // location.coordinates quando o CEP tem geolocalização; sem coordenada o mapa cai no modo
+  // "abrir por endereço" — nunca um pino falso (RD-51). Só-leitura, sem migration.
+  useEffect(() => {
+    const clean = cep.replace(/\D/g, '')
+    if (clean.length !== 8) { setCoord(null); setMapaMsg(null); return }
+    let vivo = true
+    setMapaMsg('Localizando o CEP no mapa…')
+    void (async () => {
+      try {
+        const res = await fetch(`https://brasilapi.com.br/api/cep/v2/${clean}`)
+        if (!vivo) return
+        if (!res.ok) { setCoord(null); setMapaMsg(null); return }
+        const data = await res.json()
+        const c = data?.location?.coordinates
+        const lat = Number(c?.latitude), lon = Number(c?.longitude)
+        if (!vivo) return
+        if (Number.isFinite(lat) && Number.isFinite(lon) && (lat !== 0 || lon !== 0)) { setCoord({ lat, lon }); setMapaMsg(null) }
+        else { setCoord(null); setMapaMsg(null) }
+      } catch { if (vivo) { setCoord(null); setMapaMsg(null) } }
+    })()
+    return () => { vivo = false }
+  }, [cep])
 
   const salvar = async () => {
     setBusy(true); setErro(null); setOk(false)
@@ -99,6 +141,26 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar a identidade da obra.')); return }
     setOkId(true)
   }
+
+  const salvarEndereco = async () => {
+    setBusyEnd(true); setErro(null); setOkEnd(false)
+    const { data, error } = await supabase.rpc('fn_obra_ficha_endereco_salvar', {
+      p_obra_id: id, p_endereco: endereco || null, p_bairro: bairro || null,
+      p_cidade: cidade || null, p_uf: uf || null, p_cep: cep || null,
+    })
+    setBusyEnd(false)
+    const j = data as Ficha | null
+    if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar o endereço da obra.')); return }
+    setOkEnd(true)
+  }
+
+  const enderecoBusca = [endereco, bairro, cidade, uf, cep].map((s) => (s ?? '').trim()).filter(Boolean).join(', ')
+  const temEndereco = enderecoBusca.length > 0
+  const D = 0.004 // ~400 m de janela ao redor do ponto
+  const mapaEmbed = coord ? `https://www.openstreetmap.org/export/embed.html?bbox=${coord.lon - D},${coord.lat - D},${coord.lon + D},${coord.lat + D}&layer=mapnik&marker=${coord.lat},${coord.lon}` : null
+  const mapaLink = coord
+    ? `https://www.openstreetmap.org/?mlat=${coord.lat}&mlon=${coord.lon}#map=17/${coord.lat}/${coord.lon}`
+    : (temEndereco ? `https://www.openstreetmap.org/search?query=${encodeURIComponent(enderecoBusca)}` : null)
 
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '20px 16px' }}>
@@ -176,6 +238,67 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                     {busyId ? 'Salvando…' : 'Salvar identidade'}
                   </button>
                   <AjudaCampo chave="projetos.obra_ficha.salvar_identidade" rota={ROTA} />
+                </div>
+              </div>
+
+              {/* Endereço da obra — logradouro, bairro, cidade, UF e CEP (tela 314 "ficha da obra") */}
+              <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 14 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700 }}>Endereço da obra</div>
+                <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                  <span>Endereço<AjudaCampo chave="projetos.obra_ficha.endereco" rota={ROTA} /></span>
+                  <input data-testid="ficha-endereco" style={campo} value={endereco} placeholder="Logradouro e número" onChange={(e) => { setEndereco(e.target.value); setOkEnd(false) }} />
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Bairro<AjudaCampo chave="projetos.obra_ficha.bairro" rota={ROTA} /></span>
+                    <input data-testid="ficha-bairro" style={campo} value={bairro} placeholder="Bairro" onChange={(e) => { setBairro(e.target.value); setOkEnd(false) }} />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>CEP<AjudaCampo chave="projetos.obra_ficha.cep" rota={ROTA} /></span>
+                    <input data-testid="ficha-cep" inputMode="numeric" style={campo} value={cep} placeholder="00000-000" onChange={(e) => { setCep(e.target.value); setOkEnd(false) }} />
+                  </label>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Cidade<AjudaCampo chave="projetos.obra_ficha.cidade" rota={ROTA} /></span>
+                    <input data-testid="ficha-cidade" style={campo} value={cidade} placeholder="Município" onChange={(e) => { setCidade(e.target.value); setOkEnd(false) }} />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>UF<AjudaCampo chave="projetos.obra_ficha.uf" rota={ROTA} /></span>
+                    <input data-testid="ficha-uf" maxLength={2} style={{ ...campo, textTransform: 'uppercase' }} value={uf} placeholder="SC" onChange={(e) => { setUf(e.target.value.toUpperCase()); setOkEnd(false) }} />
+                  </label>
+                </div>
+                {okEnd && <div data-testid="ficha-endereco-ok" style={{ background: '#EAF6EC', color: VERDE, borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 600 }}>Endereço salvo.</div>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button data-testid="ficha-salvar-endereco" disabled={busyEnd} onClick={() => void salvarEndereco()}
+                    style={{ flex: 1, padding: '12px 16px', borderRadius: 8, border: 'none', background: ESP, color: '#fff', fontSize: 14, fontWeight: 700, cursor: busyEnd ? 'wait' : 'pointer' }}>
+                    {busyEnd ? 'Salvando…' : 'Salvar endereço'}
+                  </button>
+                  <AjudaCampo chave="projetos.obra_ficha.salvar_endereco" rota={ROTA} />
+                </div>
+
+                {/* Localização no mapa — pino lat/long (tela 314, critério h). Sem coordenada do CEP, abre pela busca do endereço; nunca um pino falso. */}
+                <div data-testid="ficha-mapa" style={{ borderTop: `1px solid ${LINE}`, paddingTop: 12, display: 'grid', gap: 8 }}>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700 }}>Localização no mapa</div>
+                  {mapaEmbed && coord ? (
+                    <>
+                      <iframe title="Mapa da obra" data-testid="ficha-mapa-embed" src={mapaEmbed} loading="lazy" referrerPolicy="no-referrer"
+                        style={{ width: '100%', height: 220, border: `1px solid ${LINE}`, borderRadius: 8 }} />
+                      <div style={{ fontSize: 11, color: MUT }}>Ponto aproximado pelo CEP: {coord.lat.toFixed(5)}, {coord.lon.toFixed(5)}.</div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 12, color: MUT }}>
+                      {mapaMsg
+                        ? mapaMsg
+                        : temEndereco
+                          ? 'Este CEP não tem coordenada para fixar o pino. Use “Abrir no mapa” para ver pelo endereço.'
+                          : 'Informe o endereço e o CEP acima para localizar a obra no mapa.'}
+                    </div>
+                  )}
+                  {mapaLink && (
+                    <a data-testid="ficha-mapa-link" href={mapaLink} target="_blank" rel="noopener noreferrer"
+                      style={{ fontSize: 13, color: GOLD, fontWeight: 600, textDecoration: 'none' }}>Abrir no mapa ↗</a>
+                  )}
                 </div>
               </div>
 
