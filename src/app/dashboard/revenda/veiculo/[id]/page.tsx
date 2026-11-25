@@ -1623,11 +1623,26 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
       valor = n
     }
     setConsBusy(true)
-    const { error } = await supabase.from('veic_veiculo').update(cons.consignado
-      ? { consignado: true, consignante_nome: cons.nome.trim(), consignante_documento: doc || null, consignante_valor_combinado: valor }
-      : { consignado: false, consignante_nome: null, consignante_documento: null, consignante_valor_combinado: null }).eq('id', v.id)
+    // #11475: persiste pela função (campos próprios + evento), não por UPDATE direto do cliente que não fechava o fluxo.
+    const { data: { session } } = await supabase.auth.getSession()
+    const { data, error } = await supabase.rpc('fn_veic_consignacao_salvar', {
+      p_veiculo_id: v.id,
+      p_consignado: cons.consignado,
+      p_nome: cons.consignado ? cons.nome.trim() : null,
+      p_documento: cons.consignado ? (doc || null) : null,
+      p_valor: cons.consignado ? valor : null,
+      p_user: session?.user?.id ?? null,
+    })
     setConsBusy(false)
-    if (error) { setConsMsg({ ok: false, t: 'Não foi possível salvar a consignação agora. Tente de novo em instantes.' }); return }
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) {
+      const t = r?.erro === 'nome_obrigatorio' ? 'Informe o nome do consignante.'
+        : r?.erro === 'documento_invalido' ? 'CPF/CNPJ inválido — use 11 ou 14 dígitos.'
+        : r?.erro === 'valor_invalido' ? 'Valor combinado inválido — ex.: 58000 ou 58.000,00.'
+        : r?.erro === 'sem_acesso' ? 'Você não tem acesso a este veículo.'
+        : 'Não foi possível salvar a consignação agora. Tente de novo em instantes.'
+      setConsMsg({ ok: false, t }); return
+    }
     setConsMsg({ ok: true, t: 'Consignação salva.' }); onSaved()
   }
   const [busy, setBusy] = useState(false)
@@ -1785,7 +1800,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
       </div>
       {/* #5662: um único Salvar no fim do card — grava dados do veículo e campos fiscais */}
       <div style={{ borderTop: `1px solid ${C.cream}`, marginTop: 10, paddingTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy ? 'Abrindo…' : 'Abrir OS'}</button>
+        <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy ? 'Salvando…' : 'Salvar dados do veículo'}</button>
         {sujo && <span style={{ fontSize: 12, color: '#8A4B08' }}>Há alterações não salvas.</span>}
         {erroLocal && <div style={{ background: C.redBg, color: C.red, padding: '6px 10px', borderRadius: 7, fontSize: 12 }}>{erroLocal}</div>}
       </div>
