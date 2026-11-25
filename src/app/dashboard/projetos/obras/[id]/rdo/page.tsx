@@ -27,7 +27,18 @@ const dataBR = (d: string | null) => (d ? d.split('-').reverse().join('/') : '')
 const BUCKET = 'projetos-plantas'
 const OS_LANCAVEL = (s: string) => s === 'aberta' || s === 'em_execucao'
 
-type Obra = { company_id: string; numero: string | null; nome: string | null; cliente_nome: string | null; cidade: string | null }
+type Obra = {
+  company_id: string; numero: string | null; nome: string | null; cliente_nome: string | null; cidade: string | null
+  // §321 cabeçalho do diário: endereço completo da obra e responsável (colunas já existentes em projetos_obras)
+  endereco: string | null; numero_endereco: string | null; bairro: string | null; uf: string | null; cep: string | null; responsavel_nome: string | null
+}
+// "Rua X, 100 — Centro — Chapecó/SC — CEP 89802-000" (só o que estiver preenchido)
+const enderecoCompleto = (o: Obra) => {
+  const rua = [o.endereco, o.numero_endereco].filter(Boolean).join(', ')
+  const cidUf = [o.cidade, o.uf].filter(Boolean).join('/')
+  const cep = o.cep && /^\d{8}$/.test(o.cep) ? `CEP ${o.cep.slice(0, 5)}-${o.cep.slice(5)}` : o.cep ? `CEP ${o.cep}` : ''
+  return [rua, o.bairro, cidUf, cep].filter(Boolean).join(' — ')
+}
 type Os = { id: string; numero: string | null; descricao: string | null; status: string }
 type Rdo = {
   id: string; os_id: string; data: string; clima: Clima; praticavel: boolean; efetivo: number
@@ -38,6 +49,7 @@ const VAZIO = { os_id: '', data: '', clima: 'sol' as Clima, praticavel: true, ef
 export default function RdoObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const [obra, setObra] = useState<Obra | null>(null)
+  const [organizacao, setOrganizacao] = useState<string | null>(null)
   const [oss, setOss] = useState<Os[]>([])
   const [rdos, setRdos] = useState<Rdo[]>([])
   const [loading, setLoading] = useState(true)
@@ -56,7 +68,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
     let carregou = false
     try {
       const [o, os, rd] = await comPrazo(async () => await Promise.all([
-        supabase.from('projetos_obras').select('company_id,numero,nome,cliente_nome,cidade').eq('id', id).maybeSingle(),
+        supabase.from('projetos_obras').select('company_id,numero,nome,cliente_nome,cidade,endereco,numero_endereco,bairro,uf,cep,responsavel_nome').eq('id', id).maybeSingle(),
         supabase.from('projetos_obra_os').select('id,numero,descricao,status').eq('obra_id', id).is('excluido_em', null).order('numero', { ascending: true }),
         supabase.from('projetos_obra_rdo').select('id,os_id,data,clima,praticavel,efetivo,atividades,ocorrencias,quantidade_executada,fotos,criado_em')
           .eq('obra_id', id).is('excluido_em', null).order('data', { ascending: false }).order('criado_em', { ascending: false }),
@@ -72,6 +84,10 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
         return
       }
       setObra(o.data as Obra)
+      // §321: organização que conduz a obra (cabeçalho do diário). Falha aqui não derruba a tela.
+      const { data: emp } = await supabase.from('companies').select('razao_social, nome_fantasia').eq('id', (o.data as Obra).company_id).maybeSingle()
+      const e = emp as { razao_social: string | null; nome_fantasia: string | null } | null
+      setOrganizacao(e?.nome_fantasia || e?.razao_social || null)
       setOss(((os.data ?? []) as Os[]))
       setRdos(((rd.data ?? []) as Rdo[]))
       carregou = true
@@ -170,8 +186,31 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
         <h1 style={{ fontSize: 24, margin: '8px 0 4px', fontWeight: 700 }}>Diário de Obra (RDO)</h1>
         <p style={{ fontSize: 14, color: MUT, margin: '0 0 16px', lineHeight: 1.5 }}>
           O Livro de Ordem da obra: um diário por dia e por OS — clima, equipe, o que foi feito, ocorrências e fotos.
-          {obra && <> {' '}<b style={{ color: ESP }}>Obra {obra.numero ?? ''}{obra.nome ? ` · ${obra.nome}` : ''}</b>{obra.cliente_nome ? ` — ${obra.cliente_nome}` : ''}{obra.cidade ? ` (${obra.cidade})` : ''}.</>}
         </p>
+
+        {/* §321 cabeçalho do diário (Livro de Ordem): organização, obra, cliente, endereço e responsável. */}
+        {obra && (
+          <div data-testid="obra-rdo-cabecalho" data-ajuda="projetos.obra_rdo.cabecalho"
+            style={{ border: `1px solid ${LINE}`, borderRadius: 12, background: '#fff', padding: 14, marginBottom: 16, display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+            {([
+              ['Organização', organizacao, 'obra-rdo-cab-org'],
+              ['Obra', `${obra.numero ?? ''}${obra.nome ? ` · ${obra.nome}` : ''}`, 'obra-rdo-cab-obra'],
+              ['Cliente', obra.cliente_nome, 'obra-rdo-cab-cliente'],
+              ['Endereço da obra', enderecoCompleto(obra), 'obra-rdo-cab-endereco'],
+              ['Responsável', obra.responsavel_nome, 'obra-rdo-cab-resp'],
+            ] as [string, string | null, string][]).map(([r, v, t]) => (
+              <div key={t} data-testid={t}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, fontWeight: 700 }}>{r}</div>
+                <div style={{ fontSize: 14, color: v ? ESP : MUT, fontWeight: v ? 600 : 400 }}>{v || 'Não informado'}</div>
+              </div>
+            ))}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: MUT, gridColumn: '1 / -1' }}>
+              <AjudaCampo chave="projetos.obra_rdo.cabecalho" rota={ROTA} />
+              Os dados vêm da ficha da obra.{' '}
+              <Link href={`/dashboard/projetos/obras/${id}/ficha`} data-testid="obra-rdo-cab-ficha" style={{ color: GOLD, fontWeight: 600 }}>Completar na ficha</Link>
+            </div>
+          </div>
+        )}
 
         {loading && <p style={{ color: MUT }}>Carregando…</p>}
         {erro && <div style={{ ...card, borderColor: VERM, color: VERM, marginBottom: 14 }} role="alert">{erro}</div>}
