@@ -75,3 +75,8 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'item_id', p_item_id);
 END;
 $function$;
+
+-- Guardas de privilégio (check:fn-guards): SECURITY DEFINER sem acesso a anon; só authenticated/service_role.
+-- Idempotente e alinhado ao estado vivo em produção (anon já não possui EXECUTE).
+REVOKE ALL ON FUNCTION public.fn_projetos_orcamento_item_eap_excluir(uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_projetos_orcamento_item_eap_excluir(uuid, uuid) TO authenticated, service_role;
