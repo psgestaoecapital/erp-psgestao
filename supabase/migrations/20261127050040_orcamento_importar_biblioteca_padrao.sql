@@ -297,7 +297,7 @@ $function$;
 -- Guarda de função (REVOKE anon + só authenticated) — fn_projetos_orcamento_eap_importar é SECURITY DEFINER e grava.
 REVOKE ALL ON FUNCTION public.fn_projetos_orcamento_eap_importar(uuid, jsonb, text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.fn_projetos_orcamento_eap_importar(uuid, jsonb, text, text) FROM anon;
-GRANT EXECUTE ON FUNCTION public.fn_projetos_orcamento_eap_importar(uuid, jsonb, text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_projetos_orcamento_eap_importar(uuid, jsonb, text, text) TO authenticated, service_role;
 
 -- (d) RD-95: "?" da coluna "Biblioteca padrão PS" na prévia; RD-98: registra o novo RPC em system_screens.
 INSERT INTO public.erp_ajuda_campo
