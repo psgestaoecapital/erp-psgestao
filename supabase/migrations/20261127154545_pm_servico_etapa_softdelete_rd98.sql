@@ -105,6 +105,16 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'job_id', p_job_id, 'etapas', v);
 END $function$;
 
+-- 4b) ACL das SECURITY DEFINER recriadas (check_fn_guards: REVOKE anon no mesmo arquivo) ---
+--     Espelha a ACL viva (authenticated=X, service_role=X; sem anon/PUBLIC). Não amplia
+--     nem reduz acesso — só torna a ACL explícita no arquivo da migration.
+REVOKE ALL ON FUNCTION public.fn_agency_servico_etapa_excluir(uuid, uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_agency_servico_etapa_listar(uuid, uuid)  FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_agency_job_etapas_listar(uuid, uuid)     FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_agency_servico_etapa_excluir(uuid, uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_agency_servico_etapa_listar(uuid, uuid)  TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_agency_job_etapas_listar(uuid, uuid)     TO authenticated, service_role;
+
 -- 5) RD-98 P3 — origem do dado: registra as 3 RPCs novas na tela (idempotente) ---------
 UPDATE public.system_screens
    SET rpcs_chamadas = (
