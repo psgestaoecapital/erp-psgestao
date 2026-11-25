@@ -129,7 +129,7 @@ export default function BotSlackPage() {
     if (r.error || !(r.data as { ok?: boolean })?.ok) {
       setToast((r.data as { erro?: string })?.erro || 'Não foi possível enviar o teste.'); setTestando(false); return
     }
-    setToast('Teste na fila. A entrega ao Slack ainda está sendo ativada — acompanhe o status (Na fila / Enviada / Falhou) no histórico abaixo.')
+    setToast('Teste enviado. Acompanhe o status (Na fila → Enviada) no histórico abaixo.')
     // o resultado chega em segundos (motor assíncrono): recarrega agora e de novo em 2,5 s
     await carregarHistorico()
     setTimeout(() => { void carregarHistorico() }, 2500)
