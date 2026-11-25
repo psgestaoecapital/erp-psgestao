@@ -5,6 +5,7 @@ import { createFiscalService } from '@/lib/fiscal/service'
 import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-builder'
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
+import { notaEspelhoDeNFeReq } from '@/lib/fiscal/espelhoNota'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
 import { validarNFeAvulsa, ufDestino, soDigitos, type CfopSaida, type FinalidadeNFe } from '@/lib/fiscal/nfeAvulsa'
@@ -19,7 +20,15 @@ interface RemessaBody {
   tipoId?: string  // erp_fiscal_remessa_tipos.id (informativo)
   cfop: string     // CFOP final (vem do tipo mas editavel)
   naturezaOperacao: string
-  itens: Array<{ produtoId: string; quantidade: number; valorUnitarioOverride?: number; cfop?: string }>
+  // #9929 (Gean) · impostos do ICMS por item (opcional): CST/CSOSN, base, alíquota e valor do ICMS do item
+  itens: Array<{
+    produtoId: string; quantidade: number; valorUnitarioOverride?: number; cfop?: string
+    icmsCst?: string; icmsBase?: number; icmsAliquota?: number; icmsValor?: number
+    // #9929 · IPI/PIS/COFINS por item (opcional; regime normal). Em branco = comportamento atual.
+    ipiCst?: string; ipiAliquota?: number; ipiValor?: number
+    pisCst?: string; pisAliquota?: number; pisValor?: number
+    cofinsCst?: string; cofinsAliquota?: number; cofinsValor?: number
+  }>
   ambiente?: 'homologacao' | 'producao'
   // #3861 · NF-e avulsa: finalidade + chave referenciada, ICMS da operação (CSOSN/CST), informações complementares, frete
   finalidade?: FinalidadeNFe
@@ -142,6 +151,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       icmsCodigo: body.icmsCodigo,
       simples,
       catalogo: (catalogo ?? []) as CfopSaida[],
+      // #9929 · impostos do ICMS por item para a validação de consistência
+      itensIcms: body.itens.map((it) => ({ cst: it.icmsCst, base: it.icmsBase, aliquota: it.icmsAliquota, valor: it.icmsValor })),
       destinatario: { doc, ie: destAny.ie as string | null, contribuinteIcms: destAny.contribuinte_icms as string | null },
     })
     if (avulsa.erros.length > 0) {
@@ -167,16 +178,48 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     }
 
     const icmsCodigo = soDigitos(body.icmsCodigo)
-    // ICMS escolhido para a operação (remessa não destaca imposto): sem base, alíquota nem valor
-    const icmsOverride = icmsCodigo ? { csosn: icmsCodigo, base: 0, aliquota: 0, valor: 0 } : undefined
+    // ICMS da OPERAÇÃO (nível da nota): remessa não destaca imposto — sem base, alíquota nem valor.
+    // É o default de TODOS os itens; cada item pode sobrescrever (#9929).
+    const icmsOverrideOperacao = icmsCodigo ? { csosn: icmsCodigo, base: 0, aliquota: 0, valor: 0 } : undefined
 
-    const itensBuilder: NFeBuilderItemInput[] = body.itens.map((it, i) => ({
-      produtoId: it.produtoId,
-      quantidade: Number(it.quantidade),
-      valorUnitarioOverride: it.valorUnitarioOverride !== undefined ? Number(it.valorUnitarioOverride) : undefined,
-      cfopOverride: avulsa.itensCfop[i] ?? avulsa.cfop,
-      ...(icmsOverride ? { icmsOverride } : {}),
-    }))
+    const itensBuilder: NFeBuilderItemInput[] = body.itens.map((it, i) => {
+      // #9929 (Gean) · ICMS POR ITEM: quando o item traz CST/base/alíquota/valor, ele destaca o próprio ICMS.
+      // O icmsOverride do builder manda sobre o cadastro do produto. Nada preenchido → cai no ICMS da operação
+      // (comportamento atual, sem regressão nas remessas que não informam imposto por item).
+      const itemCst = soDigitos(it.icmsCst)
+      const temItemIcms = !!itemCst || it.icmsBase !== undefined || it.icmsAliquota !== undefined || it.icmsValor !== undefined
+      const icmsOverride = temItemIcms
+        ? {
+            csosn: itemCst || icmsCodigo || undefined,
+            base: it.icmsBase !== undefined ? Number(it.icmsBase) : 0,
+            aliquota: it.icmsAliquota !== undefined ? Number(it.icmsAliquota) : 0,
+            valor: it.icmsValor !== undefined ? Number(it.icmsValor) : 0,
+          }
+        : icmsOverrideOperacao
+      // #9929 · IPI/PIS/COFINS por item (aditivo): só vão ao builder quando o item informa algum campo.
+      const ipiCst = soDigitos(it.ipiCst)
+      const ipiOverride = (!!ipiCst || it.ipiAliquota !== undefined || it.ipiValor !== undefined)
+        ? { cst: ipiCst || undefined, aliquota: it.ipiAliquota !== undefined ? Number(it.ipiAliquota) : undefined, valor: it.ipiValor !== undefined ? Number(it.ipiValor) : undefined }
+        : undefined
+      const pisCst = soDigitos(it.pisCst)
+      const pisOverride = (!!pisCst || it.pisAliquota !== undefined || it.pisValor !== undefined)
+        ? { cst: pisCst || undefined, aliquota: it.pisAliquota !== undefined ? Number(it.pisAliquota) : undefined, valor: it.pisValor !== undefined ? Number(it.pisValor) : undefined }
+        : undefined
+      const cofinsCst = soDigitos(it.cofinsCst)
+      const cofinsOverride = (!!cofinsCst || it.cofinsAliquota !== undefined || it.cofinsValor !== undefined)
+        ? { cst: cofinsCst || undefined, aliquota: it.cofinsAliquota !== undefined ? Number(it.cofinsAliquota) : undefined, valor: it.cofinsValor !== undefined ? Number(it.cofinsValor) : undefined }
+        : undefined
+      return {
+        produtoId: it.produtoId,
+        quantidade: Number(it.quantidade),
+        valorUnitarioOverride: it.valorUnitarioOverride !== undefined ? Number(it.valorUnitarioOverride) : undefined,
+        cfopOverride: avulsa.itensCfop[i] ?? avulsa.cfop,
+        ...(icmsOverride ? { icmsOverride } : {}),
+        ...(ipiOverride ? { ipiOverride } : {}),
+        ...(pisOverride ? { pisOverride } : {}),
+        ...(cofinsOverride ? { cofinsOverride } : {}),
+      }
+    })
     const chaveRef = soDigitos(body.chaveReferenciada)
 
     const enderecoBuilder = destAny.logradouro
@@ -217,37 +260,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     // /api/fiscal/nfe/emitir) para o operador baixar o PDF "PRÉVIA — SEM VALOR FISCAL". Puramente aditivo —
     // retorna ANTES de validar/emitir: não transmite, não consome numeração/série, não grava nada.
     if (body.apenasPrevia) {
-      const d = nfeReq.destinatario
-      const end = d.endereco
-      const nota = {
-        naturezaOperacao: nfeReq.naturezaOperacao,
-        serie: nfeReq.serie,
-        finalidade: nfeReq.finalidade,
-        consumidorFinal: nfeReq.consumidorFinal ?? null,
-        destinatario: {
-          razaoSocial: d.razaoSocial,
-          documento: d.cnpj || d.cpf || null,
-          tipoDocumento: d.cnpj ? 'CNPJ' : (d.cpf ? 'CPF' : null),
-          email: d.email ?? null,
-          endereco: end ? [end.logradouro, end.numero, end.bairro, end.cidade, end.uf, end.cep].filter(Boolean).join(', ') : null,
-        },
-        itens: nfeReq.itens.map((it) => ({
-          descricao: it.descricao,
-          ncm: it.ncm ?? null,
-          cfop: it.cfop ?? null,
-          cst: it.icms?.cst ?? null,
-          cBenef: it.icms?.cBenef ?? null,
-          chassi: it.veiculo?.chassi ?? null,
-          icmsBase: it.icms?.base ?? null,
-          icmsValor: it.icms?.valor ?? null,
-          ibsCbs: it.ibsCbs ? { base: it.ibsCbs.baseCalculo, cbs: it.ibsCbs.cbsValor, ibs: it.ibsCbs.ibsValorTotal } : null,
-          valorTotal: it.valorTotal,
-        })),
-        totais: {
-          produtos: nfeReq.itens.reduce((acc, i) => acc + i.valorTotal, 0),
-          ibsCbs: nfeReq.ibsCbsTotais ? { base: nfeReq.ibsCbsTotais.baseCalculo, cbs: nfeReq.ibsCbsTotais.cbsValor, ibs: nfeReq.ibsCbsTotais.ibsValor } : null,
-        },
-      }
+      const nota = await notaEspelhoDeNFeReq(nfeReq, body.companyId)
       return NextResponse.json({ ok: true, previa: { informacoesComplementares: nfeReq.observacoes ?? '', nota } })
     }
 
