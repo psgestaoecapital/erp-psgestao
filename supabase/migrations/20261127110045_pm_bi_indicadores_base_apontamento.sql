@@ -63,3 +63,8 @@ BEGIN
   WHERE c.area='pm' AND c.bloco='agencia'
   ORDER BY c.sigla;
 END $function$;
+
+-- Reafirma a ACL viva (check_fn_guards: todo CREATE OR REPLACE de SECURITY DEFINER
+-- precisa repetir o REVOKE anon/PUBLIC no texto; grants idênticos ao vivo).
+REVOKE ALL ON FUNCTION public.fn_pm_bi_indicadores(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_pm_bi_indicadores(uuid[]) TO authenticated, service_role;
