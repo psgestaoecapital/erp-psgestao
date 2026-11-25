@@ -100,3 +100,8 @@ BEGIN
   RETURN jsonb_build_object('ok', true,
     'gerados', (SELECT COUNT(*) FROM erp_alerta_proativo WHERE company_id = p_company_id AND NOT resolvido AND NOT dispensado));
 END; $function$;
+
+-- Guarda de função (check_fn_guards): CREATE OR REPLACE de função SECURITY DEFINER
+-- exige REVOKE anon explícito no mesmo arquivo. Mantém os grants de produção (authenticated, service_role).
+REVOKE ALL ON FUNCTION public.fn_alertas_gerar_automaticos(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_alertas_gerar_automaticos(uuid) TO authenticated, service_role;
