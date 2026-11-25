@@ -6,11 +6,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Package, HardHat, Wrench, ChevronDown, ChevronRight, Loader2, Info } from "lucide-react";
+import { Package, HardHat, Wrench, ShieldCheck, Hammer, ChevronDown, ChevronRight, Loader2, Info } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
-type Tipo = "material" | "mao_obra" | "equipamento";
+type Tipo = "material" | "mao_obra" | "equipamento" | "epi" | "ferramentas";
 interface CpuItem {
   tipo: Tipo;
   codigo: string | null;
@@ -29,6 +29,8 @@ interface CpuHeader {
   custo_material: number;
   custo_mao_obra: number;
   custo_equipamento: number;
+  custo_epi: number;
+  custo_ferramentas: number;
   custo_total: number;
   preco_venda: number | null;
   margem_rs: number | null;
@@ -78,6 +80,8 @@ const TIPO_META: Record<Tipo, { label: string; icon: typeof Package; chip: strin
   material: { label: "Material", icon: Package, chip: "bg-emerald-50 text-emerald-700" },
   mao_obra: { label: "Mão de obra", icon: HardHat, chip: "bg-blue-50 text-blue-700" },
   equipamento: { label: "Equipamento", icon: Wrench, chip: "bg-purple-50 text-purple-700" },
+  epi: { label: "EPI", icon: ShieldCheck, chip: "bg-amber-50 text-amber-700" },
+  ferramentas: { label: "Ferramentas", icon: Hammer, chip: "bg-orange-50 text-orange-700" },
 };
 
 export function ComposicaoCpu({
@@ -195,7 +199,7 @@ export function ComposicaoCpu({
               </thead>
               <tbody>
                 {data.itens.map((it, i) => {
-                  const meta = TIPO_META[it.tipo];
+                  const meta = TIPO_META[it.tipo] ?? TIPO_META.material;
                   const Icon = meta.icon;
                   return (
                     <tr key={i} className="border-b border-[#3D2314]/6 last:border-0">
@@ -236,6 +240,8 @@ export function ComposicaoCpu({
               <Rodape label="Custo material" valor={data.header.custo_material} chave="projetos.catalogo.cpu.custo_material" rota={rotaAjuda} />
               <Rodape label="Custo mão de obra" valor={data.header.custo_mao_obra} chave="projetos.catalogo.cpu.custo_mao_obra" rota={rotaAjuda} />
               <Rodape label="Custo equipamento" valor={data.header.custo_equipamento} chave="projetos.catalogo.cpu.custo_equipamento" rota={rotaAjuda} />
+              <Rodape label="Custo ferramentas" valor={data.header.custo_ferramentas ?? 0} chave="projetos.catalogo.cpu.custo_ferramentas" rota={rotaAjuda} />
+              <Rodape label="Custo EPI" valor={data.header.custo_epi ?? 0} chave="projetos.catalogo.cpu.custo_epi" rota={rotaAjuda} />
               <div className="flex items-center justify-between border-t border-[#3D2314]/8 pt-1.5">
                 <span className="inline-flex items-center gap-1 text-sm font-medium text-[#3D2314]">Custo total (direto) <AjudaCampo chave="projetos.catalogo.cpu.custo_total" rota={rotaAjuda} /></span>
                 <span className="font-mono text-base font-medium text-[#3D2314]">{brl(data.header.custo_total)}</span>
