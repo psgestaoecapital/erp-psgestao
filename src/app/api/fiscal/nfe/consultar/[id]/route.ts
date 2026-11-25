@@ -21,7 +21,7 @@ export const GET = withAuth(async (
 
     const { data: nota } = await supabaseAdmin
       .from('erp_nfe_emitidas')
-      .select('id, company_id, provider_reference, chave, status, numero, xml_url, danfe_url, motivo_rejeicao')
+      .select('id, company_id, provider_reference, chave, status, numero, xml_url, danfe_url, motivo_rejeicao, protocolo')
       .eq('id', params.id)
       .maybeSingle()
 
@@ -49,6 +49,10 @@ export const GET = withAuth(async (
             xml_url: atual.xmlUrl ?? nota.xml_url,
             danfe_url: atual.danfeUrl ?? nota.danfe_url,
             motivo_rejeicao: atual.motivoRejeicao ?? nota.motivo_rejeicao,
+            // #DANFE · na autorização assíncrona (polling), persiste o protocolo que a Focus traz (igual ao
+            // provider_raw->>'protocolo'); antes só o provider_raw era gravado e a COLUNA protocolo ficava vazia,
+            // fazendo a rota do DANFE cair no 409 e mostrar o PDF do provedor. Preserva o existente se não vier.
+            protocolo: atual.protocolo ?? nota.protocolo,
             provider_raw: atual.providerRaw ?? null,
           })
           .eq('id', params.id)
