@@ -47,6 +47,7 @@ type PessoaPonto = {
   funcionario_id: string; nome: string; cpf: string | null; matricula: string | null; funcao_ponto: string | null;
   funcao_id: string | null; funcao_sugerida: string | null; setor: string | null; admissao: string | null;
   jornada_horas_mes: number | null; remuneracao: number | null; folha_competencia: string | null; verbas: VerbaSugerida[];
+  alerta_folha: string | null;   // matrícula da folha com outro nome → sem sugestão, só ficha manual
 };
 type PessoasPonto = { pode_ver_individual: boolean; competencia: string | null; pessoas: PessoaPonto[] };
 type PessoaExistente = { funcionario_id: string; nome: string; cpf: string | null; data_admissao: string | null; setor: string | null; selo: string };
@@ -1238,9 +1239,10 @@ function PessoasDoPonto({ pessoas, pode, setorFiltro, setSetorFiltro, sel2, setS
   const lista = pessoas?.pessoas ?? [];
   const setores = Array.from(new Set(lista.map((p) => p.setor).filter(Boolean))) as string[];
   const visiveis = setorFiltro ? lista.filter((p) => p.setor === setorFiltro) : lista;
-  const selecionadas = visiveis.filter((p) => sel2.has(p.funcionario_id));
+  const selecionaveis = visiveis.filter((p) => !p.alerta_folha);   // alerta de folha → só ficha manual, fora do lote
+  const selecionadas = selecionaveis.filter((p) => sel2.has(p.funcionario_id));
   const toggle = (id: string) => { const n = new Set(sel2); if (n.has(id)) n.delete(id); else n.add(id); setSel2(n); };
-  const toggleTodos = () => setSel2(selecionadas.length === visiveis.length && visiveis.length > 0 ? new Set() : new Set(visiveis.map((p) => p.funcionario_id)));
+  const toggleTodos = () => setSel2(selecionadas.length === selecionaveis.length && selecionaveis.length > 0 ? new Set() : new Set(selecionaveis.map((p) => p.funcionario_id)));
   const verbasTxt = (p: PessoaPonto) => (p.verbas ?? []).filter((v) => Number(v.valor) > 0).map((v) => `${v.descricao}: ${brl(Number(v.valor))}`).join(" · ");
   return (
     <div className="space-y-3" data-testid="mao-obra-pessoas-ponto">
@@ -1265,7 +1267,7 @@ function PessoasDoPonto({ pessoas, pode, setorFiltro, setSetorFiltro, sel2, setS
       <div className="overflow-auto max-h-[62vh] rounded-md border border-[#3D2314]/10">
         <table className="w-full text-[12.5px]" data-testid="mao-obra-ponto-tabela">
           <thead className="sticky top-0 z-10 bg-[#FAF7F2]"><tr className="text-left text-[#3D2314]/60 border-b border-[#3D2314]/10">
-            {pode && <th className="py-2 px-2"><input type="checkbox" checked={visiveis.length > 0 && selecionadas.length === visiveis.length} onChange={toggleTodos} data-testid="mao-obra-ponto-todos" aria-label="Selecionar todos" /><AjudaCampo chave="projetos.mao_obra.ponto.sel" /></th>}
+            {pode && <th className="py-2 px-2"><input type="checkbox" checked={selecionaveis.length > 0 && selecionadas.length === selecionaveis.length} onChange={toggleTodos} data-testid="mao-obra-ponto-todos" aria-label="Selecionar todos" /><AjudaCampo chave="projetos.mao_obra.ponto.sel" /></th>}
             <th className="pr-2">Nome<AjudaCampo chave="projetos.mao_obra.ponto.col_nome" /></th>
             <th className="pr-2">Matrícula<AjudaCampo chave="projetos.mao_obra.ponto.col_matricula" /></th>
             <th className="pr-2">Função no ponto<AjudaCampo chave="projetos.mao_obra.ponto.col_funcao_ponto" /></th>
@@ -1282,7 +1284,7 @@ function PessoasDoPonto({ pessoas, pode, setorFiltro, setSetorFiltro, sel2, setS
             {pessoas !== null && visiveis.length === 0 && <tr><td colSpan={11} className="py-6 text-center text-[#3D2314]/60" data-testid="mao-obra-ponto-vazia">Ninguém do ponto sem ficha. Traga as funções do ponto e, se faltar gente, importe o ponto primeiro.</td></tr>}
             {visiveis.map((p) => (
               <tr key={p.funcionario_id} className="border-b border-[#3D2314]/5" data-testid={`mao-obra-ponto-linha-${p.funcionario_id}`}>
-                {pode && <td className="px-2"><input type="checkbox" checked={sel2.has(p.funcionario_id)} onChange={() => toggle(p.funcionario_id)} data-testid="mao-obra-ponto-sel" aria-label={`Selecionar ${p.nome}`} /></td>}
+                {pode && <td className="px-2">{p.alerta_folha ? <span title={p.alerta_folha} className="text-[#8A5A00]" data-testid="mao-obra-ponto-sem-lote">⚠</span> : <input type="checkbox" checked={sel2.has(p.funcionario_id)} onChange={() => toggle(p.funcionario_id)} data-testid="mao-obra-ponto-sel" aria-label={`Selecionar ${p.nome}`} />}</td>}
                 <td className="py-2 pr-2">{p.nome}{p.cpf && <span className="block text-[10.5px] text-[#3D2314]/50">CPF {p.cpf}</span>}</td>
                 <td className="pr-2 tabular-nums">{p.matricula ?? "—"}</td>
                 <td className="pr-2">{p.funcao_ponto ?? "—"}</td>
@@ -1290,7 +1292,7 @@ function PessoasDoPonto({ pessoas, pode, setorFiltro, setSetorFiltro, sel2, setS
                 <td className="pr-2">{p.setor ?? "—"}</td>
                 <td className="pr-2 tabular-nums">{p.admissao ? new Date(p.admissao + "T00:00:00").toLocaleDateString("pt-BR") : "—"}</td>
                 <td className="pr-2 text-right tabular-nums">{Number(p.jornada_horas_mes) > 0 ? Number(p.jornada_horas_mes).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) : "—"}</td>
-                <td className="pr-2 text-right tabular-nums">{pode ? (Number(p.remuneracao) > 0 ? <>{brl(Number(p.remuneracao))}{p.folha_competencia && <span className="block text-[10.5px] text-[#3D2314]/50">folha {compMMAAAA(p.folha_competencia)}</span>}</> : "—") : <Lock size={12} className="inline" />}</td>
+                <td className="pr-2 text-right tabular-nums">{pode ? (p.alerta_folha ? <span className="text-[11px] text-[#8A5A00] font-normal" data-testid="mao-obra-ponto-alerta-folha">{p.alerta_folha}</span> : Number(p.remuneracao) > 0 ? <>{brl(Number(p.remuneracao))}{p.folha_competencia && <span className="block text-[10.5px] text-[#3D2314]/50">folha {compMMAAAA(p.folha_competencia)}</span>}</> : "—") : <Lock size={12} className="inline" />}</td>
                 <td className="pr-2 text-[11.5px] max-w-[220px]">{pode ? (verbasTxt(p) || "—") : <Lock size={12} className="inline" />}</td>
                 <td className="text-right whitespace-nowrap">{pode && <><button className="text-[12px] underline text-[#C8941A]" data-testid="mao-obra-ponto-criar-ficha" onClick={() => onCriarFicha(p)}><UserPlus size={12} className="inline" /> Criar ficha</button><AjudaCampo chave="projetos.mao_obra.ponto.acao.criar_ficha" /></>}</td>
               </tr>
@@ -1298,7 +1300,7 @@ function PessoasDoPonto({ pessoas, pode, setorFiltro, setSetorFiltro, sel2, setS
           </tbody>
         </table>
       </div>
-      <p className="text-[11.5px] text-[#3D2314]/60">A sugestão vem da última folha de cada pessoa (remuneração + adicionais) e da escala do ponto (jornada). Toda ficha nasce <b>não conferida</b> — confira antes de entrar no custo. “Criar ficha” abre a ficha completa já preenchida; “Criar fichas em lote” salva as selecionadas de uma vez.</p>
+      <p className="text-[11.5px] text-[#3D2314]/60">A sugestão vem da última folha de cada pessoa (remuneração + adicionais) e da escala do ponto (jornada). Toda ficha nasce <b>não conferida</b> — confira antes de entrar no custo. “Criar ficha” abre a ficha completa já preenchida; “Criar fichas em lote” salva as selecionadas de uma vez. Quem aparece com <span className="text-[#8A5A00]">⚠ “matrícula da folha com outro nome”</span> fica fora do lote — só ficha manual, para você conferir o salário.</p>
     </div>
   );
 }
