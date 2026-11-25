@@ -209,9 +209,9 @@ export default function FrotaPage() {
               </span>
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-              <div><span style={{ color: TXM }}>Km atual</span><div className="font-semibold">{num(v.km_atual)}</div></div>
-              <div><span style={{ color: TXM }}>Consumo</span><div className="font-semibold">{kmL(v.consumo_km_l)}</div></div>
-              <div><span style={{ color: TXM }}>Custo/km</span><div className="font-semibold">{v.custo_por_km != null ? moeda(v.custo_por_km) : "—"}</div></div>
+              <div><span style={{ color: TXM }} className="inline-flex items-center">Km atual<AjudaCampo chave="projetos.frota.km_atual" rota={ROTA} /></span><div className="font-semibold">{num(v.km_atual)}</div></div>
+              <div><span style={{ color: TXM }} className="inline-flex items-center">Consumo<AjudaCampo chave="projetos.frota.consumo" rota={ROTA} /></span><div className="font-semibold">{kmL(v.consumo_km_l)}</div></div>
+              <div><span style={{ color: TXM }} className="inline-flex items-center">Custo/km<AjudaCampo chave="projetos.frota.custo_km" rota={ROTA} /></span><div className="font-semibold">{v.custo_por_km != null ? moeda(v.custo_por_km) : "—"}</div></div>
             </div>
             <div className="mt-3 space-y-1">
               {v.planos.length === 0 && <div className="text-xs" style={{ color: TXM }}>Sem plano preventivo</div>}
