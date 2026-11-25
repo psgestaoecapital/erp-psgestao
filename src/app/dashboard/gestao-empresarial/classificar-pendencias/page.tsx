@@ -316,8 +316,11 @@ function ContaPicker({ empresa, valor, onPick }: { empresa: string; valor: Escol
         </div>
       ) : (
         <>
-          <input autoFocus={abertoCp} value={q} onChange={e => setQ(e.target.value)} onFocus={() => setAbertoCp(true)}
-            placeholder="Buscar conta…" style={{ ...inp, minWidth: 180 }} />
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <AjudaCampo chave="ge.classificar.conta" />
+            <input autoFocus={abertoCp} value={q} onChange={e => setQ(e.target.value)} onFocus={() => setAbertoCp(true)}
+              placeholder="Buscar conta…" style={{ ...inp, minWidth: 180 }} />
+          </label>
           {abertoCp && (
             <div style={{ position: 'absolute', zIndex: 20, top: '100%', left: 0, right: 0, background: CARD, border: `1px solid ${LINE}`, borderRadius: 10, marginTop: 4, maxHeight: 240, overflowY: 'auto', boxShadow: '0 8px 24px rgba(61,35,20,0.12)' }}>
               {opts.length === 0 ? (
