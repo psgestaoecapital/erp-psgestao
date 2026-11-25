@@ -13,6 +13,14 @@ const ROTA = '/dashboard/projetos/obras/[id]/cockpit'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
 const brl = (n: number | null | undefined) => (n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
+// Situação da obra no cabeçalho do cockpit (a situação é mudada na lista de Obras; aqui só mostra).
+const STATUS_OBRA: Record<string, { label: string; cor: string; bg: string }> = {
+  em_andamento: { label: 'Em andamento', cor: GOLD, bg: 'rgba(200,148,26,0.12)' },
+  concluida: { label: 'Concluída', cor: VERDE, bg: 'rgba(22,163,74,0.12)' },
+  pausada: { label: 'Pausada', cor: '#92400E', bg: 'rgba(146,64,14,0.10)' },
+  cancelada: { label: 'Cancelada', cor: VERM, bg: 'rgba(185,28,28,0.10)' },
+}
+
 type Resultado = {
   obra_id: string; numero: string; nome: string | null; status: string
   custo_previsto: number; receita_prevista: number; receita_servico: number; receita_material: number
@@ -159,6 +167,15 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 24, fontWeight: 400, color: ESP, margin: '2px 0 2px' }}>
           Cockpit {r ? `· ${r.numero}${r.nome ? ` — ${r.nome}` : ''}` : ''}
         </h1>
+        {r && (() => {
+          const s = STATUS_OBRA[r.status] ?? { label: r.status || 'Situação não informada', cor: MUT, bg: 'rgba(61,35,20,0.06)' }
+          return (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, margin: '4px 0 2px' }}>
+              <span data-testid="cockpit-status-obra" style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: s.cor, background: s.bg, borderRadius: 999, padding: '2px 10px' }}>{s.label}</span>
+              <AjudaCampo chave="projetos.cockpit.status_obra" rota={ROTA} />
+            </div>
+          )
+        })()}
         {r && (info?.cliente_nome || info?.cidade) && (
           <div style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>{[info?.cliente_nome, info?.cidade].filter(Boolean).join(' · ')}</div>
         )}
