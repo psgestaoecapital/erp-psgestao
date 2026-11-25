@@ -580,12 +580,12 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                     {memOpen && (
                       <div data-testid={`orc-item-memorial-form-${it.item_id}`} style={{ padding: '2px 0 14px', display: 'grid', gap: 10 }}>
                         {memErro && <div role="alert" style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: 8, fontSize: 12 }}>{memErro}</div>}
-                        <div>
+                        <div data-ajuda="projetos.orcamento_eap.item_memorial">
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700, marginBottom: 4 }}>Memorial descritivo <AjudaCampo chave="projetos.orcamento_eap.item_memorial" rota={ROTA} /></div>
                           <textarea data-testid={`orc-item-memorial-texto-${it.item_id}`} value={memForm.memorial} onChange={(e) => setMemForm({ ...memForm, memorial: e.target.value })} rows={3}
                             placeholder="O que será executado neste serviço: método, etapas e acabamento." style={{ ...campo, resize: 'vertical' }} />
                         </div>
-                        <div>
+                        <div data-ajuda="projetos.orcamento_eap.item_especificacao">
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700, marginBottom: 4 }}>Especificação técnica <AjudaCampo chave="projetos.orcamento_eap.item_especificacao" rota={ROTA} /></div>
                           <textarea data-testid={`orc-item-especificacao-texto-${it.item_id}`} value={memForm.especificacao} onChange={(e) => setMemForm({ ...memForm, especificacao: e.target.value })} rows={3}
                             placeholder="Materiais, normas técnicas (ex.: ABNT NBR), traço, resistência e referências." style={{ ...campo, resize: 'vertical' }} />
