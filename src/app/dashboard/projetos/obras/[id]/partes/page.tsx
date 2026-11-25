@@ -121,7 +121,7 @@ export default function PartesObraPage({ params }: { params: Promise<{ id: strin
               </div>
             </div>
             <div>
-              <div style={lbl}>Observação</div>
+              <div style={lbl}>Observação <AjudaCampo chave="projetos.obra_parte.observacao" rota={ROTA} /></div>
               <input data-testid="partes-observacao" style={campo} value={form.observacao} onChange={(e) => setForm({ ...form, observacao: e.target.value })} placeholder="Observação (opcional)" />
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
