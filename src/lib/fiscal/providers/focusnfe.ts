@@ -562,6 +562,41 @@ export class FocusNFeProvider implements FiscalProvider {
       ...(req.totais?.seguro ? { valor_seguro: req.totais.seguro } : {}),
       ...(req.totais?.outrasDespesas ? { valor_outras_despesas: req.totais.outrasDespesas } : {}),
       ...(req.totais?.desconto ? { desconto: req.totais.desconto } : {}),
+      // #5722 · Grupo de transporte (nomes oficiais da Focus). Só vão os campos preenchidos; sem transporte = como hoje.
+      ...(() => {
+        const t = req.transporte
+        if (!t) return {}
+        const out: Record<string, unknown> = {}
+        const tr = t.transportador
+        if (tr) {
+          const doc = (tr.cnpj ?? tr.cpf ?? '').replace(/\D/g, '')
+          if (doc.length === 14) out.cnpj_transportador = doc
+          else if (doc.length === 11) out.cpf_transportador = doc
+          if (tr.nome?.trim()) out.nome_transportador = tr.nome.trim()
+          if (tr.inscricaoEstadual?.trim()) out.inscricao_estadual_transportador = tr.inscricaoEstadual.trim()
+          if (tr.endereco?.trim()) out.endereco_transportador = tr.endereco.trim()
+          if (tr.municipio?.trim()) out.municipio_transportador = tr.municipio.trim()
+          if (tr.uf?.trim()) out.uf_transportador = tr.uf.trim().toUpperCase()
+        }
+        const v = t.veiculo
+        if (v?.placa?.trim()) {
+          out.veiculo_placa = v.placa.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+          if (v.uf?.trim()) out.veiculo_uf = v.uf.trim().toUpperCase()
+          if (v.rntc?.trim()) out.veiculo_rntc = v.rntc.trim()
+        }
+        if (t.volumes?.length) {
+          const vols = t.volumes.map((vol) => ({
+            ...(vol.quantidade != null ? { quantidade: vol.quantidade } : {}),
+            ...(vol.especie?.trim() ? { especie: vol.especie.trim() } : {}),
+            ...(vol.pesoLiquido != null ? { peso_liquido: vol.pesoLiquido } : {}),
+            ...(vol.pesoBruto != null ? { peso_bruto: vol.pesoBruto } : {}),
+            ...(vol.marca?.trim() ? { marca: vol.marca.trim() } : {}),
+            ...(vol.numero?.trim() ? { numero: vol.numero.trim() } : {}),
+          })).filter((o) => Object.keys(o).length > 0)
+          if (vols.length) out.volumes = vols
+        }
+        return out
+      })(),
       // FIX-NFE-SERIE-PAYLOAD-v1
       // Sem este campo, Focus numerava na sua serie padrao (1) ·
       // colidia com numeracao Omie historica → rejeicao SEFAZ 539

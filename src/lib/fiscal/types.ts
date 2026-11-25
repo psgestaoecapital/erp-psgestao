@@ -223,6 +223,13 @@ export interface NFeRequest {
     desconto?: number
     modalidadeFrete?: number   // 0 CIF · 1 FOB · 2 por conta de terceiros · 3/4 próprio · 9 sem frete
   }
+  // #5722 · grupo de transporte (opcional). modalidadeFrete fica em totais (modFrete). Aqui o transportador,
+  // o veículo e os volumes — só vão à NF-e quando informados (sem preencher = comportamento atual).
+  transporte?: {
+    transportador?: { nome?: string; cnpj?: string; cpf?: string; inscricaoEstadual?: string; endereco?: string; municipio?: string; uf?: string }
+    veiculo?: { placa?: string; uf?: string; rntc?: string }
+    volumes?: Array<{ quantidade?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; marca?: string; numero?: string }>
+  }
 }
 
 export interface NFeResponse {
