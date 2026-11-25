@@ -47,6 +47,11 @@ export interface NFeBuilderItemInput {
   // csosn = codigo do Simples (config csosn_devolucao, default 900); base/aliquota/valor da entrada.
   // Quando presente, tem prioridade sobre o default do regime.
   icmsOverride?: { csosn?: string; base?: number; aliquota?: number; valor?: number; modBc?: string }
+  // #9929 (NF-e avulsa) · IPI/PIS/COFINS informados POR ITEM (aditivo, opt-in). Ausente = comportamento atual
+  // (IPI sem grupo; PIS/COFINS do cadastro do produto / regime). Preenchido, cada campo informado prevalece.
+  ipiOverride?: { cst?: string; aliquota?: number; valor?: number }
+  pisOverride?: { cst?: string; aliquota?: number; valor?: number }
+  cofinsOverride?: { cst?: string; aliquota?: number; valor?: number }
 }
 
 export interface NFeBuilderInput {
@@ -497,15 +502,35 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
                 : {}),
             }
           })(),
-      ipi: undefined, // Simples Nacional / revenda: sem grupo IPI
-      pis: {
-        cst: prod.cst_pis?.trim() || undefined,
-        aliquota: prod.aliquota_pis ?? (ehSimples ? 0 : undefined),
-      },
-      cofins: {
-        cst: prod.cst_cofins?.trim() || undefined,
-        aliquota: prod.aliquota_cofins ?? (ehSimples ? 0 : undefined),
-      },
+      // #9929 · IPI só quando informado por item (NF-e avulsa); senão sem grupo IPI (comportamento atual).
+      ipi: it.ipiOverride
+        ? {
+            cst: it.ipiOverride.cst?.trim() || undefined,
+            aliquota: it.ipiOverride.aliquota ?? undefined,
+            ...(it.ipiOverride.valor != null ? { valor: it.ipiOverride.valor } : {}),
+          }
+        : undefined,
+      // #9929 · PIS/COFINS: override por item prevalece campo a campo; sem override = cadastro/regime (sem regressão).
+      pis: it.pisOverride
+        ? {
+            cst: it.pisOverride.cst?.trim() || prod.cst_pis?.trim() || undefined,
+            aliquota: it.pisOverride.aliquota ?? prod.aliquota_pis ?? (ehSimples ? 0 : undefined),
+            ...(it.pisOverride.valor != null ? { valor: it.pisOverride.valor } : {}),
+          }
+        : {
+            cst: prod.cst_pis?.trim() || undefined,
+            aliquota: prod.aliquota_pis ?? (ehSimples ? 0 : undefined),
+          },
+      cofins: it.cofinsOverride
+        ? {
+            cst: it.cofinsOverride.cst?.trim() || prod.cst_cofins?.trim() || undefined,
+            aliquota: it.cofinsOverride.aliquota ?? prod.aliquota_cofins ?? (ehSimples ? 0 : undefined),
+            ...(it.cofinsOverride.valor != null ? { valor: it.cofinsOverride.valor } : {}),
+          }
+        : {
+            cst: prod.cst_cofins?.trim() || undefined,
+            aliquota: prod.aliquota_cofins ?? (ehSimples ? 0 : undefined),
+          },
       ...(comb ? { comb } : {}),
     }
   })
