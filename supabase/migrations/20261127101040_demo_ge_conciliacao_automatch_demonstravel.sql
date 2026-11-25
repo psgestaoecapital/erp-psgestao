@@ -31,6 +31,7 @@ DECLARE
   v_pf date := CURRENT_DATE;
 BEGIN
   IF p_company <> v_bot THEN RETURN jsonb_build_object('ok', false, 'erro', 'so_empresa_demo_ge'); END IF;
+  -- ci-sem-guarda: fn_demo_seed_ge_bancos — só a empresa de demonstração fixa da GE (b0700000-…-004, is_demo); guarda explícita acima (fail-closed p_company <> v_bot) garante que só escreve na DEMO; sem GRANT a anon, roda pelo fn_demo_reset (service_role).
 
   -- ── RESET idempotente e determinístico (FK-safe) ──
   -- A empresa é 100% demo (is_demo/auditoria): sua conciliação e suas contas bancárias são
