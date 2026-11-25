@@ -281,7 +281,16 @@ BEGIN
   PERFORM consultor.fn_log(p_sql, v_rows, v_ms, NULL, p_pergunta_id);
   RETURN jsonb_build_object('linhas', v_rows, 'truncado', (v_rows >= 200), 'ms', v_ms, 'dados', COALESCE(v_res, '[]'::jsonb));
 END; $$;
+-- O "ALTER FUNCTION ... OWNER TO consultor_leitor" exige que o NOVO dono tenha CREATE no schema da função
+-- (public). consultor_leitor nasce sem CREATE (confinamento proposital). No Supabase gerenciado o papel do deploy
+-- (postgres) NÃO é superusuário, então a troca de dono é recusada com "permission denied for schema public"
+-- (SQLSTATE 42501). Concedemos CREATE em public só o instante da troca de dono e REVOGAMOS logo em seguida: o
+-- estado final é IDÊNTICO ao pretendido (consultor_leitor dono da função, SEM CREATE em public). Provado na
+-- produção em BEGIN...ROLLBACK (gilberto-esteira, 25/11): sem o grant a troca falha; com o grant transiente ela
+-- passa e, após o REVOKE, has_schema_privilege(consultor_leitor,'public','CREATE') volta a false.
+GRANT CREATE ON SCHEMA public TO consultor_leitor;
 ALTER FUNCTION public.fn_consultor_sql(uuid, text, uuid) OWNER TO consultor_leitor;
+REVOKE CREATE ON SCHEMA public FROM consultor_leitor;
 REVOKE ALL ON FUNCTION public.fn_consultor_sql(uuid, text, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_consultor_sql(uuid, text, uuid) TO authenticated, service_role;
 -- fn_consultor_sql roda COMO consultor_leitor (definer): precisa validar acesso pelas funções de empresa (não têm
