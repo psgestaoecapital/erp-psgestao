@@ -24,16 +24,22 @@ export const GET = withAuth(async (
 
     const { data } = await supabaseAdmin
       .from('erp_nfe_emitidas')
-      .select('id, company_id, numero, serie, chave, protocolo, data_emissao, natureza_operacao, status, valor_total, valor_produtos, valor_frete, valor_desconto, valor_icms, valor_ipi, valor_pis, valor_cofins, emitente_cnpj, emitente_razao_social, emitente_inscricao_estadual, destinatario_cnpj, destinatario_cpf, destinatario_razao_social, destinatario_endereco, itens, payload_enviado')
+      .select('id, company_id, numero, serie, chave, protocolo, data_emissao, natureza_operacao, status, valor_total, valor_produtos, valor_frete, valor_desconto, valor_icms, valor_ipi, valor_pis, valor_cofins, emitente_cnpj, emitente_razao_social, emitente_inscricao_estadual, destinatario_cnpj, destinatario_cpf, destinatario_razao_social, destinatario_endereco, itens, payload_enviado, provider_raw')
       .eq('id', params.id)
       .maybeSingle()
     if (!data) return NextResponse.json({ ok: false, mensagem: 'NFe nao encontrada' }, { status: 404 })
-    const nota = data as unknown as NotaEmitidaRow & { id: string; company_id: string }
+    const nota = data as unknown as NotaEmitidaRow & { id: string; company_id: string; provider_raw?: { protocolo?: string | null } | null }
 
     const negado = await guardaEmpresaFiscal({ userId, companyId: nota.company_id, papelMinimo: 'membro', log: { notaTipo: 'nfe', notaId: params.id, operacao: 'danfe_pdf', endpoint: 'nfe/danfe' } })
     if (negado) return negado
 
-    if (nota.status !== 'autorizada' || !(nota.protocolo ?? '').trim() || String(nota.chave ?? '').replace(/\D/g, '').length !== 44) {
+    // O protocolo de autorização vem da COLUNA; quando ela está vazia (muitas notas autorizadas ficaram sem gravar),
+    // cai para provider_raw->>'protocolo' (a resposta crua da Focus sempre o traz). Sem isto, a nota autorizada com
+    // chave mas sem a coluna caía no 409 e o "Abrir PDF" mostrava o DANFE do provedor, fora do nosso leiaute.
+    const protocoloEfetivo = (nota.protocolo ?? '').trim() || String(nota.provider_raw?.protocolo ?? '').trim()
+    nota.protocolo = protocoloEfetivo || null
+
+    if (nota.status !== 'autorizada' || !protocoloEfetivo || String(nota.chave ?? '').replace(/\D/g, '').length !== 44) {
       return NextResponse.json({ ok: false, mensagem: 'O DANFE só existe para nota autorizada (com chave e protocolo).' }, { status: 409 })
     }
     if (!Array.isArray(nota.itens) || nota.itens.length === 0) {
