@@ -24,6 +24,8 @@ const CLIMAS: [Clima, string][] = [['sol', 'Sol'], ['nublado', 'Nublado'], ['chu
 const rotuloClima = (c: string) => CLIMAS.find(([v]) => v === c)?.[1] ?? c
 const hoje = () => new Date().toISOString().slice(0, 10)
 const dataBR = (d: string | null) => (d ? d.split('-').reverse().join('/') : '')
+// data (YYYY-MM-DD) a partir do timestamp de registro (criado_em), para separar execução × registro
+const dataDeTs = (ts: string | null) => (ts ? ts.slice(0, 10) : '')
 const BUCKET = 'projetos-plantas'
 const OS_LANCAVEL = (s: string) => s === 'aberta' || s === 'em_execucao'
 
@@ -217,7 +219,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
                   </select>
                 </label>
                 <label style={lab}>
-                  <span style={rot}>Dia <AjudaCampo chave="projetos.os_obra.rdo_data" rota={ROTA_OS} /></span>
+                  <span style={rot}>Dia da execução <AjudaCampo chave="projetos.os_obra.rdo_data" rota={ROTA_OS} /></span>
                   <input type="date" value={fr.data} max={hoje()} onChange={(e) => setFr({ ...fr, data: e.target.value })} style={inp} data-testid="obra-rdo-data" />
                 </label>
                 <label style={lab}>
@@ -274,12 +276,22 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
                   {lista.map((r) => {
                     const o = osMap.get(r.os_id)
                     const editavel = o ? OS_LANCAVEL(o.status) : false
+                    const regData = dataDeTs(r.criado_em)
+                    const retroativo = !!(regData && r.data && r.data < regData)
                     return (
                       <div key={r.id} style={card} data-testid="obra-rdo-item">
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
                           <strong style={{ fontSize: 15 }}>{dataBR(r.data)}</strong>
                           <span style={{ fontSize: 12, color: MUT }}>{rotuloOs(o)}</span>
                         </div>
+                        {regData && (
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, color: MUT, marginTop: 2 }} data-testid="obra-rdo-registrado">
+                            <span style={rot}>Registrado em {dataBR(regData)} <AjudaCampo chave="projetos.obra_rdo.registrado_em" rota={ROTA} /></span>
+                            {retroativo && (
+                              <span style={{ background: '#FDF0D5', color: '#92610A', border: `1px solid ${GOLD}`, borderRadius: 999, padding: '1px 8px', fontWeight: 600 }}>Registro retroativo</span>
+                            )}
+                          </div>
+                        )}
                         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 13, color: MUT, margin: '6px 0' }}>
                           <span>Clima: <b style={{ color: ESP }}>{rotuloClima(r.clima)}</b></span>
                           <span>Efetivo: <b style={{ color: ESP }}>{r.efetivo}</b></span>
