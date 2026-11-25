@@ -94,6 +94,14 @@ function dataNoTitulo(titulo: string): string | null {
   const m = (titulo || '').match(/\(?\s*\b(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?\b\s*\)?/)
   return m ? m[0].trim() : null
 }
+// Higiene do job (tela 10 · go-live P&M): job PUBLICADO com prazo no futuro é incoerente — a entrega já saiu,
+// mas o prazo ainda "está por vir". Avisa (nunca erro cru) para o usuário corrigir o prazo ou o estágio.
+function prazoAposPublicacao(status: string | undefined, dataPrazo: string | undefined): boolean {
+  if (status !== 'publicado' || !dataPrazo) return false
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
+  const prazo = new Date(dataPrazo + 'T00:00:00')
+  return !Number.isNaN(prazo.getTime()) && prazo.getTime() > hoje.getTime()
+}
 
 function ProducaoPageInner() {
   const searchParams = useSearchParams()
@@ -624,6 +632,12 @@ function ProducaoPageInner() {
             <Select label="Responsável" ajuda="pm.job.responsavel" testId="job-responsavel" v={(form.responsavel_id as string) ?? ''} on={(v) => setForm({ ...form, responsavel_id: v || null, responsavel_nome: v ? null : (form.responsavel_nome ?? null) })}
               opts={[['', '—'], ...responsaveis.map((u) => [u.id, labelUsuario(u, responsaveis)] as [string, string])]} />
           </div>
+          {prazoAposPublicacao(form.status as string | undefined, form.data_prazo as string | undefined) && (
+            <div data-testid="job-aviso-prazo-publicado" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#FFF7E3', border: '1px solid #E7C96A', borderRadius: 10, padding: '8px 11px', color: YELLOW, fontSize: 12.5, marginTop: 8 }}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
+              <span style={{ flex: 1 }}>Este job está <b>Publicado</b>, mas o <b>Prazo</b> é uma data futura. Ajuste o prazo para a data real da entrega ou reveja o estágio. <b>Você pode salvar mesmo assim.</b></span>
+            </div>
+          )}
 
           {/* BRIEFING — por último, área grande */}
           <div style={{ marginTop: 12 }}>
