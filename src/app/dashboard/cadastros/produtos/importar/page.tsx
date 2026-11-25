@@ -169,7 +169,10 @@ export default function ImportarEstoquePage() {
         if (!TIPOS_SPED.includes(dados.tipo_item_sped)) erros.push(`tipo SPED inválido (${dados.tipo_item_sped})`)
         if (!ORIGENS.includes(dados.origem)) erros.push(`origem fora de 0–8 (${dados.origem})`)
         if (TIPOS_EXIGEM_NCM.includes(dados.tipo_item_sped) && !soDig(dados.ncm))
-          avisos.push('Sem NCM (item tributável 00–06) — recomendado')   // AVISO, não bloqueia
+          // ERRO bloqueante: espelha o servidor (fn_estoque_importar_lote) e o SPED 0200 — item
+          // tributável 00–06 exige NCM para emitir nota. Antes era aviso 🟡 e o servidor pulava a
+          // linha (importava 0), surpreendendo o usuário só no card de resultado.
+          erros.push('Item tributável (tipo 00–06) exige NCM para emitir nota — preencha o NCM ou use "Carregar só as válidas"')
         if (codigo) {
           if (vistos.has(codigo)) erros.push(`Código repetido no arquivo (linha ${vistos.get(codigo)}) — recusado`)
           else vistos.set(codigo, i + 1)
