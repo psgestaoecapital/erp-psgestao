@@ -24,6 +24,8 @@ const CLIMAS: [Clima, string][] = [['sol', 'Sol'], ['nublado', 'Nublado'], ['chu
 const rotuloClima = (c: string) => CLIMAS.find(([v]) => v === c)?.[1] ?? c
 const hoje = () => new Date().toISOString().slice(0, 10)
 const dataBR = (d: string | null) => (d ? d.split('-').reverse().join('/') : '')
+// data (YYYY-MM-DD) a partir do timestamp de registro (criado_em), para separar execução × registro
+const dataDeTs = (ts: string | null) => (ts ? ts.slice(0, 10) : '')
 const BUCKET = 'projetos-plantas'
 const OS_LANCAVEL = (s: string) => s === 'aberta' || s === 'em_execucao'
 
@@ -43,6 +45,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [filtroOs, setFiltroOs] = useState('')
+  const [busca, setBusca] = useState('')
   const [editando, setEditando] = useState<string | null>(null) // id do RDO em edição, 'novo' para incluir, ou null
   const [fr, setFr] = useState({ ...VAZIO })
   const [novasFotos, setNovasFotos] = useState<File[]>([])
@@ -81,7 +84,22 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
 
   const osMap = useMemo(() => new Map(oss.map((o) => [o.id, o])), [oss])
   const osLancaveis = useMemo(() => oss.filter((o) => OS_LANCAVEL(o.status)), [oss])
-  const lista = useMemo(() => filtroOs ? rdos.filter((r) => r.os_id === filtroOs) : rdos, [rdos, filtroOs])
+  // Lista do histórico: filtro por OS + busca livre (data, serviço/OS ou palavra-chave nas
+  // atividades/ocorrências) — tudo client-side sobre os diários já carregados (escopo 15 · req 7f49b919).
+  const lista = useMemo(() => {
+    let l = filtroOs ? rdos.filter((r) => r.os_id === filtroOs) : rdos
+    const q = busca.trim().toLowerCase()
+    if (q) {
+      l = l.filter((r) => {
+        const os = osMap.get(r.os_id)
+        const dataBR = r.data ? new Date(r.data + 'T12:00:00').toLocaleDateString('pt-BR') : ''
+        const hay = [r.data, dataBR, r.atividades, r.ocorrencias, r.clima, os?.numero, os?.descricao]
+          .filter(Boolean).join(' ').toLowerCase()
+        return hay.includes(q)
+      })
+    }
+    return l
+  }, [rdos, filtroOs, busca, osMap])
   const rotuloOs = (o: Os | undefined) => o ? `OS ${o.numero ?? '—'}${o.descricao ? ` · ${o.descricao}` : ''}` : 'OS removida'
 
   const abrirNovo = () => {
@@ -170,6 +188,11 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
                   {oss.map((o) => <option key={o.id} value={o.id}>{rotuloOs(o)}</option>)}
                 </select>
               </label>
+              <label style={{ ...lab, flex: '1 1 220px' }}>
+                <span style={rot}>Buscar no diário <AjudaCampo chave="projetos.obra_rdo.busca" rota={ROTA} /></span>
+                <input value={busca} onChange={(e) => setBusca(e.target.value)} style={inp} data-testid="obra-rdo-busca"
+                  placeholder="Data, serviço (OS) ou palavra-chave" inputMode="search" />
+              </label>
               <span style={rot}>
                 <button type="button" onClick={() => (editando === 'novo' ? fechar() : abrirNovo())} disabled={osLancaveis.length === 0}
                   style={btn(ESP, '#fff')} data-testid="obra-rdo-novo">
@@ -196,7 +219,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
                   </select>
                 </label>
                 <label style={lab}>
-                  <span style={rot}>Dia <AjudaCampo chave="projetos.os_obra.rdo_data" rota={ROTA_OS} /></span>
+                  <span style={rot}>Dia da execução <AjudaCampo chave="projetos.os_obra.rdo_data" rota={ROTA_OS} /></span>
                   <input type="date" value={fr.data} max={hoje()} onChange={(e) => setFr({ ...fr, data: e.target.value })} style={inp} data-testid="obra-rdo-data" />
                 </label>
                 <label style={lab}>
@@ -248,17 +271,27 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
               Histórico de diários <AjudaCampo chave="projetos.obra_rdo.historico" rota={ROTA} /> <span style={{ color: MUT, fontWeight: 400 }}>({lista.length})</span>
             </h2>
             {lista.length === 0
-              ? <p style={{ color: MUT, fontSize: 14 }}>Nenhum diário lançado{filtroOs ? ' para esta OS' : ''} ainda.</p>
+              ? <p style={{ color: MUT, fontSize: 14 }}>{busca.trim() ? 'Nenhum diário encontrado para esta busca. Limpe o campo para ver todos.' : `Nenhum diário lançado${filtroOs ? ' para esta OS' : ''} ainda.`}</p>
               : <div style={{ display: 'grid', gap: 10 }}>
                   {lista.map((r) => {
                     const o = osMap.get(r.os_id)
                     const editavel = o ? OS_LANCAVEL(o.status) : false
+                    const regData = dataDeTs(r.criado_em)
+                    const retroativo = !!(regData && r.data && r.data < regData)
                     return (
                       <div key={r.id} style={card} data-testid="obra-rdo-item">
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
                           <strong style={{ fontSize: 15 }}>{dataBR(r.data)}</strong>
                           <span style={{ fontSize: 12, color: MUT }}>{rotuloOs(o)}</span>
                         </div>
+                        {regData && (
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, color: MUT, marginTop: 2 }} data-testid="obra-rdo-registrado">
+                            <span style={rot}>Registrado em {dataBR(regData)} <AjudaCampo chave="projetos.obra_rdo.registrado_em" rota={ROTA} /></span>
+                            {retroativo && (
+                              <span style={{ background: '#FDF0D5', color: '#92610A', border: `1px solid ${GOLD}`, borderRadius: 999, padding: '1px 8px', fontWeight: 600 }}>Registro retroativo</span>
+                            )}
+                          </div>
+                        )}
                         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 13, color: MUT, margin: '6px 0' }}>
                           <span>Clima: <b style={{ color: ESP }}>{rotuloClima(r.clima)}</b></span>
                           <span>Efetivo: <b style={{ color: ESP }}>{r.efetivo}</b></span>

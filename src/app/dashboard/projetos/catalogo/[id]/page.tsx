@@ -51,6 +51,7 @@ interface ConfigBdi {
   bdi_total_pct: number | null;
   bdi_lucro_pct: number | null;
   margem_minima_pct: number | null;
+  dias_uteis_mes?: number | null;
 }
 
 // Shape REAL devolvido por fn_projetos_servico_completo.preview (medido via MCP):
@@ -518,6 +519,10 @@ export default function ServicoEditorPage({
               companyId={servico.company_id}
               bom={bom}
               onChange={() => { carregar({ soft: true }); setCpuReload((n) => n + 1); }}
+              produtividade={servico.produtividade_unidade_dia}
+              equipePadrao={servico.equipe_padrao}
+              unidadeServico={servico.unidade}
+              diasUteisMes={config?.dias_uteis_mes ?? 22}
             />
           </div>
         </div>
