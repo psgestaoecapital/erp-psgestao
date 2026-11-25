@@ -32,6 +32,12 @@ export interface PerfilVendaVeiculo {
     reducaoBasePct: number | null
     ibsCbsCst: string | null; ibsCbsCClassTrib: string | null
     naturezaOperacao: string | null; infComplementar: string | null
+    // #9787 · emissão autorizada da ENTRADA (opcionais; só a entrada os carrega — a venda não os usa).
+    // emiteNfeAutorizada = gate do perfil (default false): libera transmitir à SEFAZ (senão, só prévia).
+    // PIS/COFINS da entrada vêm do perfil por operação (sem hardcode).
+    emiteNfeAutorizada?: boolean
+    pisCst?: string | null; cofinsCst?: string | null
+    pisAliquota?: number | null; cofinsAliquota?: number | null
   }
 }
 
@@ -322,11 +328,19 @@ export function montarItemVeiculoEntrada(d: DadosEntradaVeiculo, ufEmitente: str
   }
   const nomeVeic = [d.veiculo.marca, d.veiculo.modelo, d.veiculo.versao].filter(Boolean).join(' ')
 
+  // #9787 · PIS/COFINS da ENTRADA vêm do perfil por operação (sem hardcode). Ausentes → a nota de entrada sai sem o
+  // grupo e o nfe-validator barra na emissão real (prévia só avisa); o contador completa o perfil.
+  const pisCst = op.pisCst?.trim() || null
+  const cofinsCst = op.cofinsCst?.trim() || null
+  if (!pisCst || !cofinsCst) avisos.push('PIS/COFINS da entrada não configurados no perfil fiscal (CST) — complete com o contador antes de emitir a nota autorizada.')
+
   const item: NFeProdutoItem = {
     codigo: d.veiculo.placa || d.veiculo.chassi,
     descricao: nomeVeic || 'Veículo',
     ncm, cfop, unidade: 'UN', quantidade: 1, valorUnitario: valor, valorTotal: valor,
     origem: '0', icms,
+    ...(pisCst ? { pis: { cst: pisCst, ...(op.pisAliquota != null ? { aliquota: op.pisAliquota } : {}) } } : {}),
+    ...(cofinsCst ? { cofins: { cst: cofinsCst, ...(op.cofinsAliquota != null ? { aliquota: op.cofinsAliquota } : {}) } } : {}),
     ...(d.perfil.veicprodObrigatorioUsado ? { veiculo } : {}),
   }
 
@@ -358,7 +372,7 @@ export async function carregarEntradaVeiculo(companyId: string, veiculoId: strin
   if (!perfil) throw new FiscalError('PAYLOAD_INVALIDO', 'Perfil fiscal da revenda não está aprovado — aprove o perfil fiscal antes de gerar a prévia')
   const { data: op } = await supabaseAdmin
     .from('veic_perfil_fiscal_operacao')
-    .select('cfop_dentro_uf, cfop_fora_uf, cst_ou_csosn, cbenef, reducao_base_icms_pct, ibs_cbs_cst, ibs_cbs_cclasstrib, natureza_operacao, inf_complementar_texto')
+    .select('cfop_dentro_uf, cfop_fora_uf, cst_ou_csosn, cbenef, reducao_base_icms_pct, ibs_cbs_cst, ibs_cbs_cclasstrib, natureza_operacao, inf_complementar_texto, emite_nfe_autorizada, pis_cst, cofins_cst, pis_aliquota, cofins_aliquota')
     .eq('perfil_id', perfil.id).eq('operacao', operacao).maybeSingle()
   if (!op) throw new FiscalError('PAYLOAD_INVALIDO', `A operação '${operacao}' não está configurada no perfil fiscal aprovado — complete o perfil com o contador`)
 
@@ -392,6 +406,10 @@ export async function carregarEntradaVeiculo(companyId: string, veiculoId: strin
         cfopDentroUf: op.cfop_dentro_uf, cfopForaUf: op.cfop_fora_uf, cstOuCsosn: op.cst_ou_csosn, cbenef: op.cbenef ?? null,
         reducaoBasePct: num(op.reducao_base_icms_pct), ibsCbsCst: op.ibs_cbs_cst ?? null, ibsCbsCClassTrib: op.ibs_cbs_cclasstrib ?? null,
         naturezaOperacao: op.natureza_operacao ?? null, infComplementar: op.inf_complementar_texto ?? null,
+        // #9787 · gate da emissão autorizada + PIS/COFINS da entrada (do perfil, por operação).
+        emiteNfeAutorizada: (op as { emite_nfe_autorizada?: boolean }).emite_nfe_autorizada === true,
+        pisCst: op.pis_cst ?? null, cofinsCst: op.cofins_cst ?? null,
+        pisAliquota: num(op.pis_aliquota), cofinsAliquota: num(op.cofins_aliquota),
       },
     },
     avisos,

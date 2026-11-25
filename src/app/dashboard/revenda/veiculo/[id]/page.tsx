@@ -218,6 +218,27 @@ function Inner() {
     }
   }
 
+  // #9787 · emite a NF-e de ENTRADA AUTORIZADA (transmite). Só funciona quando a operação está liberada no perfil
+  // fiscal (emite_nfe_autorizada) — a contadora liga após homologação; senão a rota devolve a mensagem de bloqueio.
+  const [emitEntBusy, setEmitEntBusy] = useState(false)
+  async function emitirEntradaAutorizada() {
+    if (!v) return
+    const operacao = OP_ENTRADA_POR_ORIGEM[v.origem ?? '']
+    if (!operacao) return
+    if (!window.confirm('Emitir a NF-e de ENTRADA? Isso TRANSMITE a nota no ambiente fiscal configurado — teste primeiro em homologação. Confirmar?')) return
+    setErro(null); setMsg(null); setEmitEntBusy(true)
+    try {
+      const res = await authFetch('/api/fiscal/nfe/emitir', { method: 'POST', body: JSON.stringify({ companyId: v.company_id, entradaVeiculoId: id, operacaoEntrada: operacao, apenasPrevia: false }) })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || j?.ok === false) { setErro(j?.mensagem ?? j?.message ?? `Não foi possível emitir a nota de entrada (erro ${res.status}).`); return }
+      setMsg(`NF-e de entrada ${j?.status ?? 'enviada'}${j?.chave ? ` · chave ${j.chave}` : ''}.`); void carregar()
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falha ao emitir a nota de entrada')
+    } finally {
+      setEmitEntBusy(false)
+    }
+  }
+
   if (!v) return <div style={{ padding: 28, color: C.espM, background: C.bg, minHeight: '100vh' }}>{erro ?? 'Carregando veículo…'}</div>
   // #115 (Fábio/Alliance): consignado não tem custo de aquisição nem preço mínimo — só valor de venda.
   const consignado = v.origem === 'consignacao'
@@ -420,9 +441,16 @@ function Inner() {
           <div style={{ fontSize: 12, color: C.espM, marginBottom: 8 }}>
             Gere o espelho (prévia — <b>sem valor fiscal</b>) da nota de entrada desta compra para conferir destinatário, CFOP, CST e natureza (que vêm do perfil fiscal aprovado) antes de emitir. A emissão em homologação é feita por você, na tela, com o certificado da empresa.
           </div>
-          <button onClick={() => void gerarPreviaEntrada()} disabled={previaEnt?.loading} style={{ padding: '8px 14px', border: `1px solid ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, cursor: previaEnt?.loading ? 'wait' : 'pointer' }}>
-            {previaEnt?.loading ? 'Montando…' : 'Prévia da nota de entrada'}
-          </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button onClick={() => void gerarPreviaEntrada()} disabled={previaEnt?.loading} style={{ padding: '8px 14px', border: `1px solid ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, cursor: previaEnt?.loading ? 'wait' : 'pointer' }}>
+              {previaEnt?.loading ? 'Montando…' : 'Prévia da nota de entrada'}
+            </button>
+            {/* #9787 · emissão autorizada (transmite). Gated no perfil fiscal (emite_nfe_autorizada) — a rota bloqueia com mensagem se a operação não estiver liberada. */}
+            <button onClick={() => void emitirEntradaAutorizada()} disabled={emitEntBusy} style={{ padding: '8px 14px', border: 'none', borderRadius: 8, background: emitEntBusy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: emitEntBusy ? 'wait' : 'pointer' }}>
+              {emitEntBusy ? 'Emitindo…' : 'Emitir NF-e de entrada'}
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>A emissão autorizada transmite à SEFAZ no ambiente configurado e só é liberada por operação no perfil fiscal (contador), após homologação. Teste primeiro em homologação.</div>
         </Bloco>
       )}
 

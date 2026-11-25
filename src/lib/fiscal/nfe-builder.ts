@@ -551,6 +551,8 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     serie: cfg?.serie_nfe_padrao ?? '1',
     naturezaOperacao: naturezaOp,
     finalidade,
+    // #9787 · nota própria de ENTRADA (compra PF/PJ, troca) é tpNF=0; venda e demais saídas seguem 1 (padrão).
+    ...(entradaMontadoItem ? { tipoOperacao: 0 as const } : {}),
     consumidorFinal,
     emitente: {
       cnpj: String(emp.cnpj ?? '').replace(/\D/g, ''),
