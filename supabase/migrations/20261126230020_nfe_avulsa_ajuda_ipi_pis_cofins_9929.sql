@@ -2,10 +2,13 @@
 -- Só a ajuda RD-95 ("?") dos campos novos — a lógica é aditiva no código (builder + rota remessa + tela),
 -- sem alterar o comportamento de quem não preencher. INSERTs idempotentes (não duplicam a chave).
 -- Aditiva; não toca em dado de cliente. Faixa de segundos 20 (jordana), versão > última da main.
+-- conserto-main (code-desenvolvedor-3, 25/11): status='ativo' violava erp_ajuda_campo_status_check
+-- (só 'rascunho'/'publicado') e derrubava o deploy-migrations → as 10 linhas nunca aplicavam. Corrigido
+-- para 'publicado' (como as 25 irmãs da tela) e vertical para 'fiscal' (as irmãs são todas 'fiscal').
 
 INSERT INTO public.erp_ajuda_campo
   (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, versao, status)
-SELECT v.chave, '/dashboard/fiscal/nfe/remessa', 'NF-e avulsa', v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, 'gestao_empresarial', v.ordem, 1, 'ativo'
+SELECT v.chave, '/dashboard/fiscal/nfe/remessa', 'NF-e avulsa', v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, 'fiscal', v.ordem, 1, 'publicado'
 FROM (VALUES
   ('fiscal.nfe_avulsa.item_impostos_federais','IPI, PIS e COFINS do item',
    'Em branco, o item segue o cadastro do produto (sem mudança). Preencha para destacar IPI, PIS e COFINS deste item na NF-e. Só aparece no regime normal — no Simples Nacional esses tributos não são destacados na nota.',
