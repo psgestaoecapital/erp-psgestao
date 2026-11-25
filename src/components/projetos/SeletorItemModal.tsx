@@ -306,8 +306,8 @@ export function SeletorItemModal({
           {aba === "mao_obra" && (
             <div data-ajuda="projetos.catalogo.bom.mo_modo" className="flex items-start gap-1 rounded-lg bg-[#C8941A]/[0.06] px-3 py-2 text-xs text-[#3D2314]/70" data-testid="bom-mo-modos">
               <span>
-                <strong className="text-[#3D2314]">Por hora</strong> (equipe própria): escolha a função, pessoa ou equipe na lista — o custo é por hora × horas por {"m²"}.{" "}
-                <strong className="text-[#3D2314]">Por m²</strong> (empreitada): use “Digitar item manual”, unidade <strong>m²</strong> e o valor pago por m² à equipe.
+                <strong className="text-[#3D2314]">Por hora</strong> (equipe própria): escolha a função, pessoa ou equipe na lista — o custo é por hora × horas por unidade.{" "}
+                <strong className="text-[#3D2314]">Empreitada</strong>: use “Digitar item manual”, informe a <strong>unidade</strong> (m², metro, un, ponto…) e o valor pago por unidade à equipe.
               </span>
               <AjudaCampo chave="projetos.catalogo.bom.mo_modo" rota={ROTA_AJUDA_SERVICO} />
             </div>
