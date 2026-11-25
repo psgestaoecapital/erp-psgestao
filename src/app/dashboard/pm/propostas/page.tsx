@@ -401,6 +401,8 @@ export default function PropostasPage() {
   }
 
   async function mudarStatus(p: Proposta, status: string) {
+    // CEO 25/11 (go-live P&M, tela 4): cliente obrigatório para ENVIAR — a proposta vira contrato e precisa do cliente.
+    if (status === 'enviada' && !(p.cliente_id || p.erp_cliente_id)) { setToast('Selecione o cliente da proposta antes de enviar.'); return }
     const patch: Record<string, unknown> = { status, updated_at: new Date().toISOString() }
     if (status === 'enviada') patch.data_envio = new Date().toISOString()
     await supabase.from('agency_propostas').update(patch).eq('id', p.id)
@@ -433,6 +435,9 @@ export default function PropostasPage() {
 
   async function confirmarAprovar() {
     if (!apr) return
+    // CEO 25/11 (go-live P&M, tela 4): nunca aprovar sem cliente nem com valor final R$ 0 (a aprovação gera contrato).
+    if (!(apr.cliente_id || apr.erp_cliente_id)) { setToast('Selecione o cliente da proposta antes de aprovar — a proposta vira contrato e precisa de um cliente.'); return }
+    if (num(apr.valor_final ?? apr.valor_total) <= 0) { setToast('Não dá para aprovar uma proposta de valor R$ 0. Informe os itens e o valor antes de aprovar.'); return }
     // SPEC Master §3 (Júlia) · obrigatórios do comercial amarrados NOS DOIS LADOS. O front bloqueia antes
     // (lista "falta X" + impacto); o banco (fn_agency_proposta_aprovar) é fail-closed e recusa de verdade.
     const falta = aprovarObrigatoriosFaltando(aprForm)
