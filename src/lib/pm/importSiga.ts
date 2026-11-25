@@ -2,8 +2,8 @@
 // (scripts/gates/check-pm-importar-siga.ts). A planilha do SIGA ainda não chegou: o importador reconhece os nomes de
 // coluna mais comuns e deixa a pessoa conferir/ajustar o mapa antes da prévia.
 //
-// Regra do CEO: entram os jobs dos últimos 60 dias + os em aberto; os "em aprovação" antigos (parados há mais de 60
-// dias) ficam de fora. Nada é gravado sem a prévia — e o banco confere de novo (cliente, responsável, número repetido).
+// Regra do CEO (05/10, blueprint): entram os jobs dos últimos 180 dias + os em aberto; os "em aprovação" antigos
+// (parados há mais de 180 dias) ficam de fora. Nada é gravado sem a prévia — e o banco confere de novo (cliente, responsável, número repetido).
 
 export type CampoSiga = 'numero' | 'titulo' | 'cliente' | 'responsavel' | 'situacao' | 'prazo' | 'criacao' | 'peca' | 'briefing'
 export const CAMPOS: { id: CampoSiga; rotulo: string; obrigatorio?: boolean }[] = [
@@ -90,9 +90,9 @@ export type LinhaSiga = {
 export type Motivo = 'sem_numero' | 'sem_titulo' | 'fora_da_janela' | 'em_aprovacao_antigo' | 'cancelado' | 'repetido_na_planilha'
 export type Resultado = { entra: LinhaSiga[]; fora: { linha: number; numero: string | null; motivo: Motivo }[] }
 
-// Aplica a regra do CEO: últimos 60 dias (pela criação; sem criação, pelo prazo) + todos os em aberto; "em aprovação"
-// parado há mais de 60 dias fica de fora; cancelado fica de fora; número repetido na planilha entra uma vez.
-export function selecionar(linhas: unknown[][], mapa: Partial<Record<CampoSiga, number>>, hojeIso: string, janelaDias = 60): Resultado {
+// Aplica a regra do CEO: últimos 180 dias (pela criação; sem criação, pelo prazo) + todos os em aberto; "em aprovação"
+// parado há mais de 180 dias fica de fora; cancelado fica de fora; número repetido na planilha entra uma vez.
+export function selecionar(linhas: unknown[][], mapa: Partial<Record<CampoSiga, number>>, hojeIso: string, janelaDias = 180): Resultado {
   const corte = new Date(`${hojeIso}T12:00:00Z`); corte.setUTCDate(corte.getUTCDate() - janelaDias)
   const corteIso = corte.toISOString().slice(0, 10)
   const col = (r: unknown[], c: CampoSiga) => (mapa[c] == null ? null : r[mapa[c] as number])
@@ -121,8 +121,8 @@ export function selecionar(linhas: unknown[][], mapa: Partial<Record<CampoSiga, 
 }
 
 export const MOTIVO_TEXTO: Record<Motivo, string> = {
-  sem_numero: 'sem número de job', sem_titulo: 'sem título', fora_da_janela: 'concluído há mais de 60 dias',
-  em_aprovacao_antigo: '"em aprovação" parado há mais de 60 dias', cancelado: 'cancelado', repetido_na_planilha: 'número repetido na planilha',
+  sem_numero: 'sem número de job', sem_titulo: 'sem título', fora_da_janela: 'concluído há mais de 180 dias',
+  em_aprovacao_antigo: '"em aprovação" parado há mais de 180 dias', cancelado: 'cancelado', repetido_na_planilha: 'número repetido na planilha',
 }
 
 // CSV do SIGA (veredito em produção 02/10): ler os bytes do .csv direto na planilha trocava os acentos ("NÂº Job",
