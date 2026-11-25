@@ -310,7 +310,9 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       const nota = await notaEspelhoDeNFeReq(nfeReq, body.companyId)
       return NextResponse.json({
         ok: true,
-        previa: { informacoesComplementares: nfeReq.observacoes ?? '', tamanho: tamanhoInfCpl, limite: LIMITE_INF_CPL, avisoIbpt, nota },
+        // #11424 · avisoCreditoSN (soft-gate): a nota sai sem o crédito de ICMS do mês porque a competência não foi
+        // lançada — o operador vê antes de enviar. NÃO bloqueia a emissão (decisão alerta×bloqueio é do Eng. Chefe).
+        previa: { informacoesComplementares: nfeReq.observacoes ?? '', tamanho: tamanhoInfCpl, limite: LIMITE_INF_CPL, avisoIbpt, avisoCreditoSN: nfeReq.avisoCreditoSN ?? null, nota },
       })
     }
     if (excedeLimiteInfCpl(nfeReq.observacoes)) {
