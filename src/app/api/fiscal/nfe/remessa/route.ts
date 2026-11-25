@@ -24,6 +24,10 @@ interface RemessaBody {
   itens: Array<{
     produtoId: string; quantidade: number; valorUnitarioOverride?: number; cfop?: string
     icmsCst?: string; icmsBase?: number; icmsAliquota?: number; icmsValor?: number
+    // #9929 · IPI/PIS/COFINS por item (opcional; regime normal). Em branco = comportamento atual.
+    ipiCst?: string; ipiAliquota?: number; ipiValor?: number
+    pisCst?: string; pisAliquota?: number; pisValor?: number
+    cofinsCst?: string; cofinsAliquota?: number; cofinsValor?: number
   }>
   ambiente?: 'homologacao' | 'producao'
   // #3861 · NF-e avulsa: finalidade + chave referenciada, ICMS da operação (CSOSN/CST), informações complementares, frete
@@ -192,12 +196,28 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
             valor: it.icmsValor !== undefined ? Number(it.icmsValor) : 0,
           }
         : icmsOverrideOperacao
+      // #9929 · IPI/PIS/COFINS por item (aditivo): só vão ao builder quando o item informa algum campo.
+      const ipiCst = soDigitos(it.ipiCst)
+      const ipiOverride = (!!ipiCst || it.ipiAliquota !== undefined || it.ipiValor !== undefined)
+        ? { cst: ipiCst || undefined, aliquota: it.ipiAliquota !== undefined ? Number(it.ipiAliquota) : undefined, valor: it.ipiValor !== undefined ? Number(it.ipiValor) : undefined }
+        : undefined
+      const pisCst = soDigitos(it.pisCst)
+      const pisOverride = (!!pisCst || it.pisAliquota !== undefined || it.pisValor !== undefined)
+        ? { cst: pisCst || undefined, aliquota: it.pisAliquota !== undefined ? Number(it.pisAliquota) : undefined, valor: it.pisValor !== undefined ? Number(it.pisValor) : undefined }
+        : undefined
+      const cofinsCst = soDigitos(it.cofinsCst)
+      const cofinsOverride = (!!cofinsCst || it.cofinsAliquota !== undefined || it.cofinsValor !== undefined)
+        ? { cst: cofinsCst || undefined, aliquota: it.cofinsAliquota !== undefined ? Number(it.cofinsAliquota) : undefined, valor: it.cofinsValor !== undefined ? Number(it.cofinsValor) : undefined }
+        : undefined
       return {
         produtoId: it.produtoId,
         quantidade: Number(it.quantidade),
         valorUnitarioOverride: it.valorUnitarioOverride !== undefined ? Number(it.valorUnitarioOverride) : undefined,
         cfopOverride: avulsa.itensCfop[i] ?? avulsa.cfop,
         ...(icmsOverride ? { icmsOverride } : {}),
+        ...(ipiOverride ? { ipiOverride } : {}),
+        ...(pisOverride ? { pisOverride } : {}),
+        ...(cofinsOverride ? { cofinsOverride } : {}),
       }
     })
     const chaveRef = soDigitos(body.chaveReferenciada)
