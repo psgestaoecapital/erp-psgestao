@@ -1,7 +1,7 @@
 // Indústria · Rendimento pelo MIX de entrada (CEO 25/11, tela 60). Prova COMO USUÁRIO (RD-82), pelas RPCs da tela,
 // que um corte vindo de DUAS origens com padrões diferentes tem o esperado = soma ponderada e o real contado UMA vez
 // (nunca em dobro), que a sugestão pelo histórico recupera o padrão, e que a fn_prod_rendimento_comparativo (telas
-// antigas) também reparte o real sem dobrar. Migration 20261127100210 → @pos-migration. Roda na DEMO Indústria; nada
+// antigas) também reparte o real sem dobrar. Migration 20261127120010 → @pos-migration. Roda na DEMO Indústria; nada
 // fica para trás (limpa produtos, estrutura e fatos do sistema vinculado no afterAll).
 import { test, expect } from '../../support/fixtures'
 import { rpcComoRobo, dbSelect, dbInsert, dbInsertMany, dbDelete } from '../../support/api'
