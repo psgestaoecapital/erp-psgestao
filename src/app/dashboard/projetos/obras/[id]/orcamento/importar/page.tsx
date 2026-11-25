@@ -538,7 +538,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
                     <span data-testid="eap-importar-biblioteca-proprios" style={{ fontSize: 13, color: MUT, fontWeight: 700 }}>{vinc.proprios} como serviço próprio</span>
                     <span style={{ fontSize: 12.5, color: MUT }}>{vinc.comSugestao} item(ns) com sugestão</span>
                     <label style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: MUT }}>
-                      Vincular automaticamente quando a confiança for
+                      Vincular automaticamente quando a confiança for <AjudaCampo chave="projetos.orcamento_eap.importar_biblioteca" />
                       <select
                         data-testid="eap-importar-biblioteca-nivel"
                         value={autoNivel}
@@ -584,7 +584,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
                     <th style={{ padding: '8px 10px', textAlign: 'right' }}>Qtd</th>
                     <th style={{ padding: '8px 10px', textAlign: 'right' }}>Material</th>
                     <th style={{ padding: '8px 10px', textAlign: 'right' }}>Mão de obra</th>
-                    {temSugestoes && <th style={{ padding: '8px 10px' }}>Biblioteca padrão PS</th>}
+                    {temSugestoes && <th style={{ padding: '8px 10px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Biblioteca padrão PS <AjudaCampo chave="projetos.orcamento_eap.importar_biblioteca" /></span></th>}
                     <th style={{ padding: '8px 10px' }}>Situação</th>
                   </tr>
                 </thead>
