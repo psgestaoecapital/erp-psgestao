@@ -5,9 +5,10 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2, Package, HardHat, Wrench, ShieldCheck, Loader2 } from "lucide-react";
+import { Plus, Trash2, Package, HardHat, Wrench, ShieldCheck, Hammer, Loader2, Calculator } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { SeletorItemModal, type ItemEscolhido, type TipoItem } from "./SeletorItemModal";
+import { CalcCoeficienteModal, type CoefResultado } from "./CalcCoeficienteModal";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { erroAmigavel } from "@/lib/erroAmigavel";
 import { parseNumBR } from "@/lib/num";
@@ -28,6 +29,11 @@ export interface BomLinha {
   custo_unitario: number | null;
   custo_total: number | null;
   ordem: number | null;
+  observacao?: string | null;
+  periodo_valor?: number | null;
+  periodo_unidade?: string | null;
+  qtd_por_periodo?: number | null;
+  metodo_coeficiente?: string | null;
 }
 
 interface Props {
@@ -35,11 +41,22 @@ interface Props {
   companyId: string;
   bom: BomLinha[];
   onChange: () => void | Promise<void>;
+  // Para a calculadora de coeficiente (consumo por unidade): dados do serviço + config da empresa.
+  produtividade?: number | null; // produtividade_unidade_dia
+  equipePadrao?: string | null;
+  unidadeServico?: string | null; // unidade da produtividade (ex.: m²)
+  diasUteisMes?: number | null; // config da empresa (padrão 22)
 }
+
+const METODO_LABEL: Record<string, string> = {
+  manual: "Direto", rendimento: "Rendimento", tecnico: "Consumo técnico",
+  vida_util: "Vida útil/período", por_pessoa: "Por pessoa × tempo",
+};
 
 function tipoIcone(tipo: string | TipoItem) {
   if (tipo === "mao_obra") return HardHat;
   if (tipo === "equipamento") return Wrench;
+  if (tipo === "ferramenta") return Hammer;
   if (tipo === "epi") return ShieldCheck;
   return Package;
 }
@@ -47,6 +64,7 @@ function tipoIcone(tipo: string | TipoItem) {
 function tipoLabel(tipo: string | TipoItem) {
   if (tipo === "mao_obra") return "Mão de obra";
   if (tipo === "equipamento") return "Equipamento";
+  if (tipo === "ferramenta") return "Ferramentas";
   if (tipo === "epi") return "EPI";
   return "Material";
 }
@@ -54,6 +72,7 @@ function tipoLabel(tipo: string | TipoItem) {
 function tipoCorChip(tipo: string | TipoItem) {
   if (tipo === "mao_obra") return "bg-blue-50 text-blue-800";
   if (tipo === "equipamento") return "bg-purple-50 text-purple-800";
+  if (tipo === "ferramenta") return "bg-orange-50 text-orange-800";
   if (tipo === "epi") return "bg-amber-50 text-amber-800";
   return "bg-emerald-50 text-emerald-800";
 }
@@ -68,10 +87,38 @@ function parseNumero(s: string): number | null {
   return parseNumBR(s);
 }
 
-export function BomEditor({ servicoId, companyId, bom, onChange }: Props) {
+export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, equipePadrao, unidadeServico, diasUteisMes }: Props) {
   const [seletorOpen, setSeletorOpen] = useState(false);
   const [salvandoLinha, setSalvandoLinha] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  const [calcLinha, setCalcLinha] = useState<BomLinha | null>(null);
+
+  async function salvarCalc(linha: BomLinha, r: CoefResultado) {
+    setCalcLinha(null);
+    setSalvandoLinha(linha.id);
+    setErro(null);
+    try {
+      const supabase = supabaseBrowser();
+      const { error } = await supabase
+        .from("projetos_servicos_bom")
+        .update({
+          quantidade: r.quantidade,
+          metodo_coeficiente: r.metodo_coeficiente,
+          periodo_valor: r.periodo_valor,
+          periodo_unidade: r.periodo_unidade,
+          qtd_por_periodo: r.qtd_por_periodo,
+          observacao: r.observacao || null,
+        })
+        .eq("id", linha.id);
+      if (error) throw error;
+      await supabase.rpc("fn_projetos_atualizar_cache_bom", { p_servico_id: servicoId });
+      await onChange();
+    } catch (e: any) {
+      setErro(erroAmigavel(e, "Falha ao aplicar o cálculo"));
+    } finally {
+      setSalvandoLinha(null);
+    }
+  }
 
   // Edição local de quantidade/perda. Confirmamos no blur.
   const [edits, setEdits] = useState<Record<string, { qtd?: string; perda?: string }>>({});
@@ -224,7 +271,7 @@ export function BomEditor({ servicoId, companyId, bom, onChange }: Props) {
               const editQtd = edits[linha.id]?.qtd;
               const editPerda = edits[linha.id]?.perda;
               const salvando = salvandoLinha === linha.id;
-              return (
+              const linhaPrincipal = () => (
                 <tr key={linha.id} className={salvando ? "opacity-50" : ""}>
                   <td className="px-3 py-2">
                     <span
@@ -277,17 +324,41 @@ export function BomEditor({ servicoId, companyId, bom, onChange }: Props) {
                     {fmtBRL(linha.custo_total)}
                   </td>
                   <td className="px-3 py-2">
-                    <button
-                      onClick={() => removerLinha(linha)}
-                      disabled={salvando}
-                      title="Remover item"
-                      className="rounded-lg p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-30"
-                    >
-                      {salvando ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                    </button>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={() => setCalcLinha(linha)}
+                        disabled={salvando}
+                        title="Calcular consumo (coeficiente)"
+                        className="rounded-lg p-1.5 text-[#C8941A] hover:bg-[#C8941A]/10 disabled:opacity-30"
+                      >
+                        <Calculator size={14} />
+                      </button>
+                      <button
+                        onClick={() => removerLinha(linha)}
+                        disabled={salvando}
+                        title="Remover item"
+                        className="rounded-lg p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-30"
+                      >
+                        {salvando ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
+              const temObs = (linha.observacao && linha.observacao.trim() !== "") || linha.metodo_coeficiente;
+              return [linhaPrincipal(), temObs ? (
+                <tr key={linha.id + "-obs"} className="bg-[#3D2314]/[0.015]">
+                  <td></td>
+                  <td colSpan={7} className="px-3 pb-2 pt-0 text-xs text-[#3D2314]/60">
+                    {linha.metodo_coeficiente && (
+                      <span className="mr-2 inline-flex items-center rounded-full bg-[#C8941A]/10 px-2 py-0.5 text-[11px] font-medium text-[#C8941A]">
+                        {METODO_LABEL[linha.metodo_coeficiente] || linha.metodo_coeficiente}
+                      </span>
+                    )}
+                    {linha.observacao && <span className="italic">{linha.observacao}</span>}
+                  </td>
+                </tr>
+              ) : null];
             })}
           </tbody>
         </table>
@@ -317,6 +388,29 @@ export function BomEditor({ servicoId, companyId, bom, onChange }: Props) {
         onClose={() => setSeletorOpen(false)}
         onSelect={adicionarItem}
       />
+
+      {calcLinha && (
+        <CalcCoeficienteModal
+          open={!!calcLinha}
+          onClose={() => setCalcLinha(null)}
+          itemNome={calcLinha.item_nome || "item"}
+          unidadeServico={unidadeServico ?? null}
+          unidadeItem={calcLinha.unidade}
+          custoUnitario={calcLinha.custo_unitario}
+          produtividade={produtividade ?? null}
+          equipePadrao={equipePadrao ?? null}
+          diasUteisMes={diasUteisMes ?? 22}
+          atual={{
+            quantidade: calcLinha.quantidade,
+            metodo_coeficiente: (calcLinha.metodo_coeficiente as CoefResultado["metodo_coeficiente"]) ?? undefined,
+            periodo_valor: calcLinha.periodo_valor ?? null,
+            periodo_unidade: (calcLinha.periodo_unidade as CoefResultado["periodo_unidade"]) ?? null,
+            qtd_por_periodo: calcLinha.qtd_por_periodo ?? null,
+            observacao: calcLinha.observacao ?? undefined,
+          }}
+          onConfirm={(r) => salvarCalc(calcLinha, r)}
+        />
+      )}
     </div>
   );
 }
