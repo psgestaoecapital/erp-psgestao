@@ -349,6 +349,7 @@ function LinhaPessoa({ p, pode, cargos, setores, onSalvar, onRemover, jornada, o
       </td>
       {pode && (
         <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+          <Link href="/dashboard/industrial/rh/pessoas" title="Cadastro de pessoas com custo completo — criar ou editar a ficha de custo" data-testid="rh-quadro-ficha-custo" style={{ ...btnOut, padding: '3px 8px', fontSize: 11, marginRight: 6, textDecoration: 'none' }}>Ficha de custo</Link>
           {temComplemento ? (
             <button data-testid="rh-quadro-remover" style={{ padding: '4px 10px', borderRadius: 7, border: `1px solid ${LINE}`, background: '#fff', color: RED, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }} onClick={() => onRemover(p)}>Remover</button>
           ) : <span style={{ fontSize: 11, color: MUT }}>—</span>}
