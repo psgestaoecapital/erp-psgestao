@@ -37,6 +37,18 @@ const inp: React.CSSProperties = { width: '100%', minHeight: 38, padding: '8px 1
 
 export interface SolicitarResultado { contrato_id: string; numero: string; responsavel_id: string | null; aviso: string | null }
 
+// #6703 (Edney/Pdois) critério 4: ao escolher o cliente, avisar QUAIS dados faltam no cadastro — sem gerar o contrato
+// com campo em branco. Não bloqueia (o CPF/CNPJ continua barrando no envio); só lista o que completar no cadastro.
+function faltantesCadastro(info: ClienteInfo | null): string[] {
+  if (!info) return []
+  const falta: string[] = []
+  if (!info.doc?.trim()) falta.push('CPF/CNPJ')
+  if (!info.endereco?.trim()) falta.push('endereço')
+  if (!info.email?.trim()) falta.push('e-mail')
+  if (!info.telefone?.trim()) falta.push('telefone')
+  return falta
+}
+
 interface Props {
   companyId: string
   propostaId?: string | null
@@ -331,14 +343,17 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                         <ClientePickerInline companyId={companyId} value={cliInfo?.id ?? ''} onChange={(id) => { if (id) void escolherCliente(id) }} onToast={(s) => setToast(s)} onErro={(s) => setErro(s)} />
                       </div>
                     ) : cliInfo ? (
-                      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: C.espresso }}>{cliInfo.nome}{doCadastro}</div>
-                        {cliInfo.endereco && <div style={{ fontSize: 12, color: C.espressoM, marginTop: 4 }}>{cliInfo.endereco}</div>}
-                        <div style={{ fontSize: 12, color: C.espressoM, marginTop: 2 }}>
-                          {cliInfo.email || 'sem e-mail'} · {cliInfo.telefone || 'sem telefone'}
+                      <>
+                        <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: C.espresso }}>{cliInfo.nome}{doCadastro}</div>
+                          {cliInfo.endereco && <div style={{ fontSize: 12, color: C.espressoM, marginTop: 4 }}>{cliInfo.endereco}</div>}
+                          <div style={{ fontSize: 12, color: C.espressoM, marginTop: 2 }}>
+                            {cliInfo.email || 'sem e-mail'} · {cliInfo.telefone || 'sem telefone'}
+                          </div>
+                          <div style={{ fontSize: 11, color: C.espressoM, marginTop: 6 }}>Endereço, e-mail e telefone vêm do cadastro do cliente — edite no cadastro se mudaram.</div>
                         </div>
-                        <div style={{ fontSize: 11, color: C.espressoM, marginTop: 6 }}>Endereço, e-mail e telefone vêm do cadastro do cliente — edite no cadastro se mudaram.</div>
-                      </div>
+                        <AvisoCadastroIncompleto info={cliInfo} />
+                      </>
                     ) : null}
                   </>
                 ) : (
@@ -358,6 +373,7 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                         <div style={{ fontSize: 11, color: C.espressoM, marginTop: 6 }}>Dados vindos do cadastro do cliente — edite no cadastro se mudaram.</div>
                       </div>
                     ) : null}
+                    {cli && cliInfo ? <AvisoCadastroIncompleto info={cliInfo} /> : null}
                   </>
                 )}
                 <div style={gradeContrato}>
@@ -468,6 +484,17 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
   )
 }
 
+// #6703 critério 4: avisa (sem bloquear) quais dados do cadastro do cliente estão em branco, para o contrato não sair
+// com campo vazio. O envio continua barrando o CPF/CNPJ; este aviso cobre também endereço, e-mail e telefone.
+function AvisoCadastroIncompleto({ info }: { info: ClienteInfo | null }) {
+  const faltam = faltantesCadastro(info)
+  if (faltam.length === 0) return null
+  return (
+    <div style={{ background: C.amberBg, color: C.amber, padding: '8px 12px', borderRadius: 6, marginBottom: 12, fontSize: 12, lineHeight: 1.5 }}>
+      Faltam no cadastro deste cliente: <strong>{faltam.join(', ')}</strong>. Complete em Cadastros → Clientes para o contrato sair sem campo em branco (o CPF/CNPJ também pode ser preenchido abaixo).
+    </div>
+  )
+}
 function tab(active: boolean, disabled: boolean): React.CSSProperties {
   return { flex: 1, minHeight: 36, border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1, background: active ? '#FFFFFF' : 'transparent', color: active ? '#3D2314' : '#6B5D4F', boxShadow: active ? '0 1px 3px rgba(0,0,0,.08)' : 'none' }
 }
