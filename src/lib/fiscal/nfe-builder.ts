@@ -77,6 +77,8 @@ export interface NFeBuilderInput {
     observacoes?: string
     // frete/seguro/outras/desconto + modalidade (compõem o total e a base do ICMS — Lei Kandir)
     totais?: NFeRequest['totais']
+    // #5722 · grupo de transporte (transportador/veículo/volumes). Opcional — passa direto ao emissor único.
+    transporte?: NFeRequest['transporte']
   }
   overrides?: {
     itens: NFeBuilderItemInput[]
@@ -546,5 +548,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
         )
       : (input.manual?.observacoes ?? observacoesOrigem),
     totais: input.manual?.totais,
+    // #5722 · grupo de transporte (só quando a origem manual informa). Caminhos existentes não mudam.
+    ...(input.manual?.transporte ? { transporte: input.manual.transporte } : {}),
   }
 }
