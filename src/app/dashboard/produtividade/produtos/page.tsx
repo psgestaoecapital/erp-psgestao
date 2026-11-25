@@ -333,37 +333,72 @@ function LinhaProduto({ p, expandido, onExpandir, onSalvar, onArquivar, companyI
 }
 
 type ItemArvore = { origem_nome?: string | null; produto_nome?: string | null; rendimento_pct?: number | null; [k: string]: unknown }
+type LigPadrao = { codigo: string | null; nome: string | null; padrao_pct: number | null }
+type EstruturaProduto = { oriundo_de: LigPadrao[]; gera: LigPadrao[]; soma_gera_pct: number | null; soma_fora: boolean }
+
+const padrao = (n: number | null) => n != null ? `${n.toLocaleString('pt-BR')}%` : 'a definir'
 
 function Arvore({ companyId, plantId, produtoId, flashErr }: { companyId: string; plantId: string; produtoId: string; flashErr: (m: string) => void }) {
   const [itens, setItens] = useState<ItemArvore[] | null>(null)
+  const [est, setEst] = useState<EstruturaProduto | null>(null)
   useEffect(() => {
     let vivo = true
     void (async () => {
-      const { data, error } = await supabase.rpc('fn_prod_estrutura_listar', { p_company_id: companyId, p_plant_id: plantId, p_produto_id: produtoId, p_incluir_arquivados: false })
+      const [arv, dp] = await Promise.all([
+        supabase.rpc('fn_prod_estrutura_listar', { p_company_id: companyId, p_plant_id: plantId, p_produto_id: produtoId, p_incluir_arquivados: false }),
+        supabase.rpc('fn_prod_estrutura_do_produto', { p_company_id: companyId, p_plant_id: plantId, p_produto_id: produtoId }),
+      ])
       if (!vivo) return
-      if (error) { flashErr(erroAmigavel(error, 'Não foi possível carregar a árvore. Tente de novo.')); setItens([]); return }
-      const r = data as { ok?: boolean; itens?: ItemArvore[] } | null
-      setItens(r?.ok ? (r.itens ?? []) : [])
+      if (arv.error) { flashErr(erroAmigavel(arv.error, 'Não foi possível carregar a árvore. Tente de novo.')); setItens([]) }
+      else { const r = arv.data as { ok?: boolean; itens?: ItemArvore[] } | null; setItens(r?.ok ? (r.itens ?? []) : []) }
+      const e = dp.data as ({ ok?: boolean } & EstruturaProduto) | null
+      setEst(e?.ok ? e : { oriundo_de: [], gera: [], soma_gera_pct: null, soma_fora: false })
     })()
     return () => { vivo = false }
   }, [companyId, plantId, produtoId, flashErr])
 
   return (
-    <div style={{ fontSize: 12.5, color: C.esp }}>
-      <div style={{ fontWeight: 700, marginBottom: 6, color: C.espM, textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4 }}>Árvore de desmontagem</div>
-      {itens === null ? <div style={{ color: C.espM }}>Carregando…</div>
-        : itens.length === 0 ? <div style={{ color: C.espM }}>Sem estrutura de desmontagem para este produto ainda.</div>
-        : (
-          <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 4 }}>
-            {itens.map((it, i) => {
-              const origem = it.origem_nome ?? '—'
-              const saida = it.produto_nome ?? '—'
-              const rend = typeof it.rendimento_pct === 'number' ? `${it.rendimento_pct.toLocaleString('pt-BR')}%` : null
-              return <li key={i}><b>{origem}</b> → {saida}{rend ? <span style={{ color: C.espM }}> · rendimento {rend}</span> : null}</li>
-            })}
-          </ul>
-        )}
-      <div style={{ marginTop: 8, color: C.espL, fontSize: 11.5, fontStyle: 'italic' }}>Edição da árvore na tela de fluxo.</div>
+    <div style={{ fontSize: 12.5, color: C.esp, display: 'grid', gap: 12 }}>
+      {/* Corte oriundo de — de quais origens este produto sai, com o padrão de cada uma */}
+      <div>
+        <div style={{ fontWeight: 700, marginBottom: 6, color: C.espM, textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4, display: 'inline-flex', alignItems: 'center' }}>Corte oriundo de<Aj k="prod.produto.oriundo_de" /></div>
+        {est === null ? <div style={{ color: C.espM }}>Carregando…</div>
+          : est.oriundo_de.length === 0 ? <div style={{ color: C.espM }}>Não cadastrado como saída de nenhuma origem.</div>
+          : <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 3 }}>
+              {est.oriundo_de.map((o, i) => <li key={i}><b>{o.codigo ? `${o.codigo} · ` : ''}{o.nome}</b> <span style={{ color: C.espM }}>· padrão {padrao(o.padrao_pct)}</span></li>)}
+            </ul>}
+      </div>
+
+      {/* Cortes que saem desta origem + soma */}
+      <div>
+        <div style={{ fontWeight: 700, marginBottom: 6, color: C.espM, textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4, display: 'inline-flex', alignItems: 'center' }}>Cortes que saem desta origem<Aj k="prod.produto.gera_cortes" /></div>
+        {est === null ? <div style={{ color: C.espM }}>Carregando…</div>
+          : est.gera.length === 0 ? <div style={{ color: C.espM }}>Este produto não gera outros cortes no cadastro.</div>
+          : <>
+              <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 3 }}>
+                {est.gera.map((g, i) => <li key={i}>{g.codigo ? `${g.codigo} · ` : ''}{g.nome} <span style={{ color: C.espM }}>· padrão {padrao(g.padrao_pct)}</span></li>)}
+              </ul>
+              <div style={{ marginTop: 4, fontSize: 12, color: est.soma_fora ? C.amber : C.green }}>Soma dos padrões: {padrao(est.soma_gera_pct)}{est.soma_fora ? ' (fora de 97–103%)' : ''}</div>
+            </>}
+      </div>
+
+      {/* Árvore completa de desmontagem (como já era) */}
+      <div>
+        <div style={{ fontWeight: 700, marginBottom: 6, color: C.espM, textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4 }}>Árvore de desmontagem</div>
+        {itens === null ? <div style={{ color: C.espM }}>Carregando…</div>
+          : itens.length === 0 ? <div style={{ color: C.espM }}>Sem estrutura de desmontagem para este produto ainda.</div>
+          : (
+            <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 4 }}>
+              {itens.map((it, i) => {
+                const origem = it.origem_nome ?? '—'
+                const saida = it.produto_nome ?? '—'
+                const rend = typeof it.rendimento_pct === 'number' ? `${it.rendimento_pct.toLocaleString('pt-BR')}%` : null
+                return <li key={i}><b>{origem}</b> → {saida}{rend ? <span style={{ color: C.espM }}> · rendimento {rend}</span> : null}</li>
+              })}
+            </ul>
+          )}
+        <div style={{ marginTop: 8, color: C.espL, fontSize: 11.5, fontStyle: 'italic' }}>Edição da árvore na tela de fluxo.</div>
+      </div>
     </div>
   )
 }
