@@ -333,7 +333,8 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
   const melhorDe = (idx: number): Cand | null => sugestoes[idx]?.[0] ?? null
   // ref efetivo da linha: decisão explícita do usuário, senão a regra automática (melhor sugestão ≥ limiar).
   const refEfetivo = (idx: number): string => {
-    if (escolha[idx] !== undefined) return escolha[idx]
+    const sel = escolha[idx]
+    if (sel !== undefined) return sel
     const m = melhorDe(idx)
     return m && m.confianca >= THR ? m.codigo : ''
   }
