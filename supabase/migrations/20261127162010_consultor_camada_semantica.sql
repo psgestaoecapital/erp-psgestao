@@ -20,8 +20,14 @@ REVOKE ALL ON SCHEMA consultor FROM PUBLIC;
 DO $$ BEGIN
   CREATE ROLE consultor_leitor WITH NOLOGIN NOINHERIT NOCREATEDB NOCREATEROLE NOSUPERUSER;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
--- garante o mínimo mesmo se o papel já existia
-ALTER ROLE consultor_leitor WITH NOLOGIN NOINHERIT NOCREATEDB NOCREATEROLE NOSUPERUSER;
+-- NB: NÃO fazer ALTER ROLE ... NOSUPERUSER aqui — o papel do deploy (postgres, não-superusuário em Supabase
+-- gerenciado) não pode mexer no atributo SUPERUSER de nenhum papel (SQLSTATE 42501), e CREATE ROLE já nasce
+-- NOSUPERUSER. Isso quebrava o deploy-migrations (run #4782).
+-- Permite ao papel do deploy ASSUMIR consultor_leitor (necessário para o "ALTER FUNCTION ... OWNER TO
+-- consultor_leitor" lá embaixo: trocar o dono exige poder SET ROLE o novo dono). postgres tem ADMIN no papel que criou.
+DO $$ BEGIN
+  EXECUTE format('GRANT consultor_leitor TO %I', current_user);
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
 GRANT USAGE ON SCHEMA consultor TO consultor_leitor;
 -- USAGE em auth só para resolver auth.uid() (função já é PUBLIC EXECUTE); não dá acesso a nenhuma tabela de auth.
 GRANT USAGE ON SCHEMA auth TO consultor_leitor;
