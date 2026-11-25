@@ -19,6 +19,10 @@
 -- Compatibilidade: a chamada antiga de 4 args (p_company_id, p_conta_id, p_data_inicio, p_data_fim)
 --   continua resolvendo pelos defaults. Removo a assinatura de 4 args para não deixar DUAS overloads
 --   (PostgREST ficaria ambíguo ao receber os 4 nomes).
+--
+-- CONSOLIDA #6146 (revisor, 25/11): esta função tocava erp_receber/erp_pagar SEM `deleted_at IS NULL`,
+--   somando títulos soft-deletados (fantasma de ~R$ 57 tri na DEMO). Esta versão (superset de 8 args)
+--   JÁ aplica `deleted_at IS NULL` em TODAS as leituras — a #6146 (4 args) vira duplicata e fecha.
 
 DROP FUNCTION IF EXISTS public.fn_ge_extrato_conta(uuid, uuid, date, date);
 -- limpeza do helper de validação RD-38 (nunca foi referenciado por nada em produção)
@@ -85,38 +89,38 @@ BEGIN
     -- abertura + (recebidos antes do início) − (pagos antes do início).
     SELECT COALESCE(SUM(COALESCE(valor_pago, valor)),0) INTO v_c_inicio
       FROM erp_receber
-      WHERE company_id = p_company_id AND status IN ('recebido','pago') AND data_pagamento < v_data_inicio
+      WHERE company_id = p_company_id AND deleted_at IS NULL AND status IN ('recebido','pago') AND data_pagamento < v_data_inicio
         AND (p_conta_id IS NULL OR conta_bancaria_id = p_conta_id OR (conta_bancaria_id IS NULL AND conta_bancaria = v_conta_nome));
     SELECT v_saldo_base + v_c_inicio - COALESCE(SUM(COALESCE(valor_pago, valor)),0) INTO v_saldo_anterior
       FROM erp_pagar
-      WHERE company_id = p_company_id AND status = 'pago' AND data_pagamento < v_data_inicio
+      WHERE company_id = p_company_id AND deleted_at IS NULL AND status = 'pago' AND data_pagamento < v_data_inicio
         AND (p_conta_id IS NULL OR conta_bancaria = v_conta_nome);
   ELSE
     v_c_inicio :=
         (SELECT COALESCE(SUM(COALESCE(valor_pago, valor)),0) FROM erp_receber
-          WHERE company_id=p_company_id AND status IN ('recebido','pago') AND data_pagamento <= v_data_inicio - 1
+          WHERE company_id=p_company_id AND deleted_at IS NULL AND status IN ('recebido','pago') AND data_pagamento <= v_data_inicio - 1
             AND (p_conta_id IS NULL OR conta_bancaria_id = p_conta_id OR (conta_bancaria_id IS NULL AND conta_bancaria = v_conta_nome)))
       - (SELECT COALESCE(SUM(COALESCE(valor_pago, valor)),0) FROM erp_pagar
-          WHERE company_id=p_company_id AND status='pago' AND data_pagamento <= v_data_inicio - 1
+          WHERE company_id=p_company_id AND deleted_at IS NULL AND status='pago' AND data_pagamento <= v_data_inicio - 1
             AND (p_conta_id IS NULL OR conta_bancaria = v_conta_nome));
     v_c_ancora :=
         (SELECT COALESCE(SUM(COALESCE(valor_pago, valor)),0) FROM erp_receber
-          WHERE company_id=p_company_id AND status IN ('recebido','pago') AND data_pagamento <= v_data_ancora
+          WHERE company_id=p_company_id AND deleted_at IS NULL AND status IN ('recebido','pago') AND data_pagamento <= v_data_ancora
             AND (p_conta_id IS NULL OR conta_bancaria_id = p_conta_id OR (conta_bancaria_id IS NULL AND conta_bancaria = v_conta_nome)))
       - (SELECT COALESCE(SUM(COALESCE(valor_pago, valor)),0) FROM erp_pagar
-          WHERE company_id=p_company_id AND status='pago' AND data_pagamento <= v_data_ancora
+          WHERE company_id=p_company_id AND deleted_at IS NULL AND status='pago' AND data_pagamento <= v_data_ancora
             AND (p_conta_id IS NULL OR conta_bancaria = v_conta_nome));
     v_saldo_anterior := v_saldo_base + v_c_inicio - v_c_ancora;
   END IF;
 
   SELECT COALESCE(SUM(COALESCE(valor_pago, valor)),0) INTO v_total_entradas
     FROM erp_receber
-    WHERE company_id = p_company_id AND status IN ('recebido','pago')
+    WHERE company_id = p_company_id AND deleted_at IS NULL AND status IN ('recebido','pago')
       AND data_pagamento BETWEEN v_data_inicio AND v_data_fim
       AND (p_conta_id IS NULL OR conta_bancaria_id = p_conta_id OR (conta_bancaria_id IS NULL AND conta_bancaria = v_conta_nome));
   SELECT COALESCE(SUM(COALESCE(valor_pago, valor)),0) INTO v_total_saidas
     FROM erp_pagar
-    WHERE company_id = p_company_id AND status = 'pago'
+    WHERE company_id = p_company_id AND deleted_at IS NULL AND status = 'pago'
       AND data_pagamento BETWEEN v_data_inicio AND v_data_fim
       AND (p_conta_id IS NULL OR conta_bancaria = v_conta_nome);
 
@@ -125,7 +129,7 @@ BEGIN
       forma_pagamento, status, parcela, COALESCE(valor_pago, valor) AS valor,
       data_pagamento AS data, COALESCE(valor_pago, valor) AS sinal
     FROM erp_receber
-    WHERE company_id = p_company_id AND status IN ('recebido','pago')
+    WHERE company_id = p_company_id AND deleted_at IS NULL AND status IN ('recebido','pago')
       AND data_pagamento BETWEEN v_data_inicio AND v_data_fim
       AND COALESCE(valor_pago, valor) <> 0
       AND (p_conta_id IS NULL OR conta_bancaria_id = p_conta_id OR (conta_bancaria_id IS NULL AND conta_bancaria = v_conta_nome))
@@ -134,7 +138,7 @@ BEGIN
       forma_pagamento, status, parcela, COALESCE(valor_pago, valor),
       data_pagamento, -COALESCE(valor_pago, valor)
     FROM erp_pagar
-    WHERE company_id = p_company_id AND status = 'pago'
+    WHERE company_id = p_company_id AND deleted_at IS NULL AND status = 'pago'
       AND data_pagamento BETWEEN v_data_inicio AND v_data_fim
       AND COALESCE(valor_pago, valor) <> 0
       AND (p_conta_id IS NULL OR conta_bancaria = v_conta_nome)
@@ -177,5 +181,8 @@ BEGIN
 END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.fn_ge_extrato_conta(uuid, uuid, date, date, text, text, int, int) FROM anon;
-GRANT EXECUTE ON FUNCTION public.fn_ge_extrato_conta(uuid, uuid, date, date, text, text, int, int) TO authenticated;
+-- ACL: recriar a função (DROP+CREATE) a devolve com o grant PADRÃO EXECUTE TO PUBLIC. REVOKE só de anon
+-- seria no-op contra PUBLIC (SECURITY DEFINER bypassa RLS; fn__guarda_empresa RETURN quando auth.uid() IS NULL
+-- não barra anon) → vazamento de extrato entre empresas. Fecha PUBLIC+anon e repõe a ACL viva de produção.
+REVOKE ALL ON FUNCTION public.fn_ge_extrato_conta(uuid, uuid, date, date, text, text, int, int) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_extrato_conta(uuid, uuid, date, date, text, text, int, int) TO authenticated, service_role;
