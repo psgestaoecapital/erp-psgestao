@@ -54,13 +54,15 @@ const METODO_LABEL: Record<string, string> = {
   vida_util: "Vida útil/período", por_pessoa: "Por pessoa × tempo",
 };
 
-// Modo de custo da MÃO DE OBRA (CEO 24/11), inferido da própria linha (sem coluna nova):
-//  • por_m2  = empreitada: linha manual (sem função) precificada por m² (paga à equipe por m²).
-//  • por_hora = equipe própria: função/pessoa/equipe por hora (custo/h × horas por unidade), ou verba.
-function modoMaoObra(linha: BomLinha): "por_hora" | "por_m2" {
+// Modo de custo da MÃO DE OBRA (CEO 24-25/11), inferido da própria linha (sem coluna nova):
+//  • empreitada = linha manual (sem função) precificada por UNIDADE que não é hora (m², m, un, ponto…):
+//    paga-se um valor por unidade feita; sem auxílio de produtividade (o custo é o valor por unidade).
+//  • por_hora   = função/pessoa/equipe por hora (custo/h × horas por unidade), ou a própria unidade em horas.
+const UNIDADES_HORA = ["h", "hr", "hora", "horas"];
+function modoMaoObra(linha: BomLinha): "por_hora" | "empreitada" {
   const un = (linha.unidade || "").toLowerCase().replace(/\s/g, "");
-  const porM2 = !linha.mao_obra_id && (un === "m²" || un === "m2");
-  return porM2 ? "por_m2" : "por_hora";
+  const empreitada = !linha.mao_obra_id && un !== "" && !UNIDADES_HORA.includes(un);
+  return empreitada ? "empreitada" : "por_hora";
 }
 
 function tipoIcone(tipo: string | TipoItem) {
@@ -323,7 +325,7 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
                         data-ajuda="projetos.catalogo.bom.mo_modo"
                         className="ml-2 inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 align-middle text-[10px] font-medium text-blue-800"
                       >
-                        {modoMaoObra(linha) === "por_m2" ? "Por m² (empreitada)" : "Por hora"}
+                        {modoMaoObra(linha) === "empreitada" ? `Por ${linha.unidade} (empreitada)` : "Por hora"}
                         <AjudaCampo chave="projetos.catalogo.bom.mo_modo" rota={ROTA_AJUDA_SERVICO} />
                       </span>
                     )}
@@ -387,7 +389,7 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
                         >
                           <Calculator size={14} />
                         </button>
-                      ) : null /* mão de obra por m² (empreitada): custo é o valor por m², sem coeficiente */}
+                      ) : null /* mão de obra empreitada: custo é o valor por unidade, sem coeficiente */}
                       <button
                         onClick={() => removerLinha(linha)}
                         disabled={salvando}
