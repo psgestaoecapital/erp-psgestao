@@ -6,6 +6,9 @@ import { createFiscalService } from '@/lib/fiscal/service'
 import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-builder'
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
+import { notaEspelhoDeNFeReq } from '@/lib/fiscal/espelhoNota'
+import { danfeDeNFeRequest } from '@/lib/fiscal/danfeDados'
+import { carregarEmitenteDanfe } from '@/lib/fiscal/danfeEmitente'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { guardarXmlNota } from '@/lib/fiscal/guardarXmlNota'
 import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
@@ -73,6 +76,30 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfe', operacao: 'emissao', endpoint: 'nfe/emitir' } })
     if (negado) return negado
 
+    // #9726 · NF-e de peças da OS em empresa que baixa estoque pela OS (modo 'baixar_estoque'): item de
+    // faturamento tipo_item_sped '99 - Outras' (frio) NÃO pode ser faturado. Validação do SERVIDOR (não só
+    // do front): rejeita a emissão real quando algum produto enviado é '99' — o operador troca o item de
+    // faturamento na tela. Só vale para esse modo; as demais empresas seguem como hoje. A prévia/espelho não
+    // é barrada aqui (a tela já marca a linha e exige a troca antes de emitir).
+    if (body.osId && !body.apenasPrevia && body.manual?.itens?.length) {
+      const { data: paramBaixa } = await supabaseAdmin
+        .from('erp_oficina_parametros').select('modo_baixa_estoque').eq('company_id', body.companyId).maybeSingle()
+      if ((paramBaixa?.modo_baixa_estoque ?? 'faturamento') === 'baixar_estoque') {
+        const idsFat = [...new Set((body.manual.itens.map((i) => i.produtoId).filter(Boolean)) as string[])]
+        if (idsFat.length) {
+          const { data: prodsFat } = await supabaseAdmin
+            .from('erp_produtos').select('id, tipo_item_sped, descricao, nome').eq('company_id', body.companyId).in('id', idsFat)
+          const bloq99 = (prodsFat ?? []).filter((p) => (p.tipo_item_sped ?? '') === '99')
+          if (bloq99.length) {
+            const nomes = bloq99.map((p) => p.descricao || p.nome || p.id).join(', ')
+            return NextResponse.json(
+              { ok: false, mensagem: `Item 99 - Outras não pode ser faturado; troque o item de faturamento: ${nomes}` },
+              { status: 400 })
+          }
+        }
+      }
+    }
+
     // #5684 · venda de veículo: carrega venda/perfil/título (recusa nota autorizada/em processamento — sem duplicar).
     let vendaVeic: Awaited<ReturnType<typeof carregarVendaVeiculo>> | undefined
     let veicMontado: ItemVeiculoMontado | undefined
@@ -137,6 +164,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           icmsBase: it.icms?.base ?? null, icmsValor: it.icms?.valor ?? null, valorTotal: it.valorTotal,
         })),
         totais: { produtos: valorProdutosEntrada },
+        // #11234 · dados completos do DANFE (nota de ENTRADA: tpNF = 0)
+        danfe: { ...danfeDeNFeRequest(nfeReq, await carregarEmitenteDanfe(body.companyId)), tipoOperacao: 0 as const },
       }
       return NextResponse.json({
         ok: true,
@@ -278,37 +307,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       // #7641 etapa 2 · card de conferência: além do texto das Informações Complementares, devolve um
       // RESUMO estruturado da nota montada (sem emitir, sem gravar) para o operador conferir antes de enviar.
       // Puramente aditivo — não altera a emissão nem a regra de cálculo.
-      const d = nfeReq.destinatario
-      const end = d.endereco
-      const nota = {
-        naturezaOperacao: nfeReq.naturezaOperacao,
-        serie: nfeReq.serie,
-        finalidade: nfeReq.finalidade,
-        consumidorFinal: nfeReq.consumidorFinal ?? null,
-        destinatario: {
-          razaoSocial: d.razaoSocial,
-          documento: d.cnpj || d.cpf || null,
-          tipoDocumento: d.cnpj ? 'CNPJ' : (d.cpf ? 'CPF' : null),
-          email: d.email ?? null,
-          endereco: end ? [end.logradouro, end.numero, end.bairro, end.cidade, end.uf, end.cep].filter(Boolean).join(', ') : null,
-        },
-        itens: nfeReq.itens.map((it) => ({
-          descricao: it.descricao,
-          ncm: it.ncm ?? null,
-          cfop: it.cfop ?? null,
-          cst: it.icms?.cst ?? null,
-          cBenef: it.icms?.cBenef ?? null,
-          chassi: it.veiculo?.chassi ?? null,
-          icmsBase: it.icms?.base ?? null,
-          icmsValor: it.icms?.valor ?? null,
-          ibsCbs: it.ibsCbs ? { base: it.ibsCbs.baseCalculo, cbs: it.ibsCbs.cbsValor, ibs: it.ibsCbs.ibsValorTotal } : null,
-          valorTotal: it.valorTotal,
-        })),
-        totais: {
-          produtos: valorProdutos,
-          ibsCbs: nfeReq.ibsCbsTotais ? { base: nfeReq.ibsCbsTotais.baseCalculo, cbs: nfeReq.ibsCbsTotais.cbsValor, ibs: nfeReq.ibsCbsTotais.ibsValor } : null,
-        },
-      }
+      const nota = await notaEspelhoDeNFeReq(nfeReq, body.companyId)
       return NextResponse.json({
         ok: true,
         previa: { informacoesComplementares: nfeReq.observacoes ?? '', tamanho: tamanhoInfCpl, limite: LIMITE_INF_CPL, avisoIbpt, nota },
