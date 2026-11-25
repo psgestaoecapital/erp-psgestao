@@ -108,6 +108,13 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       if (vendaVeic.nfeStatusAtual === 'autorizada' || vendaVeic.nfeStatusAtual === 'processando') {
         return NextResponse.json({ ok: false, mensagem: `Esta venda já tem NF-e ${vendaVeic.nfeStatusAtual} — não emita de novo.` }, { status: 409 })
       }
+      // #9787 · a venda comum ('venda') transmite como hoje (não gated). As SAÍDAS novas por origem
+      // (ex.: consignacao_venda, CFOP 5949) são gated por operação (emite_nfe_autorizada, default false):
+      // a prévia/card já mostra o CFOP correto, mas transmitir só depois da contadora liberar em homologação.
+      if (!body.apenasPrevia && vendaVeic.operacaoNome && vendaVeic.operacaoNome !== 'venda'
+          && vendaVeic.perfil.operacao.emiteNfeAutorizada !== true) {
+        return NextResponse.json({ ok: false, mensagem: `A emissão autorizada da operação '${vendaVeic.operacaoNome}' ainda não está liberada no perfil fiscal. Gere a prévia (card de conferência) para conferir o CFOP, ou habilite a emissão com o contador (após homologação).` }, { status: 400 })
+      }
       // Nota ligada ao título da venda (sem criar título novo): vai no registro como erp_receber_id.
       body.erpReceberId = vendaVeic.receberId ?? undefined
     }

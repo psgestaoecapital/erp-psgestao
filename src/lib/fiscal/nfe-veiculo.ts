@@ -49,6 +49,8 @@ export interface DadosVendaVeiculo {
   numeroVenda: string | null
   clienteId: string
   receberId: string | null
+  // #9787 · operação escolhida pela ORIGEM do veículo: consignado → 'consignacao_venda' (CFOP 5949/6949) · senão 'venda' (5102/6102).
+  operacaoNome?: string
   veiculo: {
     id: string; chassi: string; placa: string | null; renavam: string | null
     marca: string | null; modelo: string | null; versao: string | null
@@ -169,8 +171,9 @@ export function montarItemVeiculo(d: DadosVendaVeiculo, ufEmitente: string | und
     ncm, cfop, unidade: 'UN', quantidade: 1, valorUnitario: valor, valorTotal: valor,
     origem: '0',
     icms,
-    pis: { cst: '01', aliquota: d.perfil.pisPct ?? PIS_PADRAO_PRESUMIDO },
-    cofins: { cst: '01', aliquota: d.perfil.cofinsPct ?? COFINS_PADRAO_PRESUMIDO },
+    // #9787 · PIS/COFINS da SAÍDA vêm do perfil por operação quando configurados (sem hardcode); senão, o padrão atual.
+    pis: { cst: op.pisCst?.trim() || '01', aliquota: op.pisAliquota ?? d.perfil.pisPct ?? PIS_PADRAO_PRESUMIDO },
+    cofins: { cst: op.cofinsCst?.trim() || '01', aliquota: op.cofinsAliquota ?? d.perfil.cofinsPct ?? COFINS_PADRAO_PRESUMIDO },
     ...(temIbsCbs ? {
       ibsCbs: {
         cst: op.ibsCbsCst as string, cClassTrib: op.ibsCbsCClassTrib as string, baseCalculo: valor,
@@ -206,9 +209,13 @@ export async function carregarVendaVeiculo(companyId: string, vendaId: string): 
 
   const { data: ve } = await supabaseAdmin
     .from('veic_veiculo')
-    .select('id, chassi, placa, renavam, marca, modelo, versao, ano_fabricacao, ano_modelo, cor, combustivel, potencia_cv, cilindradas, lugares, km_atual, ncm')
+    .select('id, chassi, placa, renavam, marca, modelo, versao, ano_fabricacao, ano_modelo, cor, combustivel, potencia_cv, cilindradas, lugares, km_atual, ncm, origem')
     .eq('id', v.veiculo_id).eq('company_id', companyId).maybeSingle()
   if (!ve) throw new FiscalError('PAYLOAD_INVALIDO', 'Veículo da venda não encontrado')
+
+  // #9787 · a operação (e o CFOP) saem da ORIGEM do veículo: consignado usa 'consignacao_venda' (CFOP 5949/6949),
+  // o resto usa 'venda' (5102/6102). Antes ficava fixo em 'venda' → consignado saía com 5102 (errado).
+  const operacaoNome = ve.origem === 'consignacao' ? 'consignacao_venda' : 'venda'
 
   const { data: perfil } = await supabaseAdmin
     .from('veic_perfil_fiscal')
@@ -218,9 +225,9 @@ export async function carregarVendaVeiculo(companyId: string, vendaId: string): 
   if (!perfil) throw new FiscalError('PAYLOAD_INVALIDO', 'Perfil fiscal da revenda não está aprovado — aprove o perfil fiscal antes de emitir a NF-e')
   const { data: op } = await supabaseAdmin
     .from('veic_perfil_fiscal_operacao')
-    .select('cfop_dentro_uf, cfop_fora_uf, cst_ou_csosn, cbenef, reducao_base_icms_pct, ibs_cbs_cst, ibs_cbs_cclasstrib, natureza_operacao, inf_complementar_texto')
-    .eq('perfil_id', perfil.id).eq('operacao', 'venda').maybeSingle()
-  if (!op) throw new FiscalError('PAYLOAD_INVALIDO', "A operação 'venda' não está configurada no perfil fiscal aprovado — complete o perfil com o contador")
+    .select('cfop_dentro_uf, cfop_fora_uf, cst_ou_csosn, cbenef, reducao_base_icms_pct, ibs_cbs_cst, ibs_cbs_cclasstrib, natureza_operacao, inf_complementar_texto, emite_nfe_autorizada, pis_cst, cofins_cst, pis_aliquota, cofins_aliquota')
+    .eq('perfil_id', perfil.id).eq('operacao', operacaoNome).maybeSingle()
+  if (!op) throw new FiscalError('PAYLOAD_INVALIDO', `A operação '${operacaoNome}' não está configurada no perfil fiscal aprovado — complete o perfil com o contador`)
 
   // Título que a venda JÁ criou no contas a receber do GE (fn_veic__receber → veic_venda_recebimento.receber_id).
   const { data: recs } = await supabaseAdmin
@@ -237,7 +244,7 @@ export async function carregarVendaVeiculo(companyId: string, vendaId: string): 
   return {
     vendaId, nfeIdAtual: v.nfe_id ?? null, nfeStatusAtual,
     valorVenda: Number(v.valor_venda ?? 0), numeroVenda: v.numero ?? null,
-    clienteId: v.cliente_id, receberId,
+    clienteId: v.cliente_id, receberId, operacaoNome,
     veiculo: {
       id: ve.id, chassi: ve.chassi, placa: ve.placa, renavam: ve.renavam, marca: ve.marca, modelo: ve.modelo, versao: ve.versao,
       anoFabricacao: ve.ano_fabricacao, anoModelo: ve.ano_modelo, cor: ve.cor, combustivel: ve.combustivel,
@@ -250,6 +257,10 @@ export async function carregarVendaVeiculo(companyId: string, vendaId: string): 
         cfopDentroUf: op.cfop_dentro_uf, cfopForaUf: op.cfop_fora_uf, cstOuCsosn: op.cst_ou_csosn, cbenef: op.cbenef ?? null,
         reducaoBasePct: num(op.reducao_base_icms_pct), ibsCbsCst: op.ibs_cbs_cst ?? null, ibsCbsCClassTrib: op.ibs_cbs_cclasstrib ?? null,
         naturezaOperacao: op.natureza_operacao ?? null, infComplementar: op.inf_complementar_texto ?? null,
+        // #9787 · gate + PIS/COFINS da SAÍDA (do perfil, por operação) — mesma leitura da entrada.
+        emiteNfeAutorizada: (op as { emite_nfe_autorizada?: boolean }).emite_nfe_autorizada === true,
+        pisCst: op.pis_cst ?? null, cofinsCst: op.cofins_cst ?? null,
+        pisAliquota: num(op.pis_aliquota), cofinsAliquota: num(op.cofins_aliquota),
       },
     },
   }
