@@ -4,7 +4,7 @@
 
 INSERT INTO public.erp_ajuda_campo
   (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, versao, status)
-SELECT v.chave, '/dashboard/fiscal/nfe/devolucao', 'Devolução de compra', v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, 'gestao_empresarial', v.ordem, 1, 'ativo'
+SELECT v.chave, '/dashboard/fiscal/nfe/devolucao', 'Devolução de compra', v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, 'gestao_empresarial', v.ordem, 1, 'publicado'
 FROM (VALUES
   ('fiscal.nfe.devolucao.transporte','Transportador e veículo',
    'Preencha só quando a devolução tem transporte. Em branco, a nota sai sem transportador/veículo (como hoje). A modalidade do frete (quem paga) está no bloco de valores acima.',

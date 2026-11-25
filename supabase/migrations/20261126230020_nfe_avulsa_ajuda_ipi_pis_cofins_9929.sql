@@ -5,7 +5,7 @@
 
 INSERT INTO public.erp_ajuda_campo
   (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, versao, status)
-SELECT v.chave, '/dashboard/fiscal/nfe/remessa', 'NF-e avulsa', v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, 'gestao_empresarial', v.ordem, 1, 'ativo'
+SELECT v.chave, '/dashboard/fiscal/nfe/remessa', 'NF-e avulsa', v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, 'gestao_empresarial', v.ordem, 1, 'publicado'
 FROM (VALUES
   ('fiscal.nfe_avulsa.item_impostos_federais','IPI, PIS e COFINS do item',
    'Em branco, o item segue o cadastro do produto (sem mudança). Preencha para destacar IPI, PIS e COFINS deste item na NF-e. Só aparece no regime normal — no Simples Nacional esses tributos não são destacados na nota.',
