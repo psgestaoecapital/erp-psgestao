@@ -239,6 +239,24 @@ function Inner() {
     }
   }
 
+  // #9787 · devolução ao consignante (consignacao_retorno) — SAÍDA, gated por emite_nfe_autorizada no perfil.
+  const [retBusy, setRetBusy] = useState(false)
+  async function devolverAoConsignante() {
+    if (!v) return
+    if (!window.confirm('Emitir a NF-e de DEVOLUÇÃO ao consignante? Isso TRANSMITE a nota no ambiente fiscal configurado — teste primeiro em homologação. Confirmar?')) return
+    setErro(null); setMsg(null); setRetBusy(true)
+    try {
+      const res = await authFetch('/api/fiscal/nfe/emitir', { method: 'POST', body: JSON.stringify({ companyId: v.company_id, consignacaoRetornoVeiculoId: id, apenasPrevia: false }) })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || j?.ok === false) { setErro(j?.mensagem ?? j?.message ?? `Não foi possível emitir a devolução (erro ${res.status}).`); return }
+      setMsg(`NF-e de devolução ao consignante ${j?.status ?? 'enviada'}${j?.chave ? ` · chave ${j.chave}` : ''}.`); void carregar()
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falha ao emitir a devolução ao consignante')
+    } finally {
+      setRetBusy(false)
+    }
+  }
+
   if (!v) return <div style={{ padding: 28, color: C.espM, background: C.bg, minHeight: '100vh' }}>{erro ?? 'Carregando veículo…'}</div>
   // #115 (Fábio/Alliance): consignado não tem custo de aquisição nem preço mínimo — só valor de venda.
   const consignado = v.origem === 'consignacao'
@@ -451,6 +469,18 @@ function Inner() {
             </button>
           </div>
           <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>A emissão autorizada transmite à SEFAZ no ambiente configurado e só é liberada por operação no perfil fiscal (contador), após homologação. Teste primeiro em homologação.</div>
+        </Bloco>
+      )}
+
+      {/* #9787 · devolução ao consignante (saída) — só para veículo consignado; gated pelo perfil fiscal. */}
+      {v.origem === 'consignacao' && (
+        <Bloco titulo="Devolução ao consignante">
+          <div style={{ fontSize: 12, color: C.espM, marginBottom: 8 }}>
+            Emite a NF-e de <b>saída</b> (devolução) do veículo não vendido ao consignante. CFOP/CST, natureza e valor vêm do perfil fiscal (operação <code>consignacao_retorno</code>); o valor espelha a aquisição (entrada em consignação). Só transmite quando a operação está liberada no perfil (contador, após homologação). Teste primeiro em homologação.
+          </div>
+          <button onClick={() => void devolverAoConsignante()} disabled={retBusy} style={{ padding: '8px 14px', border: 'none', borderRadius: 8, background: retBusy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: retBusy ? 'wait' : 'pointer' }}>
+            {retBusy ? 'Emitindo…' : 'Devolver ao consignante (NF-e)'}
+          </button>
         </Bloco>
       )}
 

@@ -283,7 +283,8 @@ export interface RemetenteEntrada {
 
 export interface DadosEntradaVeiculo {
   veiculoId: string
-  operacao: OperacaoEntrada
+  // #9787 · 'compra_pf'|'compra_pj'|'troca_entrada' (entrada, tpNF=0) ou 'consignacao_retorno' (saída, tpNF=1).
+  operacao: OperacaoEntrada | 'consignacao_retorno'
   valor: number
   veiculo: DadosVendaVeiculo['veiculo']
   remetente: RemetenteEntrada
@@ -418,6 +419,64 @@ export async function carregarEntradaVeiculo(companyId: string, veiculoId: strin
         reducaoBasePct: num(op.reducao_base_icms_pct), ibsCbsCst: op.ibs_cbs_cst ?? null, ibsCbsCClassTrib: op.ibs_cbs_cclasstrib ?? null,
         naturezaOperacao: op.natureza_operacao ?? null, infComplementar: op.inf_complementar_texto ?? null,
         // #9787 · gate da emissão autorizada + PIS/COFINS da entrada (do perfil, por operação).
+        emiteNfeAutorizada: (op as { emite_nfe_autorizada?: boolean }).emite_nfe_autorizada === true,
+        pisCst: op.pis_cst ?? null, cofinsCst: op.cofins_cst ?? null,
+        pisAliquota: num(op.pis_aliquota), cofinsAliquota: num(op.cofins_aliquota),
+      },
+    },
+    avisos,
+  }
+}
+
+/** #9787 · DEVOLUÇÃO ao consignante (consignacao_retorno) — SAÍDA (tpNF=1). Reusa a estrutura da entrada, mas é saída.
+ *  Destinatário = consignante (cadastro do veículo). VALOR = valor_aquisicao (devolução espelha a ENTRADA em
+ *  consignação — decisão do CEO/Adriana: não é venda; se vazio, a tela pede preencher). CFOP/CST/natureza/PIS/COFINS
+ *  vêm do perfil (operação 'consignacao_retorno'); a contadora confirma o CFOP específico e o valor. Gated. */
+export async function carregarConsignacaoRetorno(companyId: string, veiculoId: string): Promise<DadosEntradaVeiculo> {
+  const avisos: string[] = []
+  const { data: ve } = await supabaseAdmin
+    .from('veic_veiculo')
+    .select('id, chassi, placa, renavam, marca, modelo, versao, ano_fabricacao, ano_modelo, cor, combustivel, potencia_cv, cilindradas, lugares, km_atual, ncm, valor_aquisicao, origem, consignante_nome, consignante_documento')
+    .eq('id', veiculoId).eq('company_id', companyId).is('deleted_at', null).maybeSingle()
+  if (!ve) throw new FiscalError('PAYLOAD_INVALIDO', 'Veículo não encontrado nesta empresa')
+  if (ve.origem !== 'consignacao') throw new FiscalError('PAYLOAD_INVALIDO', 'Devolução ao consignante só vale para veículo consignado (origem = consignação)')
+  const valor = Number(ve.valor_aquisicao ?? 0)
+  if (!(valor > 0)) throw new FiscalError('PAYLOAD_INVALIDO', 'Informe o valor de aquisição (valor pelo qual o veículo entrou em consignação) antes de emitir a devolução ao consignante')
+
+  const { data: perfil } = await supabaseAdmin
+    .from('veic_perfil_fiscal')
+    .select('id, veicprod_obrigatorio_usado, ncm_padrao')
+    .eq('company_id', companyId).eq('status', 'aprovado').lte('vigente_desde', new Date().toISOString().slice(0, 10))
+    .order('vigente_desde', { ascending: false }).order('versao', { ascending: false }).limit(1).maybeSingle()
+  if (!perfil) throw new FiscalError('PAYLOAD_INVALIDO', 'Perfil fiscal da revenda não está aprovado — aprove o perfil fiscal antes de emitir')
+  const { data: op } = await supabaseAdmin
+    .from('veic_perfil_fiscal_operacao')
+    .select('cfop_dentro_uf, cfop_fora_uf, cst_ou_csosn, cbenef, reducao_base_icms_pct, ibs_cbs_cst, ibs_cbs_cclasstrib, natureza_operacao, inf_complementar_texto, emite_nfe_autorizada, pis_cst, cofins_cst, pis_aliquota, cofins_aliquota')
+    .eq('perfil_id', perfil.id).eq('operacao', 'consignacao_retorno').maybeSingle()
+  if (!op) throw new FiscalError('PAYLOAD_INVALIDO', "A operação 'consignacao_retorno' não está configurada no perfil fiscal aprovado — complete o perfil com o contador")
+
+  const doc = (ve.consignante_documento ?? '').replace(/\D/g, '')
+  if (!ve.consignante_nome && !doc) avisos.push('Veículo sem consignante (nome/CPF-CNPJ) no cadastro — preencha a consignação antes de emitir a devolução.')
+  const remetente: RemetenteEntrada = {
+    tipo: doc.length === 14 ? 'pj' : 'pf',
+    nome: ve.consignante_nome ?? null, documento: doc || null, endereco: null,
+  }
+
+  return {
+    veiculoId, operacao: 'consignacao_retorno', valor,
+    veiculo: {
+      id: ve.id, chassi: ve.chassi, placa: ve.placa, renavam: ve.renavam, marca: ve.marca, modelo: ve.modelo, versao: ve.versao,
+      anoFabricacao: ve.ano_fabricacao, anoModelo: ve.ano_modelo, cor: ve.cor, combustivel: ve.combustivel,
+      potenciaCv: num(ve.potencia_cv), cilindradas: num(ve.cilindradas), lugares: ve.lugares, kmAtual: num(ve.km_atual), ncm: ve.ncm,
+    },
+    remetente,
+    perfil: {
+      veicprodObrigatorioUsado: perfil.veicprod_obrigatorio_usado === true,
+      ncmPadrao: perfil.ncm_padrao ?? null,
+      operacao: {
+        cfopDentroUf: op.cfop_dentro_uf, cfopForaUf: op.cfop_fora_uf, cstOuCsosn: op.cst_ou_csosn, cbenef: op.cbenef ?? null,
+        reducaoBasePct: num(op.reducao_base_icms_pct), ibsCbsCst: op.ibs_cbs_cst ?? null, ibsCbsCClassTrib: op.ibs_cbs_cclasstrib ?? null,
+        naturezaOperacao: op.natureza_operacao ?? null, infComplementar: op.inf_complementar_texto ?? null,
         emiteNfeAutorizada: (op as { emite_nfe_autorizada?: boolean }).emite_nfe_autorizada === true,
         pisCst: op.pis_cst ?? null, cofinsCst: op.cofins_cst ?? null,
         pisAliquota: num(op.pis_aliquota), cofinsAliquota: num(op.cofins_aliquota),

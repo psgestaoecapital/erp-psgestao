@@ -12,7 +12,7 @@ import { carregarEmitenteDanfe } from '@/lib/fiscal/danfeEmitente'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { guardarXmlNota } from '@/lib/fiscal/guardarXmlNota'
 import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
-import { carregarVendaVeiculo, carregarEntradaVeiculo, type ItemVeiculoMontado, type ItemVeiculoEntradaMontado, type OperacaoEntrada } from '@/lib/fiscal/nfe-veiculo'
+import { carregarVendaVeiculo, carregarEntradaVeiculo, carregarConsignacaoRetorno, type ItemVeiculoMontado, type ItemVeiculoEntradaMontado, type OperacaoEntrada } from '@/lib/fiscal/nfe-veiculo'
 import { LIMITE_INF_CPL, excedeLimiteInfCpl, mensagemLimiteInfCpl, textoInformacoesComplementares } from '@/lib/fiscal/informacoesComplementares'
 
 export const dynamic = 'force-dynamic'
@@ -28,6 +28,8 @@ interface EmitirNFeBody {
   // #9787 marco 2 · ENTRADA do veículo (compra PF/PJ, troca) — SÓ prévia (não transmite). operacaoEntrada = a operação do perfil.
   entradaVeiculoId?: string
   operacaoEntrada?: OperacaoEntrada
+  // #9787 · DEVOLUÇÃO ao consignante (consignacao_retorno) — SAÍDA (tpNF=1), gated por emite_nfe_autorizada.
+  consignacaoRetornoVeiculoId?: string
   // chamado #20 Fase 3 · NF-e de peça a partir da OS: vincula a nota à OS e guarda a justificativa
   // de divergência de valor NO registro (recuperável depois — §8.1 detalhe #1 do CEO).
   osId?: string
@@ -135,12 +137,23 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       }
     }
 
+    // #9787 · DEVOLUÇÃO ao consignante (consignacao_retorno) — SAÍDA (tpNF=1). Mesma trava: só transmite com a
+    // operação liberada no perfil (emite_nfe_autorizada); senão só prévia (card de conferência).
+    let retornoVeic: Awaited<ReturnType<typeof carregarConsignacaoRetorno>> | undefined
+    if (body.consignacaoRetornoVeiculoId) {
+      retornoVeic = await carregarConsignacaoRetorno(body.companyId, body.consignacaoRetornoVeiculoId)
+      if (!body.apenasPrevia && retornoVeic.perfil.operacao.emiteNfeAutorizada !== true) {
+        return NextResponse.json({ ok: false, mensagem: "A emissão autorizada da operação 'consignacao_retorno' ainda não está liberada no perfil fiscal. Gere a prévia para conferir, ou habilite com o contador (após homologação)." }, { status: 400 })
+      }
+    }
+
     const nfeReq = await buildNFeRequest({
       companyId: body.companyId,
       vendaVeiculo: vendaVeic,
       onVeiculoMontado: (m) => { veicMontado = m },
       entradaVeiculo: entradaVeic,
       onEntradaMontada: (m) => { entradaMontado = m },
+      consignacaoRetorno: retornoVeic,
       erpReceberId: vendaVeic ? undefined : body.erpReceberId,
       pedidoId: body.pedidoId,
       osId: body.osId,
