@@ -32,6 +32,14 @@ const EDIFICACAO = [
   { v: 'misto', l: 'Misto' },
 ]
 
+// Situação da obra — domínio existente da coluna projetos_obras.status (não inventar valor: há CHECK no banco).
+const SITUACAO = [
+  { v: 'em_andamento', l: 'Em andamento' },
+  { v: 'pausada', l: 'Pausada' },
+  { v: 'concluida', l: 'Concluída' },
+  { v: 'cancelada', l: 'Cancelada' },
+]
+
 type Ficha = { ok: boolean; numero?: string; nome?: string | null; cliente_nome?: string | null; tipo_execucao?: string | null; modelo_contratacao?: string | null; matricula?: string | null; inscricao_imobiliaria?: string | null; tipo_edificacao?: string | null; area_construida_m2?: number | null; area_terreno_m2?: number | null; endereco?: string | null; bairro?: string | null; cidade?: string | null; uf?: string | null; cep?: string | null; erro?: string }
 
 export default function FichaObraPage({ params }: { params: Promise<{ id: string }> }) {
@@ -41,6 +49,14 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [cliente, setCliente] = useState<string | null>(null)
   const [tipo, setTipo] = useState('')
   const [modelo, setModelo] = useState('')
+  // Andamento da obra — situação, datas e % de conclusão (tela 314 gaps 1-3; colunas já existentes)
+  const [status, setStatus] = useState('')
+  const [dataInicio, setDataInicio] = useState('')
+  const [dataPrevistaFim, setDataPrevistaFim] = useState('')
+  const [dataConclusao, setDataConclusao] = useState('')
+  const [pctConclusao, setPctConclusao] = useState('')
+  const [busyAnd, setBusyAnd] = useState(false)
+  const [okAnd, setOkAnd] = useState(false)
   // Identidade do imóvel
   const [matricula, setMatricula] = useState('')
   const [inscricao, setInscricao] = useState('')
@@ -88,6 +104,13 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     setMatricula(j.matricula ?? ''); setInscricao(j.inscricao_imobiliaria ?? ''); setTipoEdif(j.tipo_edificacao ?? '')
     setAreaConstruida(j.area_construida_m2 != null ? String(j.area_construida_m2) : '')
     setAreaTerreno(j.area_terreno_m2 != null ? String(j.area_terreno_m2) : '')
+    // Andamento vem de leitor próprio (collision-free; fn_obra_ficha_ler não é tocado por esta fatia)
+    const { data: andData } = await supabase.rpc('fn_obra_ficha_andamento_ler', { p_obra_id: id })
+    const a = andData as { ok?: boolean; status?: string | null; data_inicio?: string | null; data_prevista_fim?: string | null; data_conclusao?: string | null; pct_conclusao?: number | null } | null
+    if (a && a.ok) {
+      setStatus(a.status ?? ''); setDataInicio(a.data_inicio ?? ''); setDataPrevistaFim(a.data_prevista_fim ?? '')
+      setDataConclusao(a.data_conclusao ?? ''); setPctConclusao(a.pct_conclusao != null ? String(a.pct_conclusao) : '')
+    }
     // Endereço vem de um leitor próprio (collision-free; fn_obra_ficha_ler não é tocado por esta fatia)
     const { data: endData } = await supabase.rpc('fn_obra_ficha_endereco_ler', { p_obra_id: id })
     const e = endData as Ficha | null
@@ -148,6 +171,27 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     const j = data as Ficha | null
     if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar a ficha.')); return }
     setOk(true)
+  }
+
+  // % aceita "0".."100" (vírgula ou ponto); vazio → null
+  const pctNum = (s: string): number | null => {
+    const t = String(s).replace(/[^\d,.-]/g, '').replace(',', '.')
+    if (t.trim() === '') return null
+    const n = Number(t)
+    return Number.isFinite(n) ? n : null
+  }
+
+  const salvarAndamento = async () => {
+    setBusyAnd(true); setErro(null); setOkAnd(false)
+    const { data, error } = await supabase.rpc('fn_obra_ficha_andamento_salvar', {
+      p_obra_id: id, p_status: status || null,
+      p_data_inicio: dataInicio || null, p_data_prevista_fim: dataPrevistaFim || null,
+      p_data_conclusao: dataConclusao || null, p_pct_conclusao: pctNum(pctConclusao),
+    })
+    setBusyAnd(false)
+    const j = data as Ficha | null
+    if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar o andamento da obra.')); return }
+    setOkAnd(true)
   }
 
   const salvarIdentidade = async () => {
@@ -225,6 +269,47 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                     {busy ? 'Salvando…' : 'Salvar classificação'}
                   </button>
                   <AjudaCampo chave="projetos.obra_ficha.salvar" rota={ROTA} />
+                </div>
+              </div>
+
+              {/* Andamento da obra — situação, datas e % de conclusão (tela 314 gaps 1-3; colunas já existentes) */}
+              <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 14 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700 }}>Andamento da obra</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Situação da obra<AjudaCampo chave="projetos.obra_ficha.status" rota={ROTA} /></span>
+                    <select data-testid="ficha-status" style={campo} value={status} onChange={(e) => { setStatus(e.target.value); setOkAnd(false) }}>
+                      <option value="">Não informada</option>
+                      {SITUACAO.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>% de conclusão<AjudaCampo chave="projetos.obra_ficha.pct_conclusao" rota={ROTA} /></span>
+                    <input data-testid="ficha-pct-conclusao" inputMode="decimal" style={campo} value={pctConclusao} placeholder="0 a 100" onChange={(e) => { setPctConclusao(e.target.value); setOkAnd(false) }} />
+                  </label>
+                </div>
+                <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                  <span>Início (efetivo)<AjudaCampo chave="projetos.obra_ficha.data_inicio" rota={ROTA} /></span>
+                  <input data-testid="ficha-data-inicio" type="date" style={campo} value={dataInicio} onChange={(e) => { setDataInicio(e.target.value); setOkAnd(false) }} />
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Previsão de término<AjudaCampo chave="projetos.obra_ficha.data_prevista_fim" rota={ROTA} /></span>
+                    <input data-testid="ficha-data-prevista-fim" type="date" style={campo} value={dataPrevistaFim} onChange={(e) => { setDataPrevistaFim(e.target.value); setOkAnd(false) }} />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Conclusão (efetiva)<AjudaCampo chave="projetos.obra_ficha.data_conclusao" rota={ROTA} /></span>
+                    <input data-testid="ficha-data-conclusao" type="date" style={campo} value={dataConclusao} onChange={(e) => { setDataConclusao(e.target.value); setOkAnd(false) }} />
+                  </label>
+                </div>
+                <div style={{ fontSize: 11, color: MUT }}>A situação e o avanço aparecem nos painéis e nas listas de obras. Preencha a conclusão só quando a obra terminar.</div>
+                {okAnd && <div data-testid="ficha-andamento-ok" style={{ background: '#EAF6EC', color: VERDE, borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 600 }}>Andamento salvo.</div>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button data-testid="ficha-salvar-andamento" disabled={busyAnd} onClick={() => void salvarAndamento()}
+                    style={{ flex: 1, padding: '12px 16px', borderRadius: 8, border: 'none', background: ESP, color: '#fff', fontSize: 14, fontWeight: 700, cursor: busyAnd ? 'wait' : 'pointer' }}>
+                    {busyAnd ? 'Salvando…' : 'Salvar andamento'}
+                  </button>
+                  <AjudaCampo chave="projetos.obra_ficha.salvar_andamento" rota={ROTA} />
                 </div>
               </div>
 
