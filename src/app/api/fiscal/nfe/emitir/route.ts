@@ -76,6 +76,30 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfe', operacao: 'emissao', endpoint: 'nfe/emitir' } })
     if (negado) return negado
 
+    // #9726 · NF-e de peças da OS em empresa que baixa estoque pela OS (modo 'baixar_estoque'): item de
+    // faturamento tipo_item_sped '99 - Outras' (frio) NÃO pode ser faturado. Validação do SERVIDOR (não só
+    // do front): rejeita a emissão real quando algum produto enviado é '99' — o operador troca o item de
+    // faturamento na tela. Só vale para esse modo; as demais empresas seguem como hoje. A prévia/espelho não
+    // é barrada aqui (a tela já marca a linha e exige a troca antes de emitir).
+    if (body.osId && !body.apenasPrevia && body.manual?.itens?.length) {
+      const { data: paramBaixa } = await supabaseAdmin
+        .from('erp_oficina_parametros').select('modo_baixa_estoque').eq('company_id', body.companyId).maybeSingle()
+      if ((paramBaixa?.modo_baixa_estoque ?? 'faturamento') === 'baixar_estoque') {
+        const idsFat = [...new Set((body.manual.itens.map((i) => i.produtoId).filter(Boolean)) as string[])]
+        if (idsFat.length) {
+          const { data: prodsFat } = await supabaseAdmin
+            .from('erp_produtos').select('id, tipo_item_sped, descricao, nome').eq('company_id', body.companyId).in('id', idsFat)
+          const bloq99 = (prodsFat ?? []).filter((p) => (p.tipo_item_sped ?? '') === '99')
+          if (bloq99.length) {
+            const nomes = bloq99.map((p) => p.descricao || p.nome || p.id).join(', ')
+            return NextResponse.json(
+              { ok: false, mensagem: `Item 99 - Outras não pode ser faturado; troque o item de faturamento: ${nomes}` },
+              { status: 400 })
+          }
+        }
+      }
+    }
+
     // #5684 · venda de veículo: carrega venda/perfil/título (recusa nota autorizada/em processamento — sem duplicar).
     let vendaVeic: Awaited<ReturnType<typeof carregarVendaVeiculo>> | undefined
     let veicMontado: ItemVeiculoMontado | undefined
