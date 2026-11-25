@@ -1,7 +1,7 @@
 // Indústria · Produtividade pelo MIX de entrada (CEO 25/11). Prova COMO USUÁRIO (RD-82) que o posto de uma raia tem
 // horas padrão = entrada da raia × tempo padrão do posto, horas reais = ponto das pessoas escaladas, e produtividade =
 // padrão ÷ real. Também que, sem tempo padrão / sem escala / sem entrada, aparece o motivo em vez de zero.
-// Migration 20261127100310 → @pos-migration. Roda na DEMO Indústria; limpa tudo no afterAll.
+// Migration 20261127120110 → @pos-migration. Roda na DEMO Indústria; limpa tudo no afterAll.
 import { test, expect } from '../../support/fixtures'
 import { rpcComoRobo, dbSelect, dbInsert, dbInsertMany, dbDelete } from '../../support/api'
 
