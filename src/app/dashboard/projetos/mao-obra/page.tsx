@@ -33,6 +33,10 @@ type Lista = { pode_ver_individual: boolean; encargos: Encargos & { fonte: strin
 // Equipes de mão de obra (CEO 18/11): grupos com custo médio/h calculado e efetivo editável.
 type EquipeMembro = { id?: string; nome_pessoa: string | null; funcao_mao_obra_id: string | null; funcao_nome?: string | null; custo_hora: number; ordem?: number };
 type EquipeRow = { id: string; nome: string; descricao: string | null; custo_medio_hora: number | null; custo_hora_efetivo: number | null; qtd_pessoas: number; ajustado: boolean; ativo: boolean; membros: EquipeMembro[] };
+// Custo/dia (CEO 24/11): não há escala/jornada por equipe no cadastro do Hub → usa a jornada padrão (8h/dia), explícita
+// na tela (ajuda do indicador). custo total/h = soma do custo_hora de todas as pessoas da equipe.
+const JORNADA_PADRAO_H = 8;
+const totalHoraEquipe = (eq: EquipeRow) => (eq.membros ?? []).reduce((s, m) => s + (Number(m.custo_hora) || 0), 0);
 
 const brl = (v: number | null | undefined) => (v === null || v === undefined ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
 const pct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`);
@@ -295,18 +299,25 @@ export default function MaoObraPage() {
                 <th className="py-2 pr-2">Nome<AjudaCampo chave="projetos.mao_obra.equipes.col_nome" /></th>
                 <th className="pr-2 text-right">Pessoas<AjudaCampo chave="projetos.mao_obra.equipes.col_pessoas" /></th>
                 <th className="pr-2 text-right">Custo médio/h<AjudaCampo chave="projetos.mao_obra.equipes.col_medio" /></th>
+                <th className="pr-2 text-right">Custo total/h<AjudaCampo chave="projetos.mao_obra.equipes.col_total_h" /></th>
                 <th className="pr-2 text-right">Custo efetivo/h<AjudaCampo chave="projetos.mao_obra.equipes.col_efetivo" /></th>
+                <th className="pr-2 text-right">Custo/dia<AjudaCampo chave="projetos.mao_obra.equipes.col_custo_dia" /></th>
                 <th></th>
               </tr></thead>
               <tbody>
-                {equipes === null && <tr><td colSpan={5} className="py-6 text-center text-[#3D2314]/60" data-testid="mao-obra-equipes-carregando">Carregando as equipes…</td></tr>}
-                {equipes !== null && equipes.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-[#3D2314]/60" data-testid="mao-obra-equipes-vazia">Nenhuma equipe ainda. Use “Nova equipe” para montar a primeira (ex.: “Equipe Lapa”).</td></tr>}
+                {equipes === null && <tr><td colSpan={7} className="py-6 text-center text-[#3D2314]/60" data-testid="mao-obra-equipes-carregando">Carregando as equipes…</td></tr>}
+                {equipes !== null && equipes.length === 0 && <tr><td colSpan={7} className="py-6 text-center text-[#3D2314]/60" data-testid="mao-obra-equipes-vazia">Nenhuma equipe ainda. Use “Nova equipe” para montar a primeira (ex.: “Equipe Lapa”).</td></tr>}
                 {(equipes ?? []).map((eq) => (
                   <tr key={eq.id} className={`border-b border-[#3D2314]/5 ${eq.ativo ? "" : "opacity-50"}`} data-testid={`mao-obra-equipe-${eq.id}`}>
                     <td className="py-2 pr-2">{eq.nome}{eq.descricao && <span className="block text-[11px] text-[#3D2314]/55">{eq.descricao}</span>}{!eq.ativo && <span className="ml-1 text-[11px] text-[#791F1F]">· arquivada</span>}</td>
                     <td className="pr-2 text-right tabular-nums">{eq.qtd_pessoas}</td>
                     <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-equipe-medio">{brl(eq.custo_medio_hora)}</td>
+                    <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-equipe-total-h" title={`Soma do custo/h das ${eq.qtd_pessoas} pessoa(s) da equipe`}>{brl(totalHoraEquipe(eq))}</td>
                     <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-equipe-efetivo">{brl(eq.custo_hora_efetivo)}{eq.ajustado && <span className="ml-1 text-[10.5px] text-[#8A5A00] bg-[#FAEEDA] rounded px-1 py-0.5" data-testid="mao-obra-equipe-ajustado" title="Custo efetivo ajustado pela empresa (não acompanha mais o médio)">ajustado</span>}</td>
+                    <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-equipe-custo-dia" title={`Base: jornada padrão de ${JORNADA_PADRAO_H}h/dia (não há escala cadastrada para a equipe)`}>
+                      {brl(totalHoraEquipe(eq) * JORNADA_PADRAO_H)}
+                      {eq.custo_medio_hora != null && <span className="block text-[10.5px] text-[#3D2314]/55">{brl(eq.custo_medio_hora * JORNADA_PADRAO_H)}/pessoa · {JORNADA_PADRAO_H}h</span>}
+                    </td>
                     <td className="text-right whitespace-nowrap">
                       <button className="text-[12px] underline mr-2" data-testid="mao-obra-equipe-editar" onClick={() => setModal({ tipo: "equipe", eq })}>Editar</button><AjudaCampo chave="projetos.mao_obra.equipes.acao.editar" />
                       <button className={`text-[12px] underline ${eq.ativo ? "text-[#791F1F]" : "text-[#2F5A1F]"}`} data-testid="mao-obra-equipe-arquivar" onClick={async () => {
@@ -1099,7 +1110,7 @@ function ModalEquipe({ companyId, eq, funcoes, pessoas, podeVerIndividual, onClo
                   {pessoasReais.map((p) => <option key={p.id} value={p.id}>{p.nome}{p.funcao ? ` · ${p.funcao}` : ""}</option>)}
                   <option value="__manual__">Digitar manual (fora do cadastro)</option>
                 </select>
-                {m.origem === "manual" && <input className={inp + " mt-1"} value={m.nome_pessoa} onChange={(e) => mudar(i, { nome_pessoa: e.target.value })} data-testid="equipe-membro-nome" placeholder="Nome (opcional)" />}
+                {m.origem === "manual" && <span className="mt-1 flex items-center gap-1"><input className={inp + " flex-1"} value={m.nome_pessoa} onChange={(e) => mudar(i, { nome_pessoa: e.target.value })} data-testid="equipe-membro-nome" placeholder="Nome (opcional)" /><AjudaCampo chave="projetos.mao_obra.equipes.membro_nome" /></span>}
               </label>
               <label className="flex flex-col gap-1 text-[12px]"><span className="text-[#3D2314]/70 flex items-center">Função<AjudaCampo chave="projetos.mao_obra.equipes.membro_funcao" /></span>
                 <select className={inp} value={m.funcao_sel_id} onChange={(e) => escolherFuncao(i, e.target.value)} data-testid="equipe-membro-funcao">

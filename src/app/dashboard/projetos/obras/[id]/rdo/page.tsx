@@ -43,6 +43,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [filtroOs, setFiltroOs] = useState('')
+  const [busca, setBusca] = useState('')
   const [editando, setEditando] = useState<string | null>(null) // id do RDO em edição, 'novo' para incluir, ou null
   const [fr, setFr] = useState({ ...VAZIO })
   const [novasFotos, setNovasFotos] = useState<File[]>([])
@@ -81,7 +82,22 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
 
   const osMap = useMemo(() => new Map(oss.map((o) => [o.id, o])), [oss])
   const osLancaveis = useMemo(() => oss.filter((o) => OS_LANCAVEL(o.status)), [oss])
-  const lista = useMemo(() => filtroOs ? rdos.filter((r) => r.os_id === filtroOs) : rdos, [rdos, filtroOs])
+  // Lista do histórico: filtro por OS + busca livre (data, serviço/OS ou palavra-chave nas
+  // atividades/ocorrências) — tudo client-side sobre os diários já carregados (escopo 15 · req 7f49b919).
+  const lista = useMemo(() => {
+    let l = filtroOs ? rdos.filter((r) => r.os_id === filtroOs) : rdos
+    const q = busca.trim().toLowerCase()
+    if (q) {
+      l = l.filter((r) => {
+        const os = osMap.get(r.os_id)
+        const dataBR = r.data ? new Date(r.data + 'T12:00:00').toLocaleDateString('pt-BR') : ''
+        const hay = [r.data, dataBR, r.atividades, r.ocorrencias, r.clima, os?.numero, os?.descricao]
+          .filter(Boolean).join(' ').toLowerCase()
+        return hay.includes(q)
+      })
+    }
+    return l
+  }, [rdos, filtroOs, busca, osMap])
   const rotuloOs = (o: Os | undefined) => o ? `OS ${o.numero ?? '—'}${o.descricao ? ` · ${o.descricao}` : ''}` : 'OS removida'
 
   const abrirNovo = () => {
@@ -170,6 +186,11 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
                   {oss.map((o) => <option key={o.id} value={o.id}>{rotuloOs(o)}</option>)}
                 </select>
               </label>
+              <label style={{ ...lab, flex: '1 1 220px' }}>
+                <span style={rot}>Buscar no diário <AjudaCampo chave="projetos.obra_rdo.busca" rota={ROTA} /></span>
+                <input value={busca} onChange={(e) => setBusca(e.target.value)} style={inp} data-testid="obra-rdo-busca"
+                  placeholder="Data, serviço (OS) ou palavra-chave" inputMode="search" />
+              </label>
               <span style={rot}>
                 <button type="button" onClick={() => (editando === 'novo' ? fechar() : abrirNovo())} disabled={osLancaveis.length === 0}
                   style={btn(ESP, '#fff')} data-testid="obra-rdo-novo">
@@ -248,7 +269,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
               Histórico de diários <AjudaCampo chave="projetos.obra_rdo.historico" rota={ROTA} /> <span style={{ color: MUT, fontWeight: 400 }}>({lista.length})</span>
             </h2>
             {lista.length === 0
-              ? <p style={{ color: MUT, fontSize: 14 }}>Nenhum diário lançado{filtroOs ? ' para esta OS' : ''} ainda.</p>
+              ? <p style={{ color: MUT, fontSize: 14 }}>{busca.trim() ? 'Nenhum diário encontrado para esta busca. Limpe o campo para ver todos.' : `Nenhum diário lançado${filtroOs ? ' para esta OS' : ''} ainda.`}</p>
               : <div style={{ display: 'grid', gap: 10 }}>
                   {lista.map((r) => {
                     const o = osMap.get(r.os_id)

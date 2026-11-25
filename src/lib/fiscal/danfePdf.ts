@@ -219,7 +219,7 @@ export function totaisCompletos(d: DanfeDados) {
 type Ctx = { page: PDFPage; font: PDFFont; bold: PDFFont }
 
 function caixa(c: Ctx, x: number, yTop: number, w: number, h: number) {
-  c.page.drawRectangle({ x, y: H - yTop - h, width: w, height: h, borderColor: NEGRO, borderWidth: 0.6 })
+  c.page.drawRectangle({ x, y: H - yTop - h, width: w, height: h, borderColor: NEGRO, borderWidth: 0.5 })
 }
 function texto(c: Ctx, s: string, x: number, yBase: number, size: number, bold = false, cor = NEGRO) {
   c.page.drawText(ansi(s), { x, y: H - yBase, size, font: bold ? c.bold : c.font, color: cor })
@@ -299,15 +299,23 @@ export async function gerarDanfePdf(d: DanfeDados, o: DanfeOpcoes): Promise<Uint
   const total = paginas.length
 
   const marca = (page: PDFPage) => {
-    // duas linhas em diagonal (45°), afastadas na PERPENDICULAR para não se sobreporem
-    const ang = 45 * Math.PI / 180
-    MARCA_CONFERENCIA.forEach((ln, i) => {
+    // GRANDE marca diagonal (45°) centralizada no corpo da nota, leiaute oficial do DANFE de conferência.
+    // Cada linha é auto-dimensionada para ocupar a diagonal da folha; empilhadas na PERPENDICULAR, centradas no meio.
+    const ang = Math.PI / 4
+    const dir = { x: Math.cos(ang), y: Math.sin(ang) }     // direção do texto
+    const perp = { x: -Math.sin(ang), y: Math.cos(ang) }   // perpendicular (empilha as linhas)
+    const maxW = Math.sqrt(W * W + H * H) * 0.70            // 70% da diagonal (não sangra nas margens)
+    const sized = MARCA_CONFERENCIA.map((ln) => {
       const t = ansi(ln)
-      const size = i === 0 ? 27 : 17
-      const tw = bold.widthOfTextAtSize(t, size)
-      const off = i === 0 ? 14 : -22 // perpendicular ao texto (+ sobe-esquerda, - desce-direita)
-      const cx = W / 2 - off * Math.sin(ang), cy = H / 2 + off * Math.cos(ang)
-      page.drawText(t, { x: cx - (tw / 2) * Math.cos(ang), y: cy - (tw / 2) * Math.sin(ang), size, font: bold, color: MARCA_COR, rotate: degrees(45) })
+      const size = Math.min(46, maxW / (bold.widthOfTextAtSize(t, 1) || 1))
+      return { t, size }
+    })
+    const gap = Math.max(...sized.map((s) => s.size)) * 1.18
+    sized.forEach((s, i) => {
+      const off = (i - (sized.length - 1) / 2) * gap
+      const cx = W / 2 + perp.x * off, cy = H / 2 + perp.y * off
+      const tw = bold.widthOfTextAtSize(s.t, s.size)
+      page.drawText(s.t, { x: cx - dir.x * tw / 2, y: cy - dir.y * tw / 2, size: s.size, font: bold, color: MARCA_COR, rotate: degrees(45) })
     })
   }
 
@@ -403,6 +411,19 @@ export async function gerarDanfePdf(d: DanfeDados, o: DanfeOpcoes): Promise<Uint
         texto(c, v, px, yTop + 7.5, size)
       }
       x += col.w
+    }
+  }
+
+  // Completa a área de produtos com linhas vazias: as colunas (verticais) continuam até o fim, como no DANFE oficial —
+  // a folha A4 fica inteira ocupada mesmo com poucos itens, em vez de parar no meio.
+  const linhasVazias = (c: Ctx, yStart: number, yEnd: number) => {
+    const h = yEnd - yStart
+    if (h < 2) return
+    caixa(c, M, yStart, CW, h)
+    let x = M
+    for (const col of COLS) {
+      x += col.w
+      if (x < W - M - 0.5) c.page.drawLine({ start: { x, y: H - yStart }, end: { x, y: H - yEnd }, thickness: 0.4, color: NEGRO })
     }
   }
 
@@ -510,16 +531,19 @@ export async function gerarDanfePdf(d: DanfeDados, o: DanfeOpcoes): Promise<Uint
       v6.forEach(([r, v], i) => campo(c, M + i * (CW / 6), y, CW / 6, 22, r, v ?? ''))
       y += 22
     }
-    // 8) produtos
+    // 8) produtos — a tabela ESTICA até os dados adicionais/rodapé (folha A4 inteira, leiaute oficial do DANFE)
     y = tabelaCab(c, y)
     for (const idx of paginas[p].itens) {
       desenhaItem(c, d.itens[idx], y, alturasLinha[idx]); y += alturasLinha[idx]
     }
-    // 9) dados adicionais (última página com espaço, ou página própria)
     const ultima = p === total - 1
-    if (ultima) {
-      if (adicionaisNaUltima || paginas[p].itens.length === 0) blocosAdicionais(c, y + 4)
-    }
+    const adicionaisAqui = ultima && (adicionaisNaUltima || paginas[p].itens.length === 0)
+    const yAdicTop = fim - alturaAdicionais
+    // a área de produtos vai até os dados adicionais (na última folha) ou até o rodapé (nas demais)
+    const yProdutosFim = adicionaisAqui ? yAdicTop - 4 : fim
+    if (y < yProdutosFim) linhasVazias(c, y, yProdutosFim)
+    // 9) dados adicionais — ancorados no rodapé
+    if (adicionaisAqui) blocosAdicionais(c, yAdicTop)
     // 10) rodapé
     const imp = `Impresso em ${dataBR(o.impressoEmISO)} às ${horaBR(o.impressoEmISO)}${autorizada ? '' : ' · documento de conferência — sem valor fiscal'}`
     texto(c, imp, M, H - 5, 6, false, LABEL)
