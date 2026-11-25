@@ -43,6 +43,11 @@ export const FERRAMENTAS = [
       required: ['objetivo', 'sql'],
     },
   },
+  {
+    name: 'situacao_parceiro',
+    description: 'Situação completa de UM cliente ou fornecedor citado pelo nome ou CNPJ: títulos, pagamentos, juros, saldo e diagnósticos do PORQUÊ do saldo (pago com juros, pago a mais, pago sem conciliar, vencido). Atalho forte para "por que o saldo do X...", "o X pagou?", "quanto o X deve?".',
+    input_schema: { type: 'object' as const, properties: { termo: { type: 'string', description: 'nome ou CNPJ do cliente/fornecedor' }, tipo: { type: 'string', enum: ['cliente', 'fornecedor', 'auto'] } }, required: ['termo'] },
+  },
   { name: 'raio_x', description: 'Raio-X de inconsistências dos dados da empresa (saldo que não bate, boleto sem baixa, cadastro errado).', input_schema: { type: 'object' as const, properties: {}, required: [] } },
   { name: 'divergencia_saldo', description: 'Compara o saldo do SISTEMA com o do BANCO/extrato por conta e mostra a diferença e os lançamentos sem conciliar que a explicam.', input_schema: { type: 'object' as const, properties: {}, required: [] } },
   {
@@ -62,6 +67,7 @@ export const FERRAMENTAS = [
 export function passoAmigavel(nome: string, input: Record<string, unknown>): string {
   switch (nome) {
     case 'consultar_dados': return (typeof input.objetivo === 'string' && input.objetivo.trim()) ? input.objetivo.trim() : 'Consultando os dados…'
+    case 'situacao_parceiro': return `Levantando a situação de ${typeof input.termo === 'string' ? input.termo : 'um parceiro'}…`
     case 'raio_x': return 'Fazendo um raio-X dos dados…'
     case 'divergencia_saldo': return 'Comparando o saldo do sistema com o do banco…'
     case 'lancamentos_detalhe': return 'Olhando os lançamentos…'

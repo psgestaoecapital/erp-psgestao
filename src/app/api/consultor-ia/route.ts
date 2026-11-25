@@ -40,6 +40,13 @@ function fazerExecutarTool(sb: ReturnType<typeof getUsuario>, companyId: string)
       if (error) return { erro: error.message }
       return data
     }
+    if (nome === 'situacao_parceiro') {
+      const termo = typeof input.termo === 'string' ? input.termo.slice(0, 120) : ''
+      const tipo = typeof input.tipo === 'string' && ['cliente', 'fornecedor'].includes(input.tipo) ? input.tipo : 'auto'
+      if (termo.length < 2) return { erro: 'informe o nome ou CNPJ do cliente/fornecedor' }
+      const { data, error } = await sb.rpc('fn_consultor_situacao_parceiro', { p_company_id: companyId, p_termo: termo, p_tipo: tipo })
+      return error ? { erro: error.message } : data
+    }
     if (nome === 'raio_x') {
       const { data, error } = await sb.rpc('fn_consultor_raiox', { p_company_id: companyId })
       return error ? { erro: error.message } : data
@@ -167,6 +174,8 @@ export async function POST(req: NextRequest) {
 
         // registra o custo REAL
         admin.rpc('fn_ia_empresa_registrar_gasto', { p_company_id: companyId, p_feature: FEATURE, p_custo_usd: Number(custo.toFixed(6)), p_chamadas: 1 }).then(() => {}, () => {})
+        // log LGPD da pergunta (só a pergunta + se respondeu; nunca o resultado) — preserva a auditoria do roteador anterior
+        admin.from('consultor_ia_pergunta_log').insert({ company_id: companyId, user_id: u.userId || null, pergunta: pergunta.slice(0, 500), tool_escolhida: 'agente', entendeu: !!resposta }).then(() => {}, () => {})
 
         // erro do sistema detectado pelo agente → fila do Eng. Chefe (erp_contexto_projeto)
         if (/erro do (próprio )?sistema|problema do sistema|equipe PS foi avisad/i.test(resposta)) {

@@ -31,6 +31,7 @@ export default function ConsultorIAPage() {
   const empresaRef = useRef(empresa);
   const [empresaInfo, setEmpresaInfo] = useState<{ nome: string; cnpj: string } | null>(null);
   const [pergunta, setPergunta] = useState("");
+  const [nomeParceiro, setNomeParceiro] = useState("");
   const [loading, setLoading] = useState(false);
   const [passos, setPassos] = useState<string[]>([]);
   const [agente, setAgente] = useState<Agente | null>(null);
@@ -164,6 +165,24 @@ export default function ConsultorIAPage() {
               {c}
             </button>
           ))}
+        </div>
+        {/* ATALHO: situação de UM cliente/fornecedor (RD-95 "?") — "por que o saldo do X...", "o X pagou?" */}
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${BD}` }}>
+          <label data-ajuda="inteligencia.consultor.situacao_parceiro" style={{ display: "block" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: TXM, marginBottom: 6, display: "flex", alignItems: "center" }}>
+              Situação de um cliente ou fornecedor<AjudaCampo chave="inteligencia.consultor.situacao_parceiro" />
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <input value={nomeParceiro} onChange={(e) => setNomeParceiro(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && nomeParceiro.trim()) { e.preventDefault(); perguntar(`Situação de ${nomeParceiro.trim()} — títulos, pagamentos e por que o saldo está assim`); } }}
+                placeholder="Nome ou CNPJ — ex.: IGP Cereais"
+                style={{ flex: "1 1 220px", background: OW, border: `1px solid ${BD}`, color: ESP, borderRadius: 10, padding: "10px 12px", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              <button type="button" onClick={() => nomeParceiro.trim() && perguntar(`Situação de ${nomeParceiro.trim()} — títulos, pagamentos e por que o saldo está assim`)} disabled={loading || !empresa || !nomeParceiro.trim()}
+                style={{ borderRadius: 10, border: `1px solid ${GO}`, background: "transparent", color: ESP, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: loading || !empresa || !nomeParceiro.trim() ? "not-allowed" : "pointer" }}>
+                Ver situação
+              </button>
+            </div>
+          </label>
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
           <button type="button" onClick={() => perguntar()} disabled={loading || !empresa || !pergunta.trim()}
