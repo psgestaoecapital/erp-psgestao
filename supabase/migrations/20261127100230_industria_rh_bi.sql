@@ -204,7 +204,7 @@ ON CONFLICT (id) DO UPDATE SET nome = EXCLUDED.nome, grupo = EXCLUDED.grupo, sub
 
 INSERT INTO system_screens (id, rota, area, titulo, modulo, descricao_funcional, estado_real)
 VALUES (gen_random_uuid(), '/dashboard/industrial/rh/bi', 'industrial', 'BI de RH', 'industrial_rh_bi',
-        'Painel de RH agregado: horas/extras/atrasos, infrações de ponto (agregado aberto; nominal restrito e registrado), quadro × real, custo da folha, turnover e cobertura do cadastro de custo.', 'em_uso')
+        'Painel de RH agregado: horas/extras/atrasos, infrações de ponto (agregado aberto; nominal restrito e registrado), quadro × real, custo da folha, turnover e cobertura do cadastro de custo.', 'pronto')
 ON CONFLICT (rota) DO UPDATE SET area = EXCLUDED.area, titulo = EXCLUDED.titulo, modulo = EXCLUDED.modulo,
   descricao_funcional = EXCLUDED.descricao_funcional, atualizado_em = now();
 
