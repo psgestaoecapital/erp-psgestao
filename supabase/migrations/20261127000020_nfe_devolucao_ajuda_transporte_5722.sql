@@ -1,10 +1,13 @@
 -- #5722 (jordana-manual) · Devolução de compra NF-e: grupo de transporte (transportador/veículo/volumes).
 -- Só a ajuda RD-95 ("?") dos campos novos — a lógica é aditiva no código (builder + rota devolução + tela),
 -- sem alterar o comportamento de quem não preencher. INSERTs idempotentes. Aditiva; não toca dado de cliente.
+-- conserto-main (code-desenvolvedor-3, 25/11): status='ativo' violava erp_ajuda_campo_status_check
+-- (só 'rascunho'/'publicado') — mesmo defeito do #9929; corrigido para 'publicado' e vertical 'fiscal'
+-- (a irmã existente de nfe_devolucao no banco é fiscal/publicado). Desbloqueia o deploy-migrations.
 
 INSERT INTO public.erp_ajuda_campo
   (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, versao, status)
-SELECT v.chave, '/dashboard/fiscal/nfe/devolucao', 'Devolução de compra', v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, 'gestao_empresarial', v.ordem, 1, 'ativo'
+SELECT v.chave, '/dashboard/fiscal/nfe/devolucao', 'Devolução de compra', v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, 'fiscal', v.ordem, 1, 'publicado'
 FROM (VALUES
   ('fiscal.nfe.devolucao.transporte','Transportador e veículo',
    'Preencha só quando a devolução tem transporte. Em branco, a nota sai sem transportador/veículo (como hoje). A modalidade do frete (quem paga) está no bloco de valores acima.',
