@@ -20,8 +20,12 @@ const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ $
 
 const raiz = join(__dirname, '../..')
 const dir = join(raiz, 'supabase/migrations')
+// A migration do boleto-juros é a que ADICIONA a coluna de reversão (ADD COLUMN ... ajuste_valor_pago_antes).
+// Usar só .includes('ajuste_valor_pago_antes') pegava, por ordem reversa, QUALQUER migration posterior que apenas
+// CITA a coluna — ex.: a camada semântica do Consultor IA (20261127162010) SELECIONA v.ajuste_valor_pago_antes numa
+// view —, apontando o gate para o arquivo errado e reprovando tudo. Casar o ADD COLUMN identifica o arquivo certo.
 const arq = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()
-  .reverse().find((f) => readFileSync(join(dir, f), 'utf8').includes('ajuste_valor_pago_antes'))
+  .reverse().find((f) => /ADD COLUMN IF NOT EXISTS\s+ajuste_valor_pago_antes/.test(readFileSync(join(dir, f), 'utf8')))
 ok(!!arq, `migration do boleto-juros encontrada (${arq ?? '—'})`)
 const sql = arq ? readFileSync(join(dir, arq), 'utf8') : ''
 const s = sql.replace(/--[^\n]*/g, '')
