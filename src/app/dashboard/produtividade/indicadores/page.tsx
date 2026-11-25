@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { parseNumBR } from '@/lib/num'
+import ProdutividadeMixPanel from '@/components/produtividade/ProdutividadeMixPanel'
 
 const ROTA = '/dashboard/produtividade/indicadores'
 const C = { esp: '#3D2314', espM: '#6B5D4F', bg: '#FAF7F2', white: '#FFFFFF', border: '#E0D8CC', gold: '#C8941A', green: '#166534', amber: '#BA7517', red: '#B42318' }
@@ -42,6 +43,7 @@ function Inner() {
   const [base, setBase] = useState('PCP0302')
   const [r, setR] = useState<Resp | null>(null)
   const [erro, setErro] = useState<string | null>(null)
+  const [aba, setAba] = useState<'setor' | 'posto'>('setor')
 
   const carregar = useCallback(async () => {
     if (!companyId) return
@@ -84,7 +86,18 @@ function Inner() {
         <b style={{ borderBottom: `2px solid ${C.gold}` }}>Indicadores</b>
       </div>
       <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>Produtividade · Indicadores</h1>
-      <div style={{ fontSize: 12, color: C.espM, marginBottom: 12 }}>{r?.fonte}</div>
+      <div style={{ fontSize: 12, color: C.espM, marginBottom: 12 }}>{aba === 'setor' ? r?.fonte : 'Por posto, pelo mix de entrada: horas padrão × horas reais do ponto.'}</div>
+      <div className="nao-imprimir" style={{ display: 'inline-flex', gap: 4, marginBottom: 14, border: `1px solid ${C.border}`, borderRadius: 8, padding: 3, background: C.white }}>
+        {([['setor', 'Por setor (kg/h-h)'], ['posto', 'Por posto (mix)']] as const).map(([v, t]) => (
+          <span key={v} style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <button type="button" onClick={() => setAba(v)} data-testid={`prod-aba-${v}`}
+              style={{ padding: '6px 12px', fontSize: 12.5, fontWeight: 700, borderRadius: 6, border: 'none', cursor: 'pointer', background: aba === v ? C.gold : 'transparent', color: aba === v ? C.white : C.espM }}>{t}</button>
+            {v === 'posto' && <AjudaCampo chave="prod.produtividade.aba" rota={ROTA} />}
+          </span>
+        ))}
+      </div>
+      {aba === 'posto' && <ProdutividadeMixPanel companyId={companyId} />}
+      {aba === 'setor' && (<>
       <div className="nao-imprimir" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
         <label style={lblFiltro}>De<AjudaCampo chave="produtividade.indicadores.de" rota={ROTA} /><input type="date" value={de} onChange={(e) => setDe(e.target.value)} aria-label="De" /></label>
         <label style={lblFiltro}>Até<AjudaCampo chave="produtividade.indicadores.ate" rota={ROTA} /><input type="date" value={ate} onChange={(e) => setAte(e.target.value)} aria-label="Até" /></label>
@@ -145,6 +158,7 @@ function Inner() {
         </table>
       </div>
       <ul style={{ fontSize: 12, color: C.espM, marginTop: 12 }}>{(r?.lacunas ?? []).map((l) => <li key={l}>{l}</li>)}</ul>
+      </>)}
     </div>
   )
 }
