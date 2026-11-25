@@ -281,7 +281,15 @@ BEGIN
   PERFORM consultor.fn_log(p_sql, v_rows, v_ms, NULL, p_pergunta_id);
   RETURN jsonb_build_object('linhas', v_rows, 'truncado', (v_rows >= 200), 'ms', v_ms, 'dados', COALESCE(v_res, '[]'::jsonb));
 END; $$;
+-- DONO = consultor_leitor: o corpo todo (inclusive o SELECT do modelo) roda no papel mínimo (SECURITY DEFINER), sem
+-- acesso a public. SET LOCAL ROLE não serve (é proibido dentro de SECURITY DEFINER), por isso a confinação é pela POSSE.
+-- O ALTER ... OWNER exige: (1) o papel do deploy poder SET ROLE o novo dono — garantido pelo GRANT consultor_leitor TO
+-- current_user lá em cima; e (2) o novo dono ter CREATE no schema da função (public). O consultor_leitor NÃO pode ter
+-- CREATE em public de forma permanente (segurança), então damos CREATE só para a troca e revogamos em seguida — a POSSE
+-- fica; o papel segue sem CREATE e sem acesso a public. (Foi o passo 2 que faltava e quebrava o deploy-migrations.)
+GRANT CREATE ON SCHEMA public TO consultor_leitor;
 ALTER FUNCTION public.fn_consultor_sql(uuid, text, uuid) OWNER TO consultor_leitor;
+REVOKE CREATE ON SCHEMA public FROM consultor_leitor;
 REVOKE ALL ON FUNCTION public.fn_consultor_sql(uuid, text, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_consultor_sql(uuid, text, uuid) TO authenticated, service_role;
 -- fn_consultor_sql roda COMO consultor_leitor (definer): precisa validar acesso pelas funções de empresa (não têm

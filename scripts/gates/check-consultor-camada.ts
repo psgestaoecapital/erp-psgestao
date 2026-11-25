@@ -47,7 +47,9 @@ ok(/NUNCA expõe|NUNCA expor|token\/chave\/senha/i.test(s) || true, 'doc de PII 
 
 // 4) RPC
 ok(/FUNCTION public\.fn_consultor_sql\(p_company_id uuid, p_sql text[^)]*\)[\s\S]*SECURITY DEFINER/.test(s), 'fn_consultor_sql SECURITY DEFINER')
-ok(/ALTER FUNCTION public\.fn_consultor_sql\([^)]*\) OWNER TO consultor_leitor/.test(s), 'fn_consultor_sql DONA = consultor_leitor (papel mínimo roda o SELECT)')
+ok(/ALTER FUNCTION public\.fn_consultor_sql\([^)]*\) OWNER TO consultor_leitor/.test(s) && /GRANT consultor_leitor TO/.test(s) &&
+   /GRANT CREATE ON SCHEMA public TO consultor_leitor/.test(s) && /REVOKE CREATE ON SCHEMA public FROM consultor_leitor/.test(s),
+   'fn_consultor_sql DONA = consultor_leitor (papel mínimo roda o SELECT; CREATE em public só na troca, depois revogado)')
 ok(/get_user_company_ids\(\)\)\s*OR public\.is_admin\(\)/.test(s), 'fn_consultor_sql valida acesso à empresa')
 ok(/jsonb_agg\(t\)[\s\S]*LIMIT 200/.test(s), 'resultado embrulhado em jsonb_agg com LIMIT 200')
 ok(/REVOKE ALL ON FUNCTION public\.fn_consultor_sql\([^)]*\) FROM PUBLIC, anon/.test(s), 'fn_consultor_sql: REVOKE de PUBLIC, anon')
