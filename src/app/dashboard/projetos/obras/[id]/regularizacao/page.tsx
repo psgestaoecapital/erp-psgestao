@@ -134,34 +134,34 @@ export default function RegularizacaoObraPage({ params }: { params: Promise<{ id
           <div data-testid="regularizacao-form" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, marginBottom: 16, display: 'grid', gap: 12 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: ESP }}>{form.id ? 'Editar documento' : 'Novo documento'}</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-              <div>
+              <div data-ajuda="projetos.obra_licenca.tipo">
                 <div style={lbl}>Tipo <AjudaCampo chave="projetos.obra_licenca.tipo" rota={ROTA} /></div>
                 <select data-testid="regularizacao-tipo" style={campo} value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}>
                   {TIPOS.map((t) => <option key={t.v} value={t.v}>{t.t}</option>)}
                 </select>
               </div>
-              <div>
+              <div data-ajuda="projetos.obra_licenca.numero">
                 <div style={lbl}>Número <AjudaCampo chave="projetos.obra_licenca.numero" rota={ROTA} /></div>
                 <input data-testid="regularizacao-numero" style={campo} value={form.numero} onChange={(e) => setForm({ ...form, numero: e.target.value })} placeholder="Ex.: Alvará 2026/1234" />
               </div>
-              <div>
+              <div data-ajuda="projetos.obra_licenca.orgao">
                 <div style={lbl}>Órgão emissor <AjudaCampo chave="projetos.obra_licenca.orgao" rota={ROTA} /></div>
                 <input data-testid="regularizacao-orgao" style={campo} value={form.orgao} onChange={(e) => setForm({ ...form, orgao: e.target.value })} placeholder="Ex.: Prefeitura; CREA-SP" />
               </div>
-              <div>
+              <div data-ajuda="projetos.obra_licenca.responsavel">
                 <div style={lbl}>Responsável técnico <AjudaCampo chave="projetos.obra_licenca.responsavel" rota={ROTA} /></div>
                 <input data-testid="regularizacao-responsavel" style={campo} value={form.responsavel} onChange={(e) => setForm({ ...form, responsavel: e.target.value })} placeholder="Ex.: Eng. João — CREA 123456" />
               </div>
-              <div>
+              <div data-ajuda="projetos.obra_licenca.emissao">
                 <div style={lbl}>Emissão <AjudaCampo chave="projetos.obra_licenca.emissao" rota={ROTA} /></div>
                 <input data-testid="regularizacao-emissao" type="date" style={campo} value={form.emissao} onChange={(e) => setForm({ ...form, emissao: e.target.value })} />
               </div>
-              <div>
+              <div data-ajuda="projetos.obra_licenca.validade">
                 <div style={lbl}>Validade <AjudaCampo chave="projetos.obra_licenca.validade" rota={ROTA} /></div>
                 <input data-testid="regularizacao-validade" type="date" style={campo} value={form.validade} onChange={(e) => setForm({ ...form, validade: e.target.value })} />
               </div>
             </div>
-            <div>
+            <div data-ajuda="projetos.obra_licenca.observacao">
               <div style={lbl}>Observação <AjudaCampo chave="projetos.obra_licenca.observacao" rota={ROTA} /></div>
               <input data-testid="regularizacao-descricao" style={campo} value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} placeholder="Observação (opcional)" />
             </div>
