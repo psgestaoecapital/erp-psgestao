@@ -137,7 +137,7 @@ ON CONFLICT (id) DO UPDATE SET nome = EXCLUDED.nome, grupo = EXCLUDED.grupo, sub
 
 INSERT INTO system_screens (id, rota, area, titulo, modulo, descricao_funcional, estado_real)
 VALUES (gen_random_uuid(), '/dashboard/industrial/rh/pessoas', 'industrial', 'Cadastro de pessoas (custo completo)',
-        'industrial_rh_pessoas', 'Cadastro de pessoas com custo completo (mesma ficha do Hub): traz funções e pessoas do ponto, sugere custo da folha e cria fichas (individual ou em lote).', 'em_uso')
+        'industrial_rh_pessoas', 'Cadastro de pessoas com custo completo (mesma ficha do Hub): traz funções e pessoas do ponto, sugere custo da folha e cria fichas (individual ou em lote).', 'pronto')
 ON CONFLICT (rota) DO UPDATE SET area = EXCLUDED.area, titulo = EXCLUDED.titulo, modulo = EXCLUDED.modulo,
   descricao_funcional = EXCLUDED.descricao_funcional, atualizado_em = now();
 
