@@ -145,3 +145,7 @@ BEGIN
   );
 END;
 $function$;
+
+-- Guarda de ACL (gate check:fn-guards): reafirma a ACL viva (sem anon/public), sem mudar comportamento.
+REVOKE ALL ON FUNCTION public.fn_ge_extrato_conta(uuid, uuid, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_extrato_conta(uuid, uuid, date, date) TO authenticated, service_role;
