@@ -568,8 +568,15 @@ function ColarListaModal({ companyId, plantId, onClose, onGravou }: {
 // Reusa o backend existente (RD-26): fn_prod_atak_produtos lista as fontes e os produtos do conector;
 // a gravação reusa fn_prod_produto_colar (upsert por código — não duplica). RD-100: rótulos sempre
 // "sistema vinculado"/"fonte vinculada", nunca o nome do fornecedor do conector.
-type FonteVinc = { dominio: string; produtos: number }
-type ItemVinc = { descricao: string; ocorrencias: number; categoria_nome: string | null }
+type FonteVinc = { dominio: string; produtos: number | null }
+type ItemVinc = { codigo: string | null; descricao: string; ocorrencias: number; ja_importado: boolean }
+// nomes próprios das fontes de produção (RD-96) — sem jargão do domínio bruto
+const ROTULO_FONTE: Record<string, string> = {
+  producao_frigorifico: 'Produção (frigorífico)', desossa_rendimento: 'Desossa (rendimento)', miudos_5quarto: 'Miúdos (5º quarto)',
+}
+const rotuloFonte = (d: string) => ROTULO_FONTE[d] ?? d
+// papel sugerido pelo começo do nome: cortes que entram na desossa são intermediários; o resto, produto final
+const papelSugerido = (desc: string) => (/^\s*(BOLA|TRASEIRO|DIANTEIRO|CARCA[CÇ]A)/i.test(desc ?? '') ? 'intermediario' : 'acabado')
 
 function ImportarVinculadoModal({ companyId, plantId, codigosExistentes, onClose, onGravou }: {
   companyId: string; plantId: string; codigosExistentes: Set<string>
@@ -578,7 +585,8 @@ function ImportarVinculadoModal({ companyId, plantId, codigosExistentes, onClose
   const [fontes, setFontes] = useState<FonteVinc[]>([])
   const [fonte, setFonte] = useState('')
   const [itens, setItens] = useState<ItemVinc[]>([])
-  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [sel, setSel] = useState<Set<string>>(new Set())   // chave de seleção = código
+  const [papeis, setPapeis] = useState<Record<string, string>>({})   // código → papel (editável; default sugerido)
   const [busca, setBusca] = useState('')
   const [carregandoFontes, setCarregandoFontes] = useState(true)
   const [carregandoItens, setCarregandoItens] = useState(false)
@@ -618,26 +626,31 @@ function ImportarVinculadoModal({ companyId, plantId, codigosExistentes, onClose
     return () => { vivo = false }
   }, [companyId, plantId, fonte])
 
-  const jaImportado = useCallback((descricao: string) => codigosExistentes.has((descricao ?? '').trim().toLowerCase()), [codigosExistentes])
+  const chaveDe = (i: ItemVinc) => (i.codigo ?? '').trim()
+  const papelDe = (i: ItemVinc) => papeis[chaveDe(i)] ?? papelSugerido(i.descricao)
+  const jaImportado = useCallback((i: ItemVinc) => i.ja_importado || codigosExistentes.has(chaveDe(i).toLowerCase()), [codigosExistentes])
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
-    return itens.filter((i) => i.descricao && (!q || i.descricao.toLowerCase().includes(q)))
+    return itens.filter((i) => i.descricao && (!q || i.descricao.toLowerCase().includes(q) || (i.codigo ?? '').toLowerCase().includes(q)))
   }, [itens, busca])
-  const selecionaveis = useMemo(() => filtrados.filter((i) => !jaImportado(i.descricao)), [filtrados, jaImportado])
-  const todosSel = selecionaveis.length > 0 && selecionaveis.every((i) => sel.has(i.descricao))
+  const selecionaveis = useMemo(() => filtrados.filter((i) => chaveDe(i) && !jaImportado(i)), [filtrados, jaImportado])
+  const todosSel = selecionaveis.length > 0 && selecionaveis.every((i) => sel.has(chaveDe(i)))
 
-  const toggle = (d: string) => setSel((s) => { const n = new Set(s); if (n.has(d)) n.delete(d); else n.add(d); return n })
+  const toggle = (c: string) => setSel((s) => { const n = new Set(s); if (n.has(c)) n.delete(c); else n.add(c); return n })
   const toggleTodos = () => setSel((s) => {
     const n = new Set(s)
-    if (todosSel) selecionaveis.forEach((i) => n.delete(i.descricao))
-    else selecionaveis.forEach((i) => n.add(i.descricao))
+    if (todosSel) selecionaveis.forEach((i) => n.delete(chaveDe(i)))
+    else selecionaveis.forEach((i) => n.add(chaveDe(i)))
     return n
   })
 
   async function importar() {
     if (sel.size === 0) return
     setBusy(true); setErro(null)
-    const linhas = [...sel].map((d) => d.replace(/;/g, ',').trim()).filter(Boolean).map((v) => `${v};${v}`).join('\n')
+    // uma linha por produto: código;descrição;papel (fn_prod_produto_colar grava chave_externa = código)
+    const porCodigo = new Map(itens.map((i) => [chaveDe(i), i]))
+    const linhas = [...sel].map((c) => porCodigo.get(c)).filter((i): i is ItemVinc => !!i)
+      .map((i) => `${chaveDe(i)};${(i.descricao ?? '').replace(/;/g, ',').trim()};${papelDe(i)}`).join('\n')
     const { data, error } = await supabase.rpc('fn_prod_produto_colar', { p_company_id: companyId, p_plant_id: plantId, p_linhas: linhas, p_gravar: true })
     setBusy(false)
     if (error) { setErro(erroAmigavel(error, 'Não foi possível importar. Tente de novo.')); return }
@@ -670,7 +683,7 @@ function ImportarVinculadoModal({ companyId, plantId, codigosExistentes, onClose
                 Fonte vinculada<Aj k="prod.produto.importar_fonte" />
                 <select data-testid="importar-fonte" value={fonte} onChange={(e) => setFonte(e.target.value)} style={{ ...inp, width: 'auto', flex: 1 }}>
                   <option value="">Escolha a fonte…</option>
-                  {fontes.map((f) => <option key={f.dominio} value={f.dominio}>{f.dominio} ({f.produtos})</option>)}
+                  {fontes.map((f) => <option key={f.dominio} value={f.dominio}>{rotuloFonte(f.dominio)}{f.produtos != null ? ` (${f.produtos})` : ''}</option>)}
                 </select>
               </label>
             )}
@@ -696,13 +709,23 @@ function ImportarVinculadoModal({ companyId, plantId, codigosExistentes, onClose
                     <div style={{ maxHeight: 320, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: 8 }}>
                       {filtrados.length === 0 && <div style={{ padding: '14px', fontSize: 12.5, color: C.espM, textAlign: 'center' }}>Nenhum produto nesta fonte.</div>}
                       {filtrados.map((i, idx) => {
-                        const ja = jaImportado(i.descricao)
+                        const ja = jaImportado(i)
+                        const c = chaveDe(i)
+                        const semCodigo = !c
                         return (
-                          <label key={i.descricao + idx} data-ajuda="prod.produto.importar_selecao" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderBottom: idx < filtrados.length - 1 ? `1px solid ${C.cream}` : 'none', cursor: ja ? 'default' : 'pointer', opacity: ja ? 0.6 : 1 }}>
-                            <input type="checkbox" data-testid="importar-item" checked={ja || sel.has(i.descricao)} disabled={ja} onChange={() => toggle(i.descricao)} />
-                            <span style={{ flex: 1, fontSize: 13, color: C.esp }}>{i.descricao}{i.categoria_nome ? <span style={{ color: C.espL, fontSize: 11.5 }}> · {i.categoria_nome}</span> : null}</span>
+                          <div key={(i.codigo ?? i.descricao) + idx} data-ajuda="prod.produto.importar_selecao" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderBottom: idx < filtrados.length - 1 ? `1px solid ${C.cream}` : 'none', opacity: ja || semCodigo ? 0.6 : 1 }}>
+                            <input type="checkbox" data-testid="importar-item" checked={!semCodigo && (ja || sel.has(c))} disabled={ja || semCodigo} onChange={() => toggle(c)} />
+                            <span style={{ flex: 1, fontSize: 13, color: C.esp }}>{i.codigo && <b style={{ fontFamily: 'ui-monospace, monospace', color: C.espM, marginRight: 6 }}>{i.codigo}</b>}{i.descricao}</span>
+                            {!ja && !semCodigo && (
+                              <label data-ajuda="prod.produto.importar_papel" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <select data-testid="importar-papel" value={papelDe(i)} onChange={(e) => setPapeis((p) => ({ ...p, [c]: e.target.value }))} style={{ ...inp, width: 'auto', padding: '3px 6px', fontSize: 11.5 }}>
+                                  {PAPEIS.map((p) => <option key={p.value} value={p.value}>{p.value === 'intermediario' ? 'Intermediário' : p.value === 'acabado' ? 'Produto final' : p.label.split(' (')[0]}</option>)}
+                                </select><Aj k="prod.produto.importar_papel" />
+                              </label>
+                            )}
                             {ja && <span style={{ fontSize: 11, fontWeight: 700, color: C.green, background: C.greenBg, padding: '2px 7px', borderRadius: 20 }}>já importado</span>}
-                          </label>
+                            {semCodigo && <span style={{ fontSize: 11, color: C.espM }} title="Sem código no sistema vinculado — use “Colar lista” ou “Novo produto”.">sem código</span>}
+                          </div>
                         )
                       })}
                     </div>
