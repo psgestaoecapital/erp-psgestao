@@ -144,3 +144,7 @@ BEGIN
   );
 END;
 $function$;
+
+-- Guarda de acesso (check_fn_guards): função SECURITY DEFINER não é aberta a anon.
+REVOKE ALL ON FUNCTION public.fn_ge_extrato_conta(uuid, uuid, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_extrato_conta(uuid, uuid, date, date) TO authenticated, service_role;
