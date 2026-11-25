@@ -87,7 +87,7 @@ const ETAPA_CONTRATO: Record<string, string> = {
 const etapaContrato = (s: string | null) => (s ? ETAPA_CONTRATO[s] ?? s : 'pedido')
 
 // PM-1 PR-D · id = linha estável em agency_proposta_itens (a fonte); preco_catalogo p/ o selo "preço ajustado"
-type Item = { id?: string | null; tipo_servico: string; descricao: string; quantidade: number; unidade: string; valor_unitario: number; valor_total: number; servico_id?: string | null; entregaveis?: string[]; periodicidade?: string | null; preco_catalogo?: number | null }
+type Item = { id?: string | null; tipo_servico: string; descricao: string; quantidade: number; unidade: string; valor_unitario: number; valor_total: number; servico_id?: string | null; entregaveis?: string[]; periodicidade?: string | null; horas_estimadas?: number | null; preco_catalogo?: number | null }
 type ServicoOpt = { id: string; nome: string; tipo: string; modelo_preco: string | null; area: string | null; valor_base: number | null; unidade: string | null; periodicidade: string | null; horas_estimadas: number | null; entregaveis: string[] | null }
 type Proposta = {
   id: string; company_id: string; cliente_id: string | null; briefing_id: string | null; numero: string | null
@@ -210,13 +210,14 @@ export default function PropostasPage() {
     setNovo(true)
     // PM-1 PR-D · itens vêm da TABELA (a fonte), com id estável — é o que permite editar/soft-delete
     const { data: its } = await supabase.from('agency_proposta_itens')
-      .select('id, servico_id, descricao, tipo_servico, unidade, periodicidade, quantidade, valor_unitario, valor_total, entregaveis')
+      .select('id, servico_id, descricao, tipo_servico, unidade, periodicidade, quantidade, valor_unitario, valor_total, horas_estimadas, entregaveis')
       .eq('proposta_id', p.id).is('excluido_em', null).order('ordem')
     const rows = (its ?? []) as Record<string, unknown>[]
     setItens(rows.length ? rows.map((r) => ({
       id: r.id as string, servico_id: (r.servico_id as string | null) ?? null,
       tipo_servico: (r.tipo_servico as string | null) ?? '', descricao: (r.descricao as string | null) ?? '',
       unidade: (r.unidade as string | null) ?? 'un', periodicidade: (r.periodicidade as string | null) ?? null,
+      horas_estimadas: r.horas_estimadas != null ? num(r.horas_estimadas) : null,
       quantidade: num(r.quantidade), valor_unitario: num(r.valor_unitario), valor_total: num(r.valor_total),
       entregaveis: Array.isArray(r.entregaveis) ? (r.entregaveis as string[]) : undefined,
       preco_catalogo: r.servico_id ? (catalogo.find((s) => s.id === r.servico_id)?.valor_base ?? null) : null,
@@ -401,6 +402,8 @@ export default function PropostasPage() {
   }
 
   async function mudarStatus(p: Proposta, status: string) {
+    // CEO 25/11 (go-live P&M, tela 4): cliente obrigatório para ENVIAR — a proposta vira contrato e precisa do cliente.
+    if (status === 'enviada' && !(p.cliente_id || p.erp_cliente_id)) { setToast('Selecione o cliente da proposta antes de enviar.'); return }
     const patch: Record<string, unknown> = { status, updated_at: new Date().toISOString() }
     if (status === 'enviada') patch.data_envio = new Date().toISOString()
     await supabase.from('agency_propostas').update(patch).eq('id', p.id)
@@ -433,6 +436,9 @@ export default function PropostasPage() {
 
   async function confirmarAprovar() {
     if (!apr) return
+    // CEO 25/11 (go-live P&M, tela 4): nunca aprovar sem cliente nem com valor final R$ 0 (a aprovação gera contrato).
+    if (!(apr.cliente_id || apr.erp_cliente_id)) { setToast('Selecione o cliente da proposta antes de aprovar — a proposta vira contrato e precisa de um cliente.'); return }
+    if (num(apr.valor_final ?? apr.valor_total) <= 0) { setToast('Não dá para aprovar uma proposta de valor R$ 0. Informe os itens e o valor antes de aprovar.'); return }
     // SPEC Master §3 (Júlia) · obrigatórios do comercial amarrados NOS DOIS LADOS. O front bloqueia antes
     // (lista "falta X" + impacto); o banco (fn_agency_proposta_aprovar) é fail-closed e recusa de verdade.
     const falta = aprovarObrigatoriosFaltando(aprForm)
@@ -598,7 +604,7 @@ export default function PropostasPage() {
                       onChange={(e) => {
                         const s = catalogo.find((x) => x.id === e.target.value)
                         if (!s) { setItem(i, { servico_id: null, preco_catalogo: null }); return }
-                        setItem(i, { servico_id: s.id, tipo_servico: s.nome, descricao: it.descricao || (s.area ?? ''), unidade: s.unidade ?? it.unidade, valor_unitario: s.valor_base ?? 0, entregaveis: s.entregaveis ?? [], preco_catalogo: s.valor_base ?? null, periodicidade: s.periodicidade })
+                        setItem(i, { servico_id: s.id, tipo_servico: s.nome, descricao: it.descricao || (s.area ?? ''), unidade: s.unidade ?? it.unidade, valor_unitario: s.valor_base ?? 0, entregaveis: s.entregaveis ?? [], preco_catalogo: s.valor_base ?? null, periodicidade: s.periodicidade, horas_estimadas: s.horas_estimadas })
                       }}
                     >
                       <option value="">Do catálogo… (ou digite abaixo)</option>
@@ -616,6 +622,23 @@ export default function PropostasPage() {
                     <CampoMoeda style={inp} value={numeroParaMoeda(it.valor_unitario)} onChange={(v) => setItem(i, { valor_unitario: moedaParaNumero(v) ?? 0 })} placeholder="Valor unit." />
                     <div style={{ fontSize: 13, fontWeight: 700, textAlign: 'right', color: ESPRESSO }}>{brl(it.valor_total)}</div>
                     <button onClick={() => rmItem(i)} disabled={itens.length === 1} title="Remover" style={{ ...btnSec, borderColor: RED, color: RED, opacity: itens.length === 1 ? 0.4 : 1 }}>✕</button>
+                  </div>
+                  {/* P&M tela 4 (go-live) · periodicidade e horas estimadas por item — base para margem/preço (P6/P7). Persistidos por fn_agency_proposta_itens_sync. */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                    <label style={lbl}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: TEXTM }}>Periodicidade<AjudaCampo chave="pm.servico.periodicidade" /></span>
+                      <select style={inp} value={it.periodicidade ?? ''} onChange={(e) => setItem(i, { periodicidade: e.target.value || null })}>
+                        <option value="">Pontual / avulso</option>
+                        <option value="mensal">Mensal</option>
+                        <option value="trimestral">Trimestral</option>
+                        <option value="semestral">Semestral</option>
+                        <option value="anual">Anual</option>
+                      </select>
+                    </label>
+                    <label style={lbl}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: TEXTM }}>Horas estimadas<AjudaCampo chave="pm.servico.horas" /></span>
+                      <CampoDecimal style={inp} min={0} value={it.horas_estimadas ?? undefined} onChange={(n) => setItem(i, { horas_estimadas: n ?? null })} placeholder="h" />
+                    </label>
                   </div>
                 </div>
               ))}

@@ -34,11 +34,22 @@ type Arvore = {
   total_geral: number; material_geral: number; mao_obra_geral: number
   nos: NoEap[] | NoLocal[]
 }
-type ObraInfo = { numero: string; nome: string | null; orcamento_id: string | null; area_construida_m2: number | null }
+type ObraInfo = { numero: string; nome: string | null; orcamento_id: string | null; area_construida_m2: number | null; company_id: string | null }
+// §315 MODOS (perfil do Hub, fn_hub_perfil_obter): o modo filtra a NAVEGAÇÃO, nunca os dados.
+// Prestadora: por padrão vê só as etapas do(s) ramo(s) dela (projetos_ref_ramo.eap_prefixos), com "ver todas".
+// Pessoa física: versão simplificada — sem a separação material × mão de obra na tela (só o total).
+type ModoHub = 'construtora' | 'prestadora' | 'escritorio' | 'pessoa_fisica'
+// Prefixo do ramo: "14" casa 14 e 14.x; "=23" casa só o nó 23 (o agrupador, sem os filhos).
+const casaPrefixo = (cod: string, p: string) => p.startsWith('=') ? cod === p.slice(1) : (cod === p || cod.startsWith(p + '.'))
+// Ancestral de algum prefixo (ex.: "09" é pai de "09.01"): aparece para manter o caminho da árvore.
+const ehAncestral = (cod: string, p: string) => (p.startsWith('=') ? p.slice(1) : p).startsWith(cod + '.')
 // Serviço do catálogo da empresa (origem do custo do item)
 type Servico = { id: string; codigo: string | null; nome: string; unidade: string | null; eap_codigo: string | null; custo_material: number | null; custo_mao_obra: number | null }
 // Item individual do orçamento com complemento EAP (para editar/excluir) — fn_projetos_orcamento_item_eap_listar (#5814)
 type ItemEap = { item_id: string; servico_id: string | null; servico_codigo: string | null; servico_descricao: string | null; unidade: string | null; eap_codigo: string; local_tipo: string | null; local_nome: string | null; quantidade: number; custo_material_unit: number | null; custo_mao_obra_unit: number | null; subtotal: number }
+// §108 — orçamento candidato a ORIGEM da cópia (outro orçamento da MESMA empresa). fn_projetos_orcamento_copiar
+// ADICIONA os itens da origem a este orçamento (não substitui) — a RPC exige mesma empresa (isolamento de tenant).
+type OrcamentoOrigem = { id: string; numero: string | null; cliente_nome: string | null; total: number | null; status: string | null; data_emissao: string | null }
 // Os 6 tipos de local (projetos_local_tipo). O LOCAL é dimensão do item, não nível da EAP.
 const LOCAIS: { codigo: string; nome: string }[] = [
   { codigo: 'ambiente', nome: 'Ambiente / área comum' },
@@ -87,11 +98,23 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   const [memForm, setMemForm] = useState<{ memorial: string; especificacao: string }>({ memorial: '', especificacao: '' })
   const [memSalvando, setMemSalvando] = useState(false)
   const [memErro, setMemErro] = useState<string | null>(null)
+  // §315 MODOS: modo do Hub da empresa e prefixos EAP do(s) ramo(s) da prestadora.
+  const [modoHub, setModoHub] = useState<ModoHub>('construtora')
+  const [prefixosRamo, setPrefixosRamo] = useState<string[]>([])
+  const [soMeuRamo, setSoMeuRamo] = useState(true)
+  // §108 "Copiar de outro orçamento": modal de seleção da origem (mesma empresa) + resultado da cópia.
+  const [copiarAberto, setCopiarAberto] = useState(false)
+  const [origens, setOrigens] = useState<OrcamentoOrigem[]>([])
+  const [origensCarregando, setOrigensCarregando] = useState(false)
+  const [origemSel, setOrigemSel] = useState('')
+  const [copiando, setCopiando] = useState(false)
+  const [erroCopiar, setErroCopiar] = useState<string | null>(null)
+  const [avisoCopia, setAvisoCopia] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
     setLoading(true); setErro(null)
-    const { data: od, error: oe } = await supabase.from('projetos_obras').select('numero,nome,orcamento_id,area_construida_m2').eq('id', id).maybeSingle()
+    const { data: od, error: oe } = await supabase.from('projetos_obras').select('numero,nome,orcamento_id,area_construida_m2,company_id').eq('id', id).maybeSingle()
     if (oe || !od) { setLoading(false); setErro(erroAmigavel(oe, 'Não foi possível carregar a obra.')); return }
     const info = od as ObraInfo
     setObra(info)
@@ -127,6 +150,27 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     setServicos((data ?? []) as Servico[])
   }, [])
   useEffect(() => { void carregarServicos() }, [carregarServicos]) // eslint-disable-line react-hooks/set-state-in-effect
+
+  // §315 MODOS: perfil do Hub da empresa da obra. Sem perfil = construtora (tudo como antes).
+  const companyId = obra?.company_id ?? null
+  const carregarPerfil = useCallback(async () => {
+    if (!companyId) return
+    const { data } = await supabase.rpc('fn_hub_perfil_obter', { p_company_id: companyId })
+    const p = data as { modo?: ModoHub; ramos?: string[] } | null
+    const modo: ModoHub = p?.modo ?? 'construtora'
+    setModoHub(modo)
+    const ramos = p?.ramos ?? []
+    if (modo !== 'prestadora' || ramos.length === 0) { setPrefixosRamo([]); return }
+    const { data: rr } = await supabase.from('projetos_ref_ramo').select('eap_prefixos').in('codigo', ramos)
+    const pre = new Set<string>()
+    for (const r of (rr as { eap_prefixos: string[] | null }[] | null) ?? []) for (const x of r.eap_prefixos ?? []) pre.add(x)
+    setPrefixosRamo([...pre])
+  }, [companyId])
+  useEffect(() => { void carregarPerfil() }, [carregarPerfil]) // eslint-disable-line react-hooks/set-state-in-effect
+  const filtroRamo = prefixosRamo.length > 0 && soMeuRamo
+  const simples = modoHub === 'pessoa_fisica'
+  const visivelNoRamo = useCallback((cod: string) => !filtroRamo || prefixosRamo.some((p) => casaPrefixo(cod, p) || ehAncestral(cod, p)), [filtroRamo, prefixosRamo])
+  const itemDoRamo = useCallback((cod: string) => !filtroRamo || prefixosRamo.some((p) => casaPrefixo(cod, p)), [filtroRamo, prefixosRamo])
 
   // Ao escolher o serviço, o custo (material/MO) e a EAP vêm dele e podem ser editados antes de gravar.
   const escolherServico = (sid: string) => {
@@ -203,6 +247,39 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     await carregar()
   }
 
+  // §108: abre o seletor e carrega os OUTROS orçamentos da mesma empresa (candidatos a origem da cópia).
+  // Filtra por company_id da obra (a RPC só copia dentro da mesma empresa) e exclui o próprio destino. RLS reforça.
+  const abrirCopiar = useCallback(async () => {
+    setCopiarAberto(true); setErroCopiar(null); setOrigemSel(''); setAvisoCopia(null)
+    if (!companyId || !obra?.orcamento_id) { setOrigens([]); return }
+    setOrigensCarregando(true)
+    const { data } = await supabase.from('erp_orcamentos')
+      .select('id,numero,cliente_nome,total,status,data_emissao')
+      .eq('company_id', companyId).neq('id', obra.orcamento_id)
+      .order('data_emissao', { ascending: false, nullsFirst: false }).limit(200)
+    setOrigens((data ?? []) as OrcamentoOrigem[])
+    setOrigensCarregando(false)
+  }, [companyId, obra?.orcamento_id])
+
+  const fecharCopiar = () => { setCopiarAberto(false); setOrigemSel(''); setErroCopiar(null) }
+
+  // §108: copia (ADICIONA) os itens do orçamento de origem para este, pela RPC fn_projetos_orcamento_copiar.
+  const copiarOrcamento = async () => {
+    if (!obra?.orcamento_id) return
+    if (!origemSel) { setErroCopiar('Escolha o orçamento de origem.'); return }
+    setCopiando(true); setErroCopiar(null)
+    const { data, error } = await supabase.rpc('fn_projetos_orcamento_copiar', {
+      p_orcamento_destino: obra.orcamento_id, p_orcamento_origem: origemSel,
+    })
+    setCopiando(false)
+    const j = data as { ok?: boolean; itens_copiados?: number; eap_copiados?: number } | null
+    if (error || !j?.ok) { setErroCopiar(erroAmigavel(error, 'Não foi possível copiar o orçamento.')); return }
+    const n = j.itens_copiados ?? 0
+    setCopiarAberto(false); setOrigemSel('')
+    setAvisoCopia(`${n} ${n === 1 ? 'item copiado' : 'itens copiados'} para este orçamento.`)
+    await carregar()
+  }
+
   // Aceita tanto o formato pt-BR digitado ("1.234,56") quanto o formato de máquina do prefil ("1234.56").
   // Regra: se houver vírgula, o ponto é separador de milhar; sem vírgula, um ponto é a casa decimal.
   const num = (s: string): number | null => {
@@ -263,7 +340,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   )
 
   const linhaNo = (n: NoEap) => {
-    const filhos = filhosPorPai.get(n.eap_codigo) ?? []
+    const filhos = (filhosPorPai.get(n.eap_codigo) ?? []).filter((f) => visivelNoRamo(f.eap_codigo))
     const temFilhos = filhos.length > 0
     const aberto = !recolhidos.has(n.eap_codigo)
     const recuo = (n.nivel - 1) * 16
@@ -279,7 +356,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
             <div style={{ minWidth: 0, overflow: 'hidden' }}>
               <div style={{ fontSize: 14, color: ESP, fontWeight: n.nivel <= 1 ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.nome}</div>
               {/* §315 C-2: material × mão de obra separados também por nó da EAP (não só no total geral). */}
-              {(n.material > 0 || n.mao_obra > 0) && (
+              {!simples && (n.material > 0 || n.mao_obra > 0) && (
                 <div style={{ fontSize: 11, color: MUT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   Material {brl(n.material)} · Mão de obra {brl(n.mao_obra)}
                 </div>
@@ -295,7 +372,9 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     )
   }
 
-  const raizes = arvore?.modo === 'eap' ? (filhosPorPai.get(null) ?? []) : []
+  const raizes = arvore?.modo === 'eap' ? (filhosPorPai.get(null) ?? []).filter((n) => visivelNoRamo(n.eap_codigo)) : []
+  // Itens visíveis: no filtro do ramo, só os itens cujo código EAP é do ramo da prestadora.
+  const itensVis = itens.filter((it) => itemDoRamo(it.eap_codigo))
   const locais = arvore?.modo === 'local' ? (arvore.nos as NoLocal[]) : []
   // Sem nós na EAP: pode ser orçamento REALMENTE vazio (0 itens) OU orçamento COM itens, porém nenhum
   // estruturado pela EAP ainda. São estados diferentes — não dizer "ainda não tem itens" quando há itens.
@@ -324,7 +403,13 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
 
   const painelAdd = !loading && obra && obra.orcamento_id ? (
     <div style={{ marginBottom: 14 }}>
+      {avisoCopia && !formAberto && (
+        <div role="status" data-testid="orc-copiar-aviso" style={{ background: '#E8F3EC', color: '#166534', border: '0.5px solid #B7DCC4', borderRadius: 10, padding: '9px 14px', fontSize: 13, marginBottom: 10 }}>
+          {avisoCopia}
+        </div>
+      )}
       {!formAberto ? (
+        <>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button data-testid="orc-add-abrir" onClick={abrirNovo}
             style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: ESP, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
@@ -334,11 +419,47 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
             style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
             Importar da planilha (.xlsx)
           </Link>
+          <button data-testid="orc-copiar-abrir" onClick={() => void abrirCopiar()}
+            style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+            Copiar de outro orçamento
+          </button>
           <Link href={`/dashboard/projetos/obras/${id}/orcamento/relatorios`} data-testid="orc-relatorios-link"
             style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${LINE}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
             Relatórios
           </Link>
         </div>
+        {copiarAberto && (
+          <div data-testid="orc-copiar-form" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 12, marginTop: 12 }}>
+            <div style={{ fontSize: 15, color: ESP, fontWeight: 700 }}>Copiar itens de outro orçamento</div>
+            <div style={{ fontSize: 13, color: MUT, lineHeight: 1.5 }}>
+              Os itens do orçamento escolhido são <strong>adicionados</strong> a este (não substituem os que já existem). Só orçamentos da mesma empresa.
+            </div>
+            {erroCopiar && <div role="alert" data-testid="orc-copiar-erro" style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: 9, fontSize: 13 }}>{erroCopiar}</div>}
+            <label style={{ display: 'block' }}>
+              <span style={rotuloCampo}>Orçamento de origem <AjudaCampo chave="projetos.orcamento_eap.copiar_origem" rota={ROTA} /></span>
+              <select data-testid="orc-copiar-origem" value={origemSel} onChange={(e) => { setOrigemSel(e.target.value); setErroCopiar(null) }} disabled={origensCarregando} style={campo}>
+                <option value="">{origensCarregando ? 'Carregando orçamentos…' : 'Escolha o orçamento de origem…'}</option>
+                {origens.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.numero ? `Nº ${o.numero} · ` : ''}{o.cliente_nome ?? 'Sem cliente'} · {brl(o.total)}{o.status ? ` · ${SITUACAO[o.status]?.rotulo ?? o.status}` : ''}
+                  </option>
+                ))}
+              </select>
+              {!origensCarregando && origens.length === 0 && (
+                <div style={{ fontSize: 12, color: MUT, marginTop: 4 }}>Nenhum outro orçamento desta empresa para copiar.</div>
+              )}
+            </label>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button data-testid="orc-copiar-cancelar" onClick={fecharCopiar} disabled={copiando}
+                style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${LINE}`, background: '#fff', color: MUT, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Cancelar</button>
+              <button data-testid="orc-copiar-confirmar" onClick={() => void copiarOrcamento()} disabled={copiando || !origemSel}
+                style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: (copiando || !origemSel) ? MUT : ESP, color: '#fff', fontSize: 13, fontWeight: 700, cursor: (copiando || !origemSel) ? 'default' : 'pointer' }}>
+                {copiando ? 'Copiando…' : 'Copiar itens'}
+              </button>
+            </div>
+          </div>
+        )}
+        </>
       ) : (
         <div data-testid="orc-add-form" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 12 }}>
           <div style={{ fontSize: 15, color: ESP, fontWeight: 700 }}>{editId ? 'Editar item do orçamento' : 'Adicionar item ao orçamento'}</div>
@@ -478,6 +599,8 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Total estruturado (EAP) <AjudaCampo chave="projetos.orcamento_eap.total" rota={ROTA} /></div>
                 <div style={{ fontSize: 22, color: ESP, fontWeight: 700 }}>{brl(arvore.total_geral)}</div>
               </div>
+              {/* §315 MODOS: pessoa física vê a versão simples (só o total, sem material × mão de obra). */}
+              {!simples && (<>
               <div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Material <AjudaCampo chave="projetos.orcamento_eap.material" rota={ROTA} /></div>
                 <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.material_geral)}{arvore.total_geral > 0 && <span style={{ fontSize: 12, color: MUT, fontWeight: 500 }}> · {pct((arvore.material_geral / arvore.total_geral) * 100)} do total</span>}</div>
@@ -486,6 +609,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Mão de obra <AjudaCampo chave="projetos.orcamento_eap.mao_obra" rota={ROTA} /></div>
                 <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.mao_obra_geral)}{arvore.total_geral > 0 && <span style={{ fontSize: 12, color: MUT, fontWeight: 500 }}> · {pct((arvore.mao_obra_geral / arvore.total_geral) * 100)} do total</span>}</div>
               </div>
+              </>)}
               {/* KPI Custo por m² (blueprint §315 essencial): total estruturado ÷ área construída da obra. */}
               {obra?.area_construida_m2 != null && obra.area_construida_m2 > 0 && (
                 <div data-testid="orc-custo-m2">
@@ -512,6 +636,23 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
               <AjudaCampo chave="projetos.orcamento_eap.agrupar" rota={ROTA} />
             </div>
 
+            {/* §315 MODOS · prestadora: por padrão só as etapas do ramo dela; "Todas as etapas" mostra o orçamento inteiro. */}
+            {prefixosRamo.length > 0 && arvore.modo === 'eap' && (
+              <div data-testid="orc-filtro-ramo" data-ajuda="projetos.orcamento_eap.filtro_ramo" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: MUT, fontWeight: 600 }}>Mostrar</span>
+                <button data-testid="orc-filtro-ramo-meu" onClick={() => setSoMeuRamo(true)} style={chip(soMeuRamo)}>Só o meu ramo</button>
+                <button data-testid="orc-filtro-ramo-todas" onClick={() => setSoMeuRamo(false)} style={chip(!soMeuRamo)}>Todas as etapas</button>
+                <AjudaCampo chave="projetos.orcamento_eap.filtro_ramo" rota={ROTA} />
+              </div>
+            )}
+            {filtroRamo && arvore.modo === 'eap' && raizes.length === 0 && (
+              <div data-testid="orc-filtro-ramo-vazio" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, fontSize: 13, color: ESP, lineHeight: 1.5 }}>
+                Nenhuma etapa deste orçamento é do seu ramo ainda. Adicione o seu serviço com o <em>+ Item</em> ou veja o orçamento inteiro.{' '}
+                <button data-testid="orc-filtro-ramo-vazio-todas" onClick={() => setSoMeuRamo(false)}
+                  style={{ marginLeft: 4, padding: '6px 12px', borderRadius: 999, border: `1px solid ${ESP}`, background: '#fff', color: ESP, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Ver todas as etapas</button>
+              </div>
+            )}
+
             {/* Árvore / lista */}
             <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: '4px 16px 12px' }} data-testid="orc-arvore">
               {arvore.modo === 'eap'
@@ -521,7 +662,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                     {/* §315 C-2: material × mão de obra também no agrupamento por Local, igual ao nó da EAP. */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, color: ESP, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.local_nome}</div>
-                      {(l.material > 0 || l.mao_obra > 0) && (
+                      {!simples && (l.material > 0 || l.mao_obra > 0) && (
                         <div style={{ fontSize: 11, color: MUT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           Material {brl(l.material)} · Mão de obra {brl(l.mao_obra)}
                         </div>
@@ -535,12 +676,12 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
             </div>
 
             {/* Itens do orçamento — incluir (acima) / editar / excluir (RD-98 p2). Lista achatada com id. */}
-            {itens.length > 0 && (
+            {itensVis.length > 0 && (
               <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: '14px 16px' }} data-testid="orc-itens">
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700, marginBottom: 10 }}>
                   Itens do orçamento <AjudaCampo chave="projetos.orcamento_eap.itens" rota={ROTA} />
                 </div>
-                {itens.map((it) => {
+                {itensVis.map((it) => {
                   const loc = it.local_nome ? ` · ${it.local_nome}` : ''
                   const un = it.unidade ? ` ${it.unidade}` : ''
                   const excluindo = excluindoId === it.item_id
@@ -561,7 +702,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                         <div style={{ fontSize: 11, color: MUT, fontFamily: 'ui-monospace, monospace' }}>
                           EAP {it.eap_codigo}{loc} · {(it.quantidade ?? 0).toLocaleString('pt-BR')}{un}
                         </div>
-                        {(matTot > 0 || moTot > 0) && (
+                        {!simples && (matTot > 0 || moTot > 0) && (
                           <div data-testid={`orc-item-split-${it.item_id}`} style={{ fontSize: 11, color: MUT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             Material {brl(matTot)} · Mão de obra {brl(moTot)}
                           </div>

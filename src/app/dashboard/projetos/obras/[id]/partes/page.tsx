@@ -155,7 +155,10 @@ export default function PartesObraPage({ params }: { params: Promise<{ id: strin
                           {it.observacao && <div style={{ fontSize: 12, color: ESP, marginTop: 4 }}>{it.observacao}</div>}
                         </div>
                         <div style={{ display: 'flex', gap: 10 }}>
-                          <button data-testid="partes-editar" onClick={() => editar(it)} style={{ border: 'none', background: 'transparent', color: GOLD, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Editar</button>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                            <button data-testid="partes-editar" onClick={() => editar(it)} style={{ border: 'none', background: 'transparent', color: GOLD, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Editar</button>
+                            <AjudaCampo chave="projetos.obra_parte.editar" rota={ROTA} />
+                          </span>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                             <button data-testid="partes-excluir" disabled={busy} onClick={() => void excluir(it)} style={{ border: 'none', background: 'transparent', color: VERM, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Excluir</button>
                             <AjudaCampo chave="projetos.obra_parte.excluir" rota={ROTA} />
