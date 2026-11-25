@@ -1110,7 +1110,7 @@ function ModalEquipe({ companyId, eq, funcoes, pessoas, podeVerIndividual, onClo
                   {pessoasReais.map((p) => <option key={p.id} value={p.id}>{p.nome}{p.funcao ? ` · ${p.funcao}` : ""}</option>)}
                   <option value="__manual__">Digitar manual (fora do cadastro)</option>
                 </select>
-                {m.origem === "manual" && <input className={inp + " mt-1"} value={m.nome_pessoa} onChange={(e) => mudar(i, { nome_pessoa: e.target.value })} data-testid="equipe-membro-nome" placeholder="Nome (opcional)" />}
+                {m.origem === "manual" && <span className="mt-1 flex items-center gap-1"><input className={inp + " flex-1"} value={m.nome_pessoa} onChange={(e) => mudar(i, { nome_pessoa: e.target.value })} data-testid="equipe-membro-nome" placeholder="Nome (opcional)" /><AjudaCampo chave="projetos.mao_obra.equipes.membro_nome" /></span>}
               </label>
               <label className="flex flex-col gap-1 text-[12px]"><span className="text-[#3D2314]/70 flex items-center">Função<AjudaCampo chave="projetos.mao_obra.equipes.membro_funcao" /></span>
                 <select className={inp} value={m.funcao_sel_id} onChange={(e) => escolherFuncao(i, e.target.value)} data-testid="equipe-membro-funcao">
