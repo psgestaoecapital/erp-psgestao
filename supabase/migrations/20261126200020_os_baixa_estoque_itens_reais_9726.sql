@@ -133,6 +133,15 @@ BEGIN
   RETURN v_baixados;
 END $function$;
 
+-- Guarda (check_fn_guards · conserto-main):
+-- ci-sem-guarda: fn_os_estoque_baixar_interno — função INTERNA (grep src vazio: não é RPC do front). Só a chamam,
+--   em contexto SECURITY DEFINER, os 3 wrappers (fn_os_baixar_estoque, faturar e vincular_financeiro) e o service_role;
+--   fn_os_baixar_estoque confere o acesso (get_user_company_ids()/is_admin()) antes de chamar. REVOKE de PUBLIC/anon abaixo.
+--   Hardening de guarda própria (PERFORM fn__guarda_empresa) encaminhado ao dev do núcleo de estoque (#9726) — não é o
+--   único guard do caminho hoje e exige CREATE OR REPLACE do núcleo, fora do escopo do conserto-main.
+REVOKE ALL ON FUNCTION public.fn_os_estoque_baixar_interno(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_os_estoque_baixar_interno(uuid) TO authenticated, service_role;
+
 -- ============================================================================================
 -- 2) Botão "Baixar estoque" (modo baixar_estoque): mensagem clara de quantos baixaram e do que ficou pendente.
 -- ============================================================================================
@@ -177,6 +186,11 @@ BEGIN
       WHEN v_pend > 0 THEN v_pend || ' item(ns) não baixado(s) por saldo insuficiente ou erro — confira o estoque e tente de novo.'
       ELSE NULL END);
 END $function$;
+
+-- Guarda (check_fn_guards · conserto-main): fn_os_baixar_estoque já confere o acesso à empresa
+-- (get_user_company_ids()/is_admin()) no corpo; falta só o REVOKE do anon (SECURITY DEFINER).
+REVOKE ALL ON FUNCTION public.fn_os_baixar_estoque(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_os_baixar_estoque(uuid) TO authenticated, service_role;
 
 -- ============================================================================================
 -- 3) RECONCILIAÇÃO (SOMENTE LEITURA): OS marcadas como baixadas que têm item de estoque SEM saída correspondente.
