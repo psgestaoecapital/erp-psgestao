@@ -96,6 +96,12 @@ function dataNoTitulo(titulo: string): string | null {
 }
 // Higiene do job (tela 10 · go-live P&M): job PUBLICADO com prazo no futuro é incoerente — a entrega já saiu,
 // mas o prazo ainda "está por vir". Avisa (nunca erro cru) para o usuário corrigir o prazo ou o estágio.
+// Higiene do job (tela 10 · go-live P&M): job sem prazo é "planejamento sem fim" — não entra na agenda nem nos
+// avisos e tende a arrastar sem nunca fechar. Avisa (nunca erro cru) quando o job ainda está em aberto e sem prazo.
+function planejamentoSemFim(status: string | undefined, dataPrazo: string | undefined): boolean {
+  if (dataPrazo) return false
+  return !['concluida', 'publicado', 'cancelado'].includes(status ?? '')
+}
 function prazoAposPublicacao(status: string | undefined, dataPrazo: string | undefined): boolean {
   if (status !== 'publicado' || !dataPrazo) return false
   const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
@@ -636,6 +642,12 @@ function ProducaoPageInner() {
             <div data-testid="job-aviso-prazo-publicado" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#FFF7E3', border: '1px solid #E7C96A', borderRadius: 10, padding: '8px 11px', color: YELLOW, fontSize: 12.5, marginTop: 8 }}>
               <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
               <span style={{ flex: 1 }}>Este job está <b>Publicado</b>, mas o <b>Prazo</b> é uma data futura. Ajuste o prazo para a data real da entrega ou reveja o estágio. <b>Você pode salvar mesmo assim.</b></span>
+            </div>
+          )}
+          {planejamentoSemFim(form.status as string | undefined, form.data_prazo as string | undefined) && (
+            <div data-testid="job-aviso-sem-prazo" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#FFF7E3', border: '1px solid #E7C96A', borderRadius: 10, padding: '8px 11px', color: YELLOW, fontSize: 12.5, marginTop: 8 }}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
+              <span style={{ flex: 1 }}>Este job está <b>sem prazo</b>: sem uma data de fim ele não entra na agenda nem nos avisos e tende a arrastar sem fechar. Defina um <b>Prazo</b> acima. <b>Você pode salvar mesmo assim.</b></span>
             </div>
           )}
 
