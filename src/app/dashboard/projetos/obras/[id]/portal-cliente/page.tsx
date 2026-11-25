@@ -51,6 +51,21 @@ type Acesso = {
   ativo: boolean; criado_em: string; convidado_por_nome: string | null
   revogado_em: string | null; revogado_motivo: string | null
 }
+// Pastas = os tipos de documento de erp_obra_arquivos. A equipe escolhe quais o cliente vê (padrão OCULTO).
+type Pasta = { tipo: string; qtd_docs: number; visivel: boolean }
+type DocPortal = { id: string; tipo: string; nome_arquivo: string; mime_type: string | null; tamanho_bytes: number | null; enviado_em: string | null }
+const PASTA_LABEL: Record<string, string> = {
+  termo_entrega: 'Termo de entrega', art_rrt: 'ART / RRT', as_built: 'As built',
+  laudo: 'Laudo', foto: 'Foto', nota: 'Nota / documento', outro: 'Outro',
+}
+const pastaLabel = (v: string) => PASTA_LABEL[v] ?? v
+const fmtBytes = (b: number | null | undefined) => {
+  const n = Number(b ?? 0)
+  if (!n) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1048576) return `${Math.round(n / 1024)} KB`
+  return `${(n / 1048576).toFixed(1)} MB`
+}
 
 export default function PortalClienteObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -66,6 +81,9 @@ export default function PortalClienteObraPage({ params }: { params: Promise<{ id
   const [fotos, setFotos] = useState<FotoDia[]>([])
   const [medicoes, setMedicoes] = useState<MedicaoPrev[]>([])
   const [previaCarregando, setPreviaCarregando] = useState(true)
+  const [pastas, setPastas] = useState<Pasta[]>([])
+  const [documentos, setDocumentos] = useState<DocPortal[]>([])
+  const [salvandoPasta, setSalvandoPasta] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro('')
@@ -111,6 +129,22 @@ export default function PortalClienteObraPage({ params }: { params: Promise<{ id
 
   useEffect(() => { void carregarPrevia() }, [carregarPrevia])
 
+  // Pastas visíveis + documentos liberados (recarrega após cada mudança de visibilidade).
+  const carregarPastasEDocs = useCallback(async () => {
+    try {
+      const [ps, dc] = await Promise.all([
+        supabase.rpc('fn_obra_portal_pastas_listar', { p_obra_id: id }),
+        supabase.rpc('fn_obra_portal_documentos', { p_obra_id: id }),
+      ])
+      if (!ps.error && Array.isArray(ps.data)) setPastas(ps.data as Pasta[])
+      if (!dc.error && Array.isArray(dc.data)) setDocumentos(dc.data as DocPortal[])
+    } catch {
+      /* complementar: nunca derruba a tela de gestão de acesso */
+    }
+  }, [id])
+
+  useEffect(() => { void carregarPastasEDocs() }, [carregarPastasEDocs])
+
   const convidar = useCallback(async () => {
     const alvo = email.trim()
     if (!alvo) { setErro('Informe o e-mail do cliente.'); return }
@@ -142,6 +176,21 @@ export default function PortalClienteObraPage({ params }: { params: Promise<{ id
       setErro(erroAmigavel(e, 'Não foi possível revogar o acesso.'))
     }
   }, [carregar])
+
+  const alternarPasta = useCallback(async (p: Pasta, visivel: boolean) => {
+    setSalvandoPasta(p.tipo); setErro(''); setAviso('')
+    setPastas((prev) => prev.map((x) => (x.tipo === p.tipo ? { ...x, visivel } : x))) // otimista
+    try {
+      const { error } = await supabase.rpc('fn_obra_portal_pasta_set', { p_obra_id: id, p_tipo: p.tipo, p_visivel: visivel })
+      if (error) throw error
+      await carregarPastasEDocs()
+    } catch (e) {
+      setPastas((prev) => prev.map((x) => (x.tipo === p.tipo ? { ...x, visivel: !visivel } : x))) // reverte
+      setErro(erroAmigavel(e, 'Não foi possível salvar a visibilidade da pasta.'))
+    } finally {
+      setSalvandoPasta(null)
+    }
+  }, [id, carregarPastasEDocs])
 
   const ativos = useMemo(() => acessos.filter((a) => a.ativo), [acessos])
   const revogados = useMemo(() => acessos.filter((a) => !a.ativo), [acessos])
@@ -254,6 +303,43 @@ export default function PortalClienteObraPage({ params }: { params: Promise<{ id
               </div>
             )}
 
+            {/* Pastas que o cliente vê — visibilidade por pasta, padrão OCULTO */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 28 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 800, color: ESP, margin: 0 }}>Pastas que o cliente vê</h2>
+              <AjudaCampo chave="obra.portal.pastas" rota={ROTA} />
+              <span style={{ flex: 1 }} />
+              <AjudaCampo chave="obra.portal.pasta_visivel" rota={ROTA} alinhar="fim" />
+            </div>
+            <p style={{ fontSize: 12, color: MUT, marginTop: 4, maxWidth: 680 }}>
+              Escolha quais pastas de documentos o cliente acessa no portal desta obra. O padrão é <strong>oculto</strong>: nada aparece até você marcar a pasta como visível.
+            </p>
+            <div style={{ display: 'grid', gap: 10, marginTop: 12 }} data-testid="portal-pastas">
+              {pastas.length === 0 ? (
+                <div style={{ ...card, color: MUT, fontSize: 13 }}>Carregando as pastas…</div>
+              ) : (
+                pastas.map((p) => (
+                  <div key={p.tipo} style={{ ...card, padding: 14, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }} data-testid={`pasta-${p.tipo}`}>
+                    <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: ESP, fontSize: 14 }}>{pastaLabel(p.tipo)}</div>
+                      <div style={{ fontSize: 12, color: MUT }}>{p.qtd_docs} documento{p.qtd_docs === 1 ? '' : 's'}</div>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: p.visivel ? VERDE : MUT, background: p.visivel ? 'rgba(46,125,50,0.1)' : 'rgba(61,35,20,0.06)', padding: '4px 10px', borderRadius: 20 }}>
+                      {p.visivel ? 'Visível' : 'Oculto'}
+                    </span>
+                    <button
+                      onClick={() => void alternarPasta(p, !p.visivel)}
+                      disabled={salvandoPasta === p.tipo}
+                      style={{ ...btn(p.visivel ? 'transparent' : GOLD, p.visivel ? VERM : ESP), border: p.visivel ? `1px solid ${VERM}` : 'none', padding: '8px 14px', opacity: salvandoPasta === p.tipo ? 0.6 : 1 }}
+                      data-testid={`pasta-toggle-${p.tipo}`}
+                      aria-pressed={p.visivel}
+                    >
+                      {salvandoPasta === p.tipo ? 'Salvando…' : p.visivel ? 'Ocultar' : 'Mostrar ao cliente'}
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
             {/* Prévia do portal: exatamente o que o cliente convidado enxerga (só leitura) */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 28 }}>
               <h2 style={{ fontSize: 16, fontWeight: 800, color: ESP, margin: 0 }}>Prévia do que o cliente vê</h2>
@@ -358,6 +444,25 @@ export default function PortalClienteObraPage({ params }: { params: Promise<{ id
                           <span style={{ fontSize: 11, fontWeight: 700, color: m.status === 'aprovada' ? VERDE : MUT, background: m.status === 'aprovada' ? 'rgba(46,125,50,0.1)' : 'rgba(61,35,20,0.06)', padding: '2px 8px', borderRadius: 16 }}>{m.status || 'rascunho'}</span>
                           <span style={{ flex: 1 }} />
                           <span style={{ fontSize: 14, color: ESP, fontWeight: 700 }}>{fmtBRL(m.valor_total)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Documentos — só das pastas marcadas visíveis */}
+                <div style={card} data-testid="previa-documentos">
+                  <div style={{ ...lbl, marginBottom: 10 }}>Documentos <AjudaCampo chave="obra.portal.documentos" rota={ROTA} /></div>
+                  {documentos.length === 0 ? (
+                    <div style={{ fontSize: 13, color: MUT }}>Nenhum documento visível para o cliente. Marque uma pasta acima como visível para liberar os arquivos dela.</div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {documentos.map((d, i) => (
+                        <div key={d.id} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', paddingBottom: 8, borderBottom: i < documentos.length - 1 ? `1px solid ${LINE}` : 'none' }}>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, color: GOLD, textTransform: 'uppercase', letterSpacing: 0.5, minWidth: 92 }}>{pastaLabel(d.tipo)}</span>
+                          <span style={{ flex: '1 1 160px', fontSize: 13, color: ESP, fontWeight: 600, minWidth: 0, wordBreak: 'break-word' }}>{d.nome_arquivo}</span>
+                          {d.tamanho_bytes ? <span style={{ fontSize: 11, color: MUT }}>{fmtBytes(d.tamanho_bytes)}</span> : null}
+                          <span style={{ fontSize: 11, color: MUT }}>{fmtData(d.enviado_em)}</span>
                         </div>
                       ))}
                     </div>
