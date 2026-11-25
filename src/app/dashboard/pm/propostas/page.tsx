@@ -139,7 +139,7 @@ export default function PropostasPage() {
   // destaque de uma proposta vinda do card do lead (?proposta=<id>)
   const [destaque, setDestaque] = useState<string | null>(null)
   // CEO 14/10 (Pdois) · pedido de contrato por proposta (criado na aprovação). O botão vira "Ver pedido de contrato".
-  const [feeMap, setFeeMap] = useState<Record<string, { id: string; numero: string | null; status: string | null }>>({})
+  const [feeMap, setFeeMap] = useState<Record<string, { id: string; numero: string | null; status: string | null; paradoDias: number | null }>>({})
   // PM-2 · veio do CRM (?from=leads): abre a proposta DIRETO no editor e, ao salvar, volta ao kanban
   const [voltarCrm, setVoltarCrm] = useState(false)
   const abriuDestaque = useRef(false)
@@ -160,15 +160,22 @@ export default function PropostasPage() {
     // #59 PDOIS · contrato de fee ligado à proposta (erp_contratos.proposta_id). Se existe, o botão vira
     // "Ver contrato" (abre a aba Fee no contrato). Mapa por proposta_id (1º = mais recente).
     const pIds = propRows.map((x) => x.id)
-    const fm: Record<string, { id: string; numero: string | null; status: string | null }> = {}
+    const fm: Record<string, { id: string; numero: string | null; status: string | null; paradoDias: number | null }> = {}
     if (pIds.length) {
       const { data: cts } = await supabase.from('erp_contratos')
-        .select('id, numero, status, proposta_id, created_at')
+        .select('id, numero, status, proposta_id, created_at, updated_at')
         .eq('company_id', empresa).in('proposta_id', pIds)
         .in('status', ['solicitado', 'em_elaboracao', 'aguardando_info', 'em_revisao', 'aguardando_aprovacao', 'ativo'])
         .order('created_at', { ascending: false })
-      for (const ct of (cts ?? []) as { id: string; numero: string | null; proposta_id: string | null; status: string | null }[]) {
-        if (ct.proposta_id && !fm[ct.proposta_id]) fm[ct.proposta_id] = { id: ct.id, numero: ct.numero, status: ct.status }
+      // "dias parado" (CEO 25/11, go-live item 5): pedido de contrato ainda não ativo, medido desde a última
+      // mudança (updated_at, ou created_at se faltar). Só pending — contrato 'ativo' não fica "parado".
+      const hoje = Date.now()
+      for (const ct of (cts ?? []) as { id: string; numero: string | null; proposta_id: string | null; status: string | null; created_at: string | null; updated_at: string | null }[]) {
+        if (ct.proposta_id && !fm[ct.proposta_id]) {
+          const ref = ct.updated_at ?? ct.created_at
+          const paradoDias = ct.status !== 'ativo' && ref ? Math.max(0, Math.floor((hoje - new Date(ref).getTime()) / 86400000)) : null
+          fm[ct.proposta_id] = { id: ct.id, numero: ct.numero, status: ct.status, paradoDias }
+        }
       }
     }
     setFeeMap(fm)
@@ -526,6 +533,9 @@ export default function PropostasPage() {
                           o botão mostra "Ver pedido de contrato" com a etapa atual. Não há mais "Solicitar contrato" aqui. */}
                       {feeMap[p.id] && (
                         <button onClick={() => router.push(`/dashboard/contratos?tab=fee&c=${feeMap[p.id]!.id}`)} style={btnGanhar}><Receipt size={14} strokeWidth={1.5} style={{ verticalAlign: 'middle', marginRight: 4 }} />Ver pedido de contrato · {etapaContrato(feeMap[p.id]!.status)}</button>
+                      )}
+                      {feeMap[p.id] && (feeMap[p.id]!.paradoDias ?? 0) >= 2 && (
+                        <span title="Pedido de contrato sem movimento há vários dias — cobre o financeiro." style={{ alignSelf: 'center', fontSize: 11, fontWeight: 700, color: '#92400e', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 999, padding: '3px 10px' }}>⏳ parado há {feeMap[p.id]!.paradoDias} dias</span>
                       )}
                       {p.status === 'aprovada' && p.contrato_id && (
                         <a href="/dashboard/pm/contratos" style={{ ...btnSec, textDecoration: 'none' }}>→ Contrato recorrente</a>
