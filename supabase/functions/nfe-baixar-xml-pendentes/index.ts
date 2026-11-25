@@ -171,15 +171,33 @@ Deno.serve(async (req: Request) => {
     payloadCompanyId = typeof body?.company_id === "string" ? body.company_id : undefined
   } catch { /* ok · sem body */ }
 
-  // Seleciona pendentes priorizando as nunca tentadas / mais antigas
-  let q = sbAdmin
+  // #5920 · SÓ empresas com Focus ATIVO entram na fila. Sem token/integração a SEFAZ nunca libera o XML por
+  // aqui (ex.: empresa DEMO), e essas notas, ficando elegíveis, consumiam o batch de 30 e faziam STARVATION
+  // das empresas reais (provado: 2039 notas DEMO sem token afogavam 13 da Gean). Fora da fila automática,
+  // elas usam o "Subir XML" manual na tela. Só a dona pode baixar o XML (token por empresa).
+  const { data: cfgs, error: cfgErr } = await sbAdmin
+    .from("erp_fiscal_provider_config")
+    .select("company_id")
+    .eq("provider", "focusnfe")
+    .eq("ativo", true)
+  if (cfgErr) {
+    return respond(500, { ok: false, etapa: "select_provider_config", body_preview: cfgErr.message })
+  }
+  let comFocus = [...new Set((cfgs ?? []).map((c) => (c as { company_id: string }).company_id))]
+  if (payloadCompanyId) comFocus = comFocus.filter((id) => id === payloadCompanyId)
+  if (comFocus.length === 0) {
+    return respond(200, { ok: true, processadas: 0, completadas: 0, ainda_pendentes: 0, motivo: "nenhuma_empresa_com_focus" })
+  }
+
+  // Seleciona pendentes priorizando as nunca tentadas / mais antigas, só das empresas com Focus ativo.
+  const q = sbAdmin
     .from("erp_nfe_recebidas")
     .select("id, company_id, chave_acesso, status_manifestacao, lancar_ao_completar, xml_tentativas")
     .eq("status", "aguardando_xml")
     .lt("xml_tentativas", TETO_TENTATIVAS)   // para de reenfileirar as que estouraram o teto
+    .in("company_id", comFocus)
     .order("ultima_tentativa_xml", { ascending: true, nullsFirst: true })
     .limit(BATCH_LIMIT)
-  if (payloadCompanyId) q = q.eq("company_id", payloadCompanyId)
 
   const { data: pendentes, error: qErr } = await q
   if (qErr) {
