@@ -87,6 +87,14 @@ const PRIORIDADES: Record<string, { l: string; cor: string }> = {
   urgente: { l: 'Urgente', cor: RED },
 }
 
+// Higiene do job (tela 10 · go-live P&M): o título carrega o trabalho, não a data. Data no título (ex.: "( 01/12)")
+// vira texto solto que não entra em prazo/agenda e bagunça a busca. Detecta dd/mm, dd/mm/aa(aa) e dd-mm — e sugere
+// usar o campo Prazo. É só um aviso claro (nunca erro cru): o usuário pode criar o job mesmo assim.
+function dataNoTitulo(titulo: string): string | null {
+  const m = (titulo || '').match(/\(?\s*\b(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?\b\s*\)?/)
+  return m ? m[0].trim() : null
+}
+
 function ProducaoPageInner() {
   const searchParams = useSearchParams()
   const empresaParam = searchParams.get('empresa')
@@ -603,6 +611,12 @@ function ProducaoPageInner() {
                 placeholder="Ex.: Post Dia das Crianças — carrossel 3 cards"
                 style={{ ...inp, fontSize: 15, resize: 'vertical' }} />
             </label>
+            {dataNoTitulo((form.titulo as string) ?? '') && (
+              <div data-testid="job-aviso-data-titulo" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#FFF7E3', border: '1px solid #E7C96A', borderRadius: 10, padding: '8px 11px', color: YELLOW, fontSize: 12.5 }}>
+                <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
+                <span style={{ flex: 1 }}>Parece que o título tem uma data (<b>{dataNoTitulo((form.titulo as string) ?? '')}</b>). Use o campo <b>Prazo</b> abaixo para a data entrar na agenda e nos avisos — o título fica só com o trabalho. <b>Você pode criar o job mesmo assim.</b></span>
+              </div>
+            )}
             {!editId && <JobsParecidos empresa={sel} titulo={(form.titulo as string) ?? ''} onAbrir={(id) => setCopiar(id)} />}
           </div>
           <div style={grid2}>
