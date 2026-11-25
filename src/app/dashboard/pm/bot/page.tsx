@@ -65,6 +65,10 @@ export default function BotSlackPage() {
   // histórico de envios (fatia 2)
   const [historico, setHistorico] = useState<Envio[]>([])
   const [testando, setTestando] = useState(false)
+  // Empresa de demonstração (companies.is_demo): na DEMO a entrega ao Slack é ENCENADA com sucesso
+  // (fn_pm_bot_disparar, branch is_demo), então o histórico mostra "Enviada". Sem isso, o texto honesto
+  // de produção ("ainda sendo ativada / na fila") contradiz o que o usuário vê logo abaixo.
+  const [demo, setDemo] = useState(false)
 
   const carregarHistorico = useCallback(async () => {
     if (!empresa) { setHistorico([]); return }
@@ -83,6 +87,8 @@ export default function BotSlackPage() {
     if (c) setEvForm({ ...EVENTOS_VAZIO, ...(c.eventos || {}) })
     setLoading(false)
     void carregarHistorico()
+    const d = await supabase.from('companies').select('is_demo').eq('id', empresa).maybeSingle()
+    setDemo(!!(d.data as { is_demo?: boolean } | null)?.is_demo)
   }, [empresa, carregarHistorico])
 
   useEffect(() => { void carregar() }, [carregar])
@@ -102,7 +108,9 @@ export default function BotSlackPage() {
     if (r.error || !(r.data as { ok?: boolean })?.ok) {
       setErro((r.data as { erro?: string })?.erro || 'Não foi possível conectar o canal. Confira o webhook e tente de novo.'); return
     }
-    setWebhook(''); setToast('Canal conectado. Os avisos marcados são detectados e entram na fila; a entrega ao Slack ainda está sendo ativada.')
+    setWebhook(''); setToast(demo
+      ? 'Canal conectado. Os avisos marcados são detectados e, nesta demonstração, a entrega ao Slack é simulada — veja no histórico abaixo cada aviso como "Enviada".'
+      : 'Canal conectado. Os avisos marcados são detectados e entram na fila; a entrega ao Slack ainda está sendo ativada.')
     await carregar()
   }
 
@@ -317,9 +325,20 @@ export default function BotSlackPage() {
           Já funciona: conectar o canal, escolher os avisos e a
           <strong> detecção automática por evento</strong> — novo job, aprovação pendente,
           prazo em 24h, job atrasado e estouro de horas entram na fila sozinhos quando o fato acontece.
-          A <strong>entrega ao Slack está sendo ativada</strong>: por enquanto os avisos ficam
-          <strong> na fila</strong> e o <strong>histórico</strong> abaixo mostra cada um (o envio de teste
-          também fica registrado ali). Assim que a entrega estiver no ar, as mensagens passam a sair sozinhas.
+          {demo ? (
+            <>
+              {' '}Nesta <strong>demonstração</strong>, a <strong>entrega ao Slack é simulada</strong>: cada
+              aviso segue da fila direto para <strong>&quot;Enviada&quot;</strong> e aparece no
+              <strong> histórico</strong> abaixo (o envio de teste também). Numa empresa real, a entrega ao
+              Slack usa o webhook do seu canal.
+            </>
+          ) : (
+            <>
+              {' '}A <strong>entrega ao Slack está sendo ativada</strong>: por enquanto os avisos ficam
+              <strong> na fila</strong> e o <strong>histórico</strong> abaixo mostra cada um (o envio de teste
+              também fica registrado ali). Assim que a entrega estiver no ar, as mensagens passam a sair sozinhas.
+            </>
+          )}
         </p>
       </div>
 
