@@ -40,6 +40,26 @@ const SITUACAO = [
   { v: 'cancelada', l: 'Cancelada' },
 ]
 
+// Padrão construtivo e sistema estrutural (tela 314 gap 4; colunas novas aditivas — CHECK no banco).
+const PADRAO = [
+  { v: 'popular', l: 'Popular' },
+  { v: 'economico', l: 'Econômico' },
+  { v: 'normal', l: 'Normal' },
+  { v: 'alto', l: 'Alto' },
+  { v: 'luxo', l: 'Luxo' },
+]
+const SISTEMA = [
+  { v: 'alvenaria_estrutural', l: 'Alvenaria estrutural' },
+  { v: 'concreto_armado', l: 'Concreto armado' },
+  { v: 'estrutura_metalica', l: 'Estrutura metálica' },
+  { v: 'madeira', l: 'Madeira' },
+  { v: 'pre_moldado', l: 'Pré-moldado' },
+  { v: 'steel_frame', l: 'Steel frame' },
+  { v: 'wood_frame', l: 'Wood frame' },
+  { v: 'misto', l: 'Misto' },
+]
+const SISTEMA_LABEL: Record<string, string> = Object.fromEntries(SISTEMA.map((o) => [o.v, o.l]))
+
 type Ficha = { ok: boolean; numero?: string; nome?: string | null; cliente_nome?: string | null; tipo_execucao?: string | null; modelo_contratacao?: string | null; matricula?: string | null; inscricao_imobiliaria?: string | null; tipo_edificacao?: string | null; area_construida_m2?: number | null; area_terreno_m2?: number | null; endereco?: string | null; bairro?: string | null; cidade?: string | null; uf?: string | null; cep?: string | null; erro?: string }
 
 export default function FichaObraPage({ params }: { params: Promise<{ id: string }> }) {
@@ -63,6 +83,11 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [tipoEdif, setTipoEdif] = useState('')
   const [areaConstruida, setAreaConstruida] = useState('')
   const [areaTerreno, setAreaTerreno] = useState('')
+  // Características construtivas — padrão construtivo e sistema estrutural (tela 314 gap 4; colunas novas)
+  const [padraoConstrutivo, setPadraoConstrutivo] = useState('')
+  const [sistemaEstrutural, setSistemaEstrutural] = useState('')
+  const [busyConstr, setBusyConstr] = useState(false)
+  const [okConstr, setOkConstr] = useState(false)
   // Endereço da obra
   const [endereco, setEndereco] = useState('')
   const [bairro, setBairro] = useState('')
@@ -82,7 +107,10 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [mapaMsg, setMapaMsg] = useState<string | null>(null)
   // Regularização na ficha (tela 314: "Na ficha: alvará e licenças com validade, CNO, ARTs e RRTs").
   // Resumo a partir do dado real já existente (fn_obra_licenca_listar); sem migration, só leitura.
-  const [reg, setReg] = useState<{ total: number; vencidos: number; vence30: number; proxima: string | null } | null>(null)
+  const [reg, setReg] = useState<{
+    total: number; vencidos: number; vence30: number; proxima: string | null
+    cno: string[]; artRrt: { tipo: string; numero: string; responsavel: string | null }[]; tecnicos: string[]
+  } | null>(null)
 
   // Área: aceita "1250" ou "1.250,50"; vira número só na hora de salvar (null quando vazio).
   const areaNum = (s: string): number | null => {
@@ -111,6 +139,12 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
       setStatus(a.status ?? ''); setDataInicio(a.data_inicio ?? ''); setDataPrevistaFim(a.data_prevista_fim ?? '')
       setDataConclusao(a.data_conclusao ?? ''); setPctConclusao(a.pct_conclusao != null ? String(a.pct_conclusao) : '')
     }
+    // Características construtivas (padrão construtivo / sistema estrutural) — leitor próprio collision-free
+    const { data: constrData } = await supabase.rpc('fn_obra_ficha_construtivo_ler', { p_obra_id: id })
+    const c = constrData as { ok?: boolean; padrao_construtivo?: string | null; sistema_estrutural?: string | null } | null
+    if (c && c.ok) {
+      setPadraoConstrutivo(c.padrao_construtivo ?? ''); setSistemaEstrutural(c.sistema_estrutural ?? '')
+    }
     // Endereço vem de um leitor próprio (collision-free; fn_obra_ficha_ler não é tocado por esta fatia)
     const { data: endData } = await supabase.rpc('fn_obra_ficha_endereco_ler', { p_obra_id: id })
     const e = endData as Ficha | null
@@ -121,7 +155,7 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     // Resumo da regularização (alvará e licenças) a partir do dado real. Falha aqui não derruba a ficha.
     try {
       const { data: licData } = await supabase.rpc('fn_obra_licenca_listar', { p_obra_id: id })
-      const lic = licData as { ok?: boolean; itens?: { validade: string | null; situacao: string }[] } | null
+      const lic = licData as { ok?: boolean; itens?: { tipo: string; numero: string | null; responsavel: string | null; validade: string | null; situacao: string }[] } | null
       if (lic && lic.ok) {
         const itens = lic.itens ?? []
         const vencidos = itens.filter((l) => l.situacao === 'vencido').length
@@ -130,11 +164,17 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
           .filter((l) => l.validade && l.situacao !== 'vencido')
           .map((l) => l.validade as string)
           .sort()[0] ?? null
-        setReg({ total: itens.length, vencidos, vence30, proxima })
+        // Gap 5 (requisito 167f8e9c): CNO, ART/RRT e responsáveis técnicos à vista na ficha (só leitura).
+        const cno = itens.filter((l) => l.tipo === 'cno' && l.numero).map((l) => l.numero as string)
+        const artRrt = itens
+          .filter((l) => (l.tipo === 'art' || l.tipo === 'rrt') && (l.numero || l.responsavel))
+          .map((l) => ({ tipo: l.tipo, numero: l.numero ?? '', responsavel: l.responsavel }))
+        const tecnicos = Array.from(new Set(itens.map((l) => (l.responsavel ?? '').trim()).filter((r) => r !== '')))
+        setReg({ total: itens.length, vencidos, vence30, proxima, cno, artRrt, tecnicos })
       } else {
-        setReg({ total: 0, vencidos: 0, vence30: 0, proxima: null })
+        setReg({ total: 0, vencidos: 0, vence30: 0, proxima: null, cno: [], artRrt: [], tecnicos: [] })
       }
-    } catch { setReg({ total: 0, vencidos: 0, vence30: 0, proxima: null }) }
+    } catch { setReg({ total: 0, vencidos: 0, vence30: 0, proxima: null, cno: [], artRrt: [], tecnicos: [] }) }
   }, [id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
@@ -204,6 +244,17 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     const j = data as Ficha | null
     if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar a identidade da obra.')); return }
     setOkId(true)
+  }
+
+  const salvarConstrutivo = async () => {
+    setBusyConstr(true); setErro(null); setOkConstr(false)
+    const { data, error } = await supabase.rpc('fn_obra_ficha_construtivo_salvar', {
+      p_obra_id: id, p_padrao_construtivo: padraoConstrutivo || null, p_sistema_estrutural: sistemaEstrutural || null,
+    })
+    setBusyConstr(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar as características construtivas.')); return }
+    setOkConstr(true)
   }
 
   const salvarEndereco = async () => {
@@ -353,6 +404,35 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                 </div>
               </div>
 
+              {/* Características construtivas — padrão construtivo e sistema estrutural (tela 314 gap 4) */}
+              <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 14 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700 }}>Características construtivas</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Padrão construtivo<AjudaCampo chave="projetos.obra_ficha.padrao_construtivo" rota={ROTA} /></span>
+                    <select data-testid="ficha-padrao-construtivo" style={campo} value={padraoConstrutivo} onChange={(e) => { setPadraoConstrutivo(e.target.value); setOkConstr(false) }}>
+                      <option value="">Não informado</option>
+                      {PADRAO.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Sistema estrutural<AjudaCampo chave="projetos.obra_ficha.sistema_estrutural" rota={ROTA} /></span>
+                    <select data-testid="ficha-sistema-estrutural" style={campo} value={sistemaEstrutural} onChange={(e) => { setSistemaEstrutural(e.target.value); setOkConstr(false) }}>
+                      <option value="">Não informado</option>
+                      {SISTEMA.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+                    </select>
+                  </label>
+                </div>
+                {okConstr && <div data-testid="ficha-construtivo-ok" style={{ background: '#EAF6EC', color: VERDE, borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 600 }}>Características salvas.</div>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button data-testid="ficha-salvar-construtivo" disabled={busyConstr} onClick={() => void salvarConstrutivo()}
+                    style={{ flex: 1, padding: '12px 16px', borderRadius: 8, border: 'none', background: ESP, color: '#fff', fontSize: 14, fontWeight: 700, cursor: busyConstr ? 'wait' : 'pointer' }}>
+                    {busyConstr ? 'Salvando…' : 'Salvar características'}
+                  </button>
+                  <AjudaCampo chave="projetos.obra_ficha.salvar_construtivo" rota={ROTA} />
+                </div>
+              </div>
+
               {/* Endereço da obra — logradouro, bairro, cidade, UF e CEP (tela 314 "ficha da obra") */}
               <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 14 }}>
                 <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700 }}>Endereço da obra</div>
@@ -451,6 +531,30 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                       )}
                     </div>
                     {reg.proxima && <div style={{ fontSize: 12, color: MUT }}>Próxima validade: {fmtData(reg.proxima)}.</div>}
+                    {/* Gap 5 (requisito 167f8e9c): CNO, ART/RRT e responsáveis técnicos à vista (só leitura) */}
+                    {(reg.cno.length > 0 || reg.artRrt.length > 0 || reg.tecnicos.length > 0) && (
+                      <div data-testid="ficha-reg-tecnicos" style={{ display: 'grid', gap: 6, marginTop: 2, paddingTop: 10, borderTop: `0.5px solid ${LINE}` }}>
+                        <div style={{ fontSize: 11, color: MUT, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          CNO, ART/RRT e responsáveis técnicos<AjudaCampo chave="projetos.obra_ficha.reg_tecnicos" rota={ROTA} />
+                        </div>
+                        {reg.cno.length > 0 && (
+                          <div data-testid="ficha-reg-cno" style={{ fontSize: 13, color: ESP }}>
+                            <strong style={{ fontWeight: 700 }}>CNO:</strong> {reg.cno.join(' · ')}
+                          </div>
+                        )}
+                        {reg.artRrt.map((a, i) => (
+                          <div key={i} data-testid="ficha-reg-artrrt" style={{ fontSize: 13, color: ESP }}>
+                            <strong style={{ fontWeight: 700 }}>{a.tipo.toUpperCase()}</strong>
+                            {a.numero ? ` ${a.numero}` : ''}{a.responsavel ? ` — ${a.responsavel}` : ''}
+                          </div>
+                        ))}
+                        {reg.tecnicos.length > 0 && (
+                          <div data-testid="ficha-reg-responsaveis" style={{ fontSize: 12, color: MUT }}>
+                            Responsáveis técnicos: {reg.tecnicos.join(', ')}.
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
