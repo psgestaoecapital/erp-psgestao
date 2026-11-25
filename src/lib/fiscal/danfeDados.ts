@@ -82,7 +82,20 @@ export function danfeDeNFeRequest(req: NFeRequest, emitente: Partial<Emitente> |
       endereco: linhaEndereco(e), bairro: e?.bairro ?? null, cep: e?.cep ?? null, municipio: e?.cidade ?? null, uf: e?.uf ?? null,
     },
     totais: { ...t, valorNota: t.valorProdutos + t.frete + t.seguro + t.outrasDespesas - t.desconto + t.valorIpi },
-    transporte: { modalidade: req.totais?.modalidadeFrete ?? 9 },
+    // #5722 · transportador/veículo/volumes no DANFE quando a nota os traz (sem isso, só a modalidade, como antes).
+    transporte: (() => {
+      const tp = req.transporte
+      const tr = tp?.transportador; const v = tp?.veiculo; const vol = tp?.volumes?.[0]
+      return {
+        modalidade: req.totais?.modalidadeFrete ?? 9,
+        ...(tr ? { nome: tr.nome ?? null, documento: tr.cnpj ?? tr.cpf ?? null, ie: tr.inscricaoEstadual ?? null,
+          endereco: tr.endereco ?? null, municipio: tr.municipio ?? null, uf: tr.uf ?? null } : {}),
+        ...(v ? { placa: v.placa ?? null, ufPlaca: v.uf ?? null } : {}),
+        ...(vol ? { quantidade: vol.quantidade != null ? String(vol.quantidade) : null, especie: vol.especie ?? null,
+          marca: vol.marca ?? null, numeracao: vol.numero ?? null,
+          pesoBruto: vol.pesoBruto != null ? String(vol.pesoBruto) : null, pesoLiquido: vol.pesoLiquido != null ? String(vol.pesoLiquido) : null } : {}),
+      }
+    })(),
     itens: itensDanfe(req.itens),
     informacoesComplementares: req.observacoes ?? '',
     simples: !!req.emitente.simplesNacional,
@@ -135,7 +148,25 @@ export function danfeDeNotaEmitida(n: NotaEmitidaRow, emitente: Partial<Emitente
       valorIpi: n.valor_ipi ?? t.valorIpi, valorProdutos, frete: n.valor_frete ?? 0, desconto: n.valor_desconto ?? 0,
       valorNota: n.valor_total ?? undefined,
     },
-    transporte: { modalidade: modFrete ?? 9 },
+    // #5722 · transportador/veículo/volumes lidos do que foi enviado (payload_enviado), nomes oficiais da Focus.
+    transporte: (() => {
+      const str = (x: unknown) => (typeof x === 'string' && x.trim() ? x.trim() : (typeof x === 'number' ? String(x) : null))
+      const vols = Array.isArray((p as Record<string, unknown>).volumes) ? ((p as Record<string, unknown>).volumes as Array<Record<string, unknown>>) : []
+      const vol = vols[0]
+      return {
+        modalidade: modFrete ?? 9,
+        nome: str(p.nome_transportador),
+        documento: str(p.cnpj_transportador) ?? str(p.cpf_transportador),
+        ie: str(p.inscricao_estadual_transportador),
+        endereco: str(p.endereco_transportador),
+        municipio: str(p.municipio_transportador),
+        uf: str(p.uf_transportador),
+        placa: str(p.veiculo_placa),
+        ufPlaca: str(p.veiculo_uf),
+        ...(vol ? { quantidade: str(vol.quantidade), especie: str(vol.especie), marca: str(vol.marca),
+          numeracao: str(vol.numero), pesoBruto: str(vol.peso_bruto), pesoLiquido: str(vol.peso_liquido) } : {}),
+      }
+    })(),
     itens: itensDanfe(itens),
     informacoesComplementares: info,
     simples: opt.simples,
