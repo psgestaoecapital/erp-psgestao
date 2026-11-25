@@ -28,7 +28,7 @@ type Resultado = {
   custo_mao_obra: number; custo_rateio: number; margem_alocada: number
 }
 // Contexto da obra (avanço físico, prazo, cliente) — vem de projetos_obras, não da view de resultado financeiro.
-type ObraInfo = { pct_conclusao: number | null; data_inicio: string | null; data_prevista_fim: string | null; cliente_nome: string | null; cidade: string | null }
+type ObraInfo = { pct_conclusao: number | null; data_inicio: string | null; data_prevista_fim: string | null; cliente_nome: string | null; cidade: string | null; area_construida_m2: number | null }
 type Linha = { k: string; ajuda: string; l: string; v: number }
 type Card = { k: string; ajuda: string; l: string; v: string; sub: string; cor?: string; bar?: number | null; linhas?: Linha[] }
 
@@ -65,7 +65,7 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
     setR(data as Resultado)
     // Contexto da obra (avanço físico, prazo, cliente) — leitura separada de projetos_obras; se falhar, os cards
     // financeiros seguem aparecendo (não trava a tela).
-    const { data: oi } = await supabase.from('projetos_obras').select('pct_conclusao,data_inicio,data_prevista_fim,cliente_nome,cidade').eq('id', id).maybeSingle()
+    const { data: oi } = await supabase.from('projetos_obras').select('pct_conclusao,data_inicio,data_prevista_fim,cliente_nome,cidade,area_construida_m2').eq('id', id).maybeSingle()
     if (oi) setInfo(oi as ObraInfo)
     // Regularização: conta documentos vencidos / a vencer em 30 dias para virar pendência. Não trava a tela.
     try {
@@ -119,10 +119,15 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   const tempoPct = prazoTotal > 0 && decorridos > 0 ? Math.min(100, decorridos / prazoTotal * 100) : null
   const idp = fisicoPct != null && tempoPct != null ? fisicoPct / tempoPct : null
   const burn = decorridos > 0 && custo > 0 ? custo / decorridos : null
+  // Custo por m² = custo realizado ÷ área construída (da Ficha da obra). Mesmo "custo" do card
+  // "Custo realizado", para a tela não se contradizer. Só aparece com os dois lados do dado (§329 cbde929d).
+  const areaConstruida = info && info.area_construida_m2 != null ? Number(info.area_construida_m2) : null
+  const custoPorM2 = areaConstruida != null && areaConstruida > 0 && custo > 0 ? custo / areaConstruida : null
   const indicadores = [
     { k: 'idc', ajuda: 'projetos.cockpit.idc', l: 'IDC · custo', v: idc == null ? '—' : idc.toFixed(2), sub: idc == null ? 'Precisa de avanço físico, custo previsto e custo lançado' : idc >= 1 ? 'Executando dentro do custo' : 'Custo acima do executado', cor: idc == null ? undefined : idc >= 1 ? VERDE : VERM },
     { k: 'idp', ajuda: 'projetos.cockpit.idp', l: 'IDP · prazo', v: idp == null ? '—' : idp.toFixed(2), sub: idp == null ? 'Precisa de data de início, data prevista e avanço físico' : idp >= 1 ? 'No ritmo ou adiantada' : 'Ritmo abaixo do planejado', cor: idp == null ? undefined : idp >= 1 ? VERDE : VERM },
     { k: 'burn', ajuda: 'projetos.cockpit.burn_rate', l: 'Gasto por dia', v: burn == null ? '—' : brl(burn), sub: burn == null ? 'Precisa de data de início e custo lançado' : `${decorridos} dia(s) desde o início` },
+    { k: 'custo_m2', ajuda: 'projetos.cockpit.custo_m2', l: 'Custo por m²', v: custoPorM2 == null ? '—' : brl(custoPorM2), sub: custoPorM2 == null ? (custo > 0 ? 'Informe a área construída na Ficha da obra' : 'Precisa de custo lançado e área construída') : `Sobre ${areaConstruida!.toLocaleString('pt-BR')} m² construídos` },
   ]
 
   const cards: Card[] = r ? [
