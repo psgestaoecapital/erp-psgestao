@@ -286,7 +286,7 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
                   <td className="px-3 py-2 text-[#3D2314]">
                     {linha.item_nome || "—"}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td data-ajuda="projetos.catalogo.bom.quantidade" className="px-3 py-2 text-right">
                     <input
                       type="text"
                       inputMode="decimal"
@@ -302,7 +302,7 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
                     />
                   </td>
                   <td className="px-3 py-2 text-[#3D2314]/70">{linha.unidade || "—"}</td>
-                  <td className="px-3 py-2 text-right">
+                  <td data-ajuda="projetos.catalogo.bom.perda" className="px-3 py-2 text-right">
                     <input
                       type="text"
                       inputMode="decimal"
