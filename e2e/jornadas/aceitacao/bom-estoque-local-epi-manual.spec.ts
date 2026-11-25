@@ -1,11 +1,12 @@
 // BOM "Adicionar item" (CEO 18/11, FC Pisos/Diego): 4 tipos (Material/MO/Equipamento/EPI), itens do ESTOQUE REAL
 // (erp_produtos) + ENTRADA MANUAL, EPI vindo do estoque (Decisão 🅰️). Prova que o custo soma TODAS as fontes e que
-// o EPI entra no total (material + EPI = custo_material; não some), nomes resolvem, e a RPC de fontes do modal responde.
+// o EPI entra no total em CATEGORIA PRÓPRIA (custo_epi, não dobra no material — regra CEO 24/11 #6096: EPI/Ferramenta
+// viram categorias próprias, o total do serviço NÃO muda), nomes resolvem, e a RPC de fontes do modal responde.
 // @pos-migration: colunas/funcoes só existem após o deploy. DEMO (RD-69/LGPD), serviço público p/ ler via service.
 import { test, expect } from '../../support/fixtures'
 import { rpc, rpcComoRobo, dbInsert, dbSelect, dbDelete, DEMO_REVENDA, registrarJornada } from '../../support/api'
 
-type Servico = { custo_material: string | number | null; custo_mao_obra: string | number | null; custo_unitario_total: string | number | null }
+type Servico = { custo_material: string | number | null; custo_mao_obra: string | number | null; custo_epi: string | number | null; custo_unitario_total: string | number | null }
 type Linha = { tipo: string; custo_total: string | number | null; ordem: number }
 
 test.describe('BOM · estoque real + local + EPI + manual @pos-migration', () => {
@@ -28,16 +29,17 @@ test.describe('BOM · estoque real + local + EPI + manual @pos-migration', () =>
       bomIds.push((await dbInsert<{ id: string }>('projetos_servicos_bom', { servico_id: servicoId, tipo: 'insumo', produto_id: p1, quantidade: 2, perda_pct: 0, ordem: 1 })).id)
       // entrada manual (3 × 5 = 15)
       bomIds.push((await dbInsert<{ id: string }>('projetos_servicos_bom', { servico_id: servicoId, tipo: 'insumo', item_nome_manual: 'Parafuso manual', custo_unitario_manual: 5, quantidade: 3, perda_pct: 0, ordem: 2 })).id)
-      // EPI via produto do estoque (1 × 8 = 8) → entra no material
+      // EPI via produto do estoque (1 × 8 = 8) → categoria própria (custo_epi), entra no total
       bomIds.push((await dbInsert<{ id: string }>('projetos_servicos_bom', { servico_id: servicoId, tipo: 'epi', produto_id: p2, quantidade: 1, perda_pct: 0, ordem: 3 })).id)
       // mão de obra (2 × 30 = 60)
       bomIds.push((await dbInsert<{ id: string }>('projetos_servicos_bom', { servico_id: servicoId, tipo: 'mao_obra', mao_obra_id: moId, quantidade: 2, perda_pct: 0, ordem: 4 })).id)
 
-      // o trigger recalcula o serviço a cada insert — confere os totais (EPI dentro do material)
+      // o trigger recalcula o serviço a cada insert — confere os totais (EPI em categoria própria, #6096)
       const serv2 = (await dbSelect<Servico>('projetos_servicos', `id=eq.${servicoId}`))[0]
-      expect(Number(serv2.custo_material), 'material 20 + manual 15 + EPI 8').toBe(43)
+      expect(Number(serv2.custo_material), 'material 20 + manual 15 (EPI é categoria própria desde #6096)').toBe(35)
+      expect(Number(serv2.custo_epi), 'EPI 8 em categoria própria (custo_epi)').toBe(8)
       expect(Number(serv2.custo_mao_obra)).toBe(60)
-      expect(Number(serv2.custo_unitario_total), 'EPI entra no total').toBe(103)
+      expect(Number(serv2.custo_unitario_total), 'EPI entra no total (material 35 + EPI 8 + MO 60)').toBe(103)
 
       // custo por linha (cache do BOM, usado na grade)
       await rpc('fn_projetos_atualizar_cache_bom', { p_servico_id: servicoId })
