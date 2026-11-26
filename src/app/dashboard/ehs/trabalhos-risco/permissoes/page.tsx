@@ -122,8 +122,8 @@ export default function PermissoesTrabalhoPage() {
         .order('criado_em', { ascending: false })
       if (error) throw error
       setLista((data || []) as PT[])
-    } catch (e: any) {
-      setErro(e?.message || 'Falha ao carregar as permissões de trabalho')
+    } catch {
+      setErro('Não foi possível carregar as permissões de trabalho. Atualize a página e tente de novo.')
     } finally {
       setLoading(false)
     }
@@ -145,14 +145,13 @@ export default function PermissoesTrabalhoPage() {
     if (motivo === null) return
     if (!motivo.trim()) { alert('Informe o motivo para desativar.'); return }
     try {
-      const { error } = await supabase
-        .from('ehs_permissao_trabalho')
-        .update({ ativo: false, observacoes: ((p.observacoes ? p.observacoes + ' ' : '') + `[desativada: ${motivo.trim()}]`).slice(0, 2000), atualizado_em: new Date().toISOString() })
-        .eq('id', p.id)
+      // RD-98 p3: escrita via RPC com guarda (company_id/RLS) + rastro (audit_log_global), nunca direto na tabela.
+      const { data, error } = await supabase.rpc('fn_ehs_pt_desativar', { p_id: p.id, p_motivo: motivo.trim() })
       if (error) throw error
+      if (data && data.ok === false) { alert(data.erro || 'Não foi possível desativar a permissão de trabalho.'); return }
       carregar()
-    } catch (e: any) {
-      alert(e?.message || 'Falha ao desativar')
+    } catch {
+      alert('Não foi possível desativar a permissão de trabalho. Tente novamente.')
     }
   }
 
@@ -312,7 +311,11 @@ function PTFormModal({ companyId, pt, onClose, onSaved }: { companyId: string; p
   async function salvar() {
     if (!titulo.trim()) { setErro('A tarefa (título) é obrigatória'); return }
     if (dataInicio && dataFim && new Date(dataFim) < new Date(dataInicio)) { setErro('O fim da validade não pode ser antes do início'); return }
-    const linhas = medidas.map((m) => ({ ...m, descricao: m.descricao.trim() })).filter((m) => m.descricao)
+    // Medidas enviadas com id (quando existente): a RPC faz UPDATE das mantidas, INSERT das novas e
+    // SOFT-DELETE (nunca DELETE físico) das removidas — a medida de controle é prova e fica rastreável.
+    const linhasMedidas = medidas
+      .map((m, i) => ({ id: m.id ?? null, descricao: m.descricao.trim(), atendido: m.atendido, ordem: i + 1 }))
+      .filter((m) => m.descricao)
     setSalvando(true)
     setErro(null)
     try {
@@ -330,27 +333,18 @@ function PTFormModal({ companyId, pt, onClose, onSaved }: { companyId: string; p
         status,
         observacoes: observacoes.trim() || null,
       }
-      let ptId = pt?.id
-      if (ptId) {
-        const { error } = await supabase.from('ehs_permissao_trabalho')
-          .update({ ...campos, atualizado_em: new Date().toISOString() }).eq('id', ptId)
-        if (error) throw error
-        const { error: delErr } = await supabase.from('ehs_pt_medida').delete().eq('pt_id', ptId)
-        if (delErr) throw delErr
-      } else {
-        const { data, error } = await supabase.from('ehs_permissao_trabalho')
-          .insert({ company_id: companyId, ...campos }).select('id').single()
-        if (error) throw error
-        ptId = data!.id
-      }
-      if (linhas.length > 0) {
-        const payload = linhas.map((m, i) => ({ company_id: companyId, pt_id: ptId, ordem: i + 1, descricao: m.descricao, atendido: m.atendido }))
-        const { error: insErr } = await supabase.from('ehs_pt_medida').insert(payload)
-        if (insErr) throw insErr
-      }
+      // RD-98 p3: toda a escrita (PT + medidas) por uma única RPC com guarda por empresa e rastro.
+      const { data, error } = await supabase.rpc('fn_ehs_pt_salvar', {
+        p_pt_id: pt?.id ?? null,
+        p_company_id: companyId,
+        p_dados: campos,
+        p_medidas: linhasMedidas,
+      })
+      if (error) throw error
+      if (data && data.ok === false) { setErro(data.erro || 'Não foi possível salvar a permissão de trabalho.'); setSalvando(false); return }
       onSaved()
-    } catch (e: any) {
-      setErro(e?.message || 'Falha ao salvar a permissão')
+    } catch {
+      setErro('Não foi possível salvar a permissão de trabalho. Verifique os dados e tente novamente.')
       setSalvando(false)
     }
   }
