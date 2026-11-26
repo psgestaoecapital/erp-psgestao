@@ -505,9 +505,8 @@ export default function OrcamentosPage(){
     setBuscaProduto(null);
   };
 
-  const addItem=()=>setItens([...itens,{...EMPTY_ITEM,ordem:itens.length+1}]);
-  const addItemServico=()=>setItens([...itens,{...EMPTY_ITEM_SERVICO,ordem:itens.length+1}]);
-  const addItemServicoEng=()=>setItens([...itens,{...EMPTY_ITEM_SERVICO_ENG,ordem:itens.length+1}]);
+  // CEO 26/11: adicionar produto/serviço = busca unificada (adicionarPorBusca). Só o omisso (texto livre)
+  // tem botão próprio, na seção de omissos.
   const addItemDespesa=()=>setItens([...itens,{...EMPTY_ITEM_DESPESA,ordem:itens.length+1}]);
   // Serviço de ENGENHARIA (RD-26): consome a v_projetos_bdi_impacto — custo do BOM, BDI do catálogo e
   // preço de venda (= custo × (1+BDI)) já calculados pelo "cérebro" do BDI. Não recalcula BDI aqui; só
@@ -592,6 +591,20 @@ export default function OrcamentosPage(){
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[itens,pendingPick]);
   const removerItem=(idx:number)=>setItens(itens.filter((_,i)=>i!==idx).map((it,i)=>({...it,ordem:i+1})));
+  // Reordenar (CEO 26/11): sobe/desce o item trocando com o vizinho do MESMO grupo (principal × omisso),
+  // para não misturar as seções. A ordem do array é a que o salvar grava em `ordem` (idx+1).
+  const moverItem=(idx:number,dir:-1|1)=>{
+    setItens(prev=>{
+      const arr=[...prev];
+      if(idx<0||idx>=arr.length)return prev;
+      const ehDespesa=arr[idx].tipo_item==='despesa';
+      let j=idx+dir;
+      while(j>=0&&j<arr.length&&((arr[j].tipo_item==='despesa')!==ehDespesa))j+=dir;
+      if(j<0||j>=arr.length)return prev;
+      [arr[idx],arr[j]]=[arr[j],arr[idx]];
+      return arr.map((it,i)=>({...it,ordem:i+1}));
+    });
+  };
   
   const atualizarItem=(idx:number,campo:keyof ItemOrc,valor:any)=>{
     const novosItens=[...itens];
@@ -679,7 +692,10 @@ export default function OrcamentosPage(){
     if(orcId){
       const usaRpc = !!editing && (editing.status && editing.status !== 'rascunho');
       const itensValidos=itens
-        .filter(i => i.tipo_item==='servico' ? !!i.servico_id : !!i.produto_nome);
+        .filter(i => i.tipo_item==='servico' ? !!i.servico_id : !!i.produto_nome)
+        // CEO 26/11: grava os omissos (despesa) DEPOIS dos itens principais (ordem), p/ a proposta
+        // listar o orçamento principal e depois os omissos. Estável dentro de cada grupo.
+        .sort((a,b)=>(a.tipo_item==='despesa'?1:0)-(b.tipo_item==='despesa'?1:0));
       if(usaRpc){
         const payload=itensValidos.map(i=>({
           tipo_item:i.tipo_item,
@@ -1140,14 +1156,10 @@ export default function OrcamentosPage(){
           </div>
           <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span>📦 Itens do Orçamento</span>
-            <div style={{display:"flex",gap:6}}>
-              <button onClick={addItem} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>+ Produto</button>
-              <button onClick={addItemServico} data-testid="orc-add-servico" style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:P+"15",color:P,border:`1px solid ${P}40`,cursor:"pointer",fontWeight:600}}>+ Serviço</button>
-              {temProjetos && (
-                <button onClick={addItemServicoEng} data-testid="orc-add-servico-eng" title={`Serviço que você cadastrou no Catálogo, com composição de custo (CPU) e BDI (preço = custo + BDI ${bdiPct}%)`} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:"#7C3AED15",color:"#7C3AED",border:`1px solid #7C3AED40`,cursor:"pointer",fontWeight:600}}>+ Serviço do catálogo</button>
-              )}
-              {/* Despesa/omisso (Diego/FC) — custo indireto que fecha o orçamento. Genérico p/ todo prestador de campo. */}
-              <button onClick={addItemDespesa} data-testid="orc-add-despesa" title="Custo indireto/omisso: hospedagem, alimentação, deslocamento/mobilização, equipamento, diárias..." style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:"#B4530915",color:"#B45309",border:"1px solid #B4530940",cursor:"pointer",fontWeight:600}}>+ Despesa/Omisso</button>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              {/* CEO 26/11: adicionar item = digitar na busca unificada acima (catálogo/serviço/produto).
+                  Os 4 botões saíram; omisso é texto livre → "+ adicionar omisso" na seção de omissos. */}
+              <span style={{fontSize:10,color:TXD,fontWeight:500}}>Para adicionar, use a busca acima ↑</span>
               <label style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:TXD,cursor:"pointer",marginLeft:4}} title="Dividir o orçamento por frente/área e ver o subtotal de cada uma">
                 <input type="checkbox" checked={dividirFrente} onChange={e=>setDividirFrente(e.target.checked)} style={{accentColor:GO}}/>
                 <span style={{fontWeight:600}}>Dividir por frente</span>
@@ -1156,14 +1168,26 @@ export default function OrcamentosPage(){
             </div>
           </div>
           <div style={{background:BG3,borderRadius:8,padding:12,marginBottom:12}}>
-            <div style={{display:"grid",gridTemplateColumns:"40px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",fontSize:10,color:TXD,fontWeight:600,padding:"4px 0",borderBottom:`1px solid ${BD}`}}>
+            <div style={{display:"grid",gridTemplateColumns:"54px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",fontSize:10,color:TXD,fontWeight:600,padding:"4px 0",borderBottom:`1px solid ${BD}`}}>
               <div>#</div><div>Produto / Serviço</div><div style={{display:"flex",alignItems:"center",gap:3}}>Qtd<AjudaCampo chave="orcamentos.item.quantidade" rota="/dashboard/orcamentos"/></div><div>UN</div><div>Preço Unit</div><div>Desc %</div><div style={{textAlign:"right"}}>Subtotal</div><div></div>
             </div>
-            {itens.map((it,idx)=>(
-              <div key={idx} style={{display:"grid",gridTemplateColumns:"40px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",padding:"4px 0",borderBottom:`0.5px solid ${BD}`,position:"relative"}}>
-                <div style={{fontSize:10,color:TXD,textAlign:"center"}}>
-                  {it.ordem}
-                  <div style={{fontSize:8,fontWeight:700,color:it._srv_eng?"#7C3AED":(it.tipo_item==='servico'?P:it.tipo_item==='despesa'?"#B45309":GO),marginTop:2}}>{it._srv_eng?'SRV-ENG':(it.tipo_item==='servico'?'SRV':it.tipo_item==='despesa'?'DSP':'PRD')}</div>
+            {itens.map((it,idx)=>({it,idx})).sort((a,b)=>(a.it.tipo_item==='despesa'?1:0)-(b.it.tipo_item==='despesa'?1:0)).map(({it,idx},pos,arr)=>(
+              <React.Fragment key={idx}>
+              {/* CEO 26/11: omissos (despesa) numa seção separada, com o "+ adicionar omisso" aqui */}
+              {it.tipo_item==='despesa' && (pos===0 || arr[pos-1].it.tipo_item!=='despesa') && (
+                <div style={{margin:"12px 0 4px",paddingTop:8,borderTop:`1px solid ${BD}`,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
+                  <span style={{fontSize:11,fontWeight:700,color:"#B45309"}}>🧾 Itens omissos — fora do orçamento principal</span>
+                  <button onClick={addItemDespesa} data-testid="orc-add-despesa" style={{fontSize:10,padding:"3px 10px",borderRadius:6,background:"#B4530915",color:"#B45309",border:"1px solid #B4530940",cursor:"pointer",fontWeight:600}}>+ adicionar omisso</button>
+                </div>
+              )}
+              <div style={{display:"grid",gridTemplateColumns:"54px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",padding:"4px 0",borderBottom:`0.5px solid ${BD}`,position:"relative"}}>
+                <div style={{fontSize:10,color:TXD,textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                  <div style={{display:"flex",gap:3}}>
+                    <button onClick={()=>moverItem(idx,-1)} title="Subir" aria-label="Subir item" style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:TXD,lineHeight:1,padding:0}}>▲</button>
+                    <button onClick={()=>moverItem(idx,1)} title="Descer" aria-label="Descer item" style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:TXD,lineHeight:1,padding:0}}>▼</button>
+                  </div>
+                  <span>{it.ordem}</span>
+                  <div style={{fontSize:8,fontWeight:700,color:it._srv_eng?"#7C3AED":(it.tipo_item==='servico'?P:it.tipo_item==='despesa'?"#B45309":GO)}}>{it._srv_eng?'SRV-ENG':(it.tipo_item==='servico'?'SRV':it.tipo_item==='despesa'?'DSP':'PRD')}</div>
                 </div>
                 <div style={{position:"relative"}}>
                   {it._srv_eng ? (
@@ -1283,7 +1307,15 @@ export default function OrcamentosPage(){
                   </div>
                 )}
               </div>
+              </React.Fragment>
             ))}
+            {/* "+ adicionar omisso" sempre disponível (inclusive quando ainda não há nenhum omisso) */}
+            {!itens.some(i=>i.tipo_item==='despesa') && (
+              <div style={{padding:"8px 0 0"}}>
+                <button onClick={addItemDespesa} data-testid="orc-add-despesa-vazio" style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:"#B4530915",color:"#B45309",border:"1px solid #B4530940",cursor:"pointer",fontWeight:600}}>+ adicionar item omisso</button>
+                <span style={{fontSize:9,color:TXD,marginLeft:8}}>custo indireto fora do orçamento principal (hospedagem, deslocamento, diárias…)</span>
+              </div>
+            )}
             {/* FEAT-OS-ONDA1: Subtotais separados Servicos vs Produtos */}
             {itens.length>0 && (
               <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap",gap:18,padding:"8px 4px 0",borderTop:`1px solid ${BD}`,marginTop:4,fontSize:10,color:TXD}}>
