@@ -15,6 +15,7 @@ import {
   Search,
   Upload,
   FileText,
+  Settings2,
 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
@@ -468,6 +469,19 @@ export default function CatalogoServicosPage() {
                 Sem CPU
               </span>
             )}
+            {/* Chamado #11274: o custo mostrava só a mão de obra porque os materiais/equipamentos
+                estavam sem preço (entram como R$ 0,00 e não somam). Avisa na lista, onde o cliente
+                circulou o valor, para ele entender que falta precificar o material — não é bug de soma. */}
+            {(precos[s.id]?.insumos_total ?? 0) > 0 &&
+              (s.custo_material ?? 0) === 0 &&
+              (s.custo_equipamento ?? 0) === 0 && (
+                <span
+                  className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800"
+                  title="Há materiais/equipamentos na composição sem preço: eles entram como R$ 0,00 e não somam no custo. O valor ao lado reflete só o que tem preço (ex.: mão de obra). Abra o serviço e informe o custo do material."
+                >
+                  Material sem preço
+                </span>
+              )}
             {s.produtividade_unidade_dia === null && (
               <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-800">
                 Sem produtividade
@@ -743,6 +757,17 @@ export default function CatalogoServicosPage() {
                 <AjudaCampo chave="projetos.catalogo.bdi" rota={ROTA} />
               </span>
             )}
+            {/* Chamado #11474 ("onde eu encontro o BDI"): link direto para onde o BDI é definido,
+                sempre visível (inclusive quando ainda não há BDI configurado), mesmo destino do detalhe. */}
+            <button
+              type="button"
+              onClick={() => router.push("/dashboard/projetos/configuracoes?aba=precificacao")}
+              className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-[#C8941A] hover:text-[#9c7214] hover:underline"
+              title="Onde o BDI é definido: Projetos · Configurações · Precificação"
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              {config?.bdi_total_pct != null ? "Configurar BDI" : "Definir o BDI"}
+            </button>
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

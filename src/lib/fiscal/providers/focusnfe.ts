@@ -606,7 +606,8 @@ export class FocusNFeProvider implements FiscalProvider {
       serie: Number(req.serie ?? '2'),
       data_emissao: isoBrasilia(),   // #1944 · horário de Brasília
       presenca_comprador: 1,
-      tipo_documento: 1,
+      // #9787 · tpNF: 1 = saída (padrão) · 0 = entrada (nota própria de entrada da revenda). Vem de req.tipoOperacao.
+      tipo_documento: req.tipoOperacao ?? 1,
       // indFinal (operação com consumidor final). Nome do campo Focus na NF-e modelo 55 A CONFIRMAR na
       // doc oficial (NotaFiscalXML.html/DSL 4.0) — o CEO confirma; usamos 'consumidor_final' porque é o
       // nome que a própria Focus usa no grupo equivalente (reforma da NFS-e neste arquivo). 0=não · 1=sim.
