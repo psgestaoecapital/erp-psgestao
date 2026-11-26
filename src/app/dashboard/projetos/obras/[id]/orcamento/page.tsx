@@ -98,6 +98,13 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   const [memForm, setMemForm] = useState<{ memorial: string; especificacao: string }>({ memorial: '', especificacao: '' })
   const [memSalvando, setMemSalvando] = useState(false)
   const [memErro, setMemErro] = useState<string | null>(null)
+  // §315 (essencial): reserva do orçamento — "Riscos e imprevistos" e "Pós-obra" como % do custo (editável),
+  // com projeção do custo total. Leitura por RLS (projetos_orcamento_reserva); escrita por RPC.
+  const [reservaRiscos, setReservaRiscos] = useState('')
+  const [reservaPos, setReservaPos] = useState('')
+  const [reservaSalvando, setReservaSalvando] = useState(false)
+  const [reservaErro, setReservaErro] = useState<string | null>(null)
+  const [reservaMsg, setReservaMsg] = useState<string | null>(null)
   // §315 MODOS: modo do Hub da empresa e prefixos EAP do(s) ramo(s) da prestadora.
   const [modoHub, setModoHub] = useState<ModoHub>('construtora')
   const [prefixosRamo, setPrefixosRamo] = useState<string[]>([])
@@ -133,6 +140,12 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
       mapaMem[r.orcamento_item_id] = { memorial: r.memorial_descritivo ?? '', especificacao: r.especificacao_tecnica ?? '' }
     }
     setMemoriais(mapaMem)
+    // §315: reserva (riscos/imprevistos e pós-obra) do orçamento — leitura por RLS (escrita por RPC).
+    const { data: rsv } = await supabase.from('projetos_orcamento_reserva').select('riscos_pct,pos_obra_pct').eq('orcamento_id', info.orcamento_id).maybeSingle()
+    const r = rsv as { riscos_pct?: number; pos_obra_pct?: number } | null
+    setReservaRiscos(r?.riscos_pct != null && r.riscos_pct > 0 ? String(r.riscos_pct) : '')
+    setReservaPos(r?.pos_obra_pct != null && r.pos_obra_pct > 0 ? String(r.pos_obra_pct) : '')
+    setReservaMsg(null); setReservaErro(null)
     // Total cheio do orçamento e nº de itens vivos — para distinguir a fatia EAP do total do orçamento.
     const { data: orc } = await supabase.from('erp_orcamentos').select('total,status').eq('id', info.orcamento_id).maybeSingle()
     setOrcTotal((orc as { total?: number } | null)?.total ?? null)
@@ -203,6 +216,22 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     if (error || !j?.ok) { setMemErro(erroAmigavel(error, 'Não foi possível salvar o memorial.')); return }
     setMemoriais((m) => ({ ...m, [itemId]: { memorial: memForm.memorial.trim(), especificacao: memForm.especificacao.trim() } }))
     setMemAberto(null)
+  }
+
+  // §315: salva a reserva (riscos/imprevistos e pós-obra) do orçamento pela RPC (guarda por empresa).
+  const salvarReserva = async () => {
+    if (!obra?.orcamento_id) return
+    const risc = num(reservaRiscos) ?? 0
+    const pos = num(reservaPos) ?? 0
+    if (risc < 0 || risc > 100 || pos < 0 || pos > 100) { setReservaErro('Os percentuais devem ficar entre 0 e 100.'); return }
+    setReservaSalvando(true); setReservaErro(null); setReservaMsg(null)
+    const { data, error } = await supabase.rpc('fn_projetos_orcamento_reserva_salvar', {
+      p_orcamento_id: obra.orcamento_id, p_riscos_pct: risc, p_pos_obra_pct: pos,
+    })
+    setReservaSalvando(false)
+    const j = data as { ok?: boolean } | null
+    if (error || !j?.ok) { setReservaErro(erroAmigavel(error, 'Não foi possível salvar a reserva.')); return }
+    setReservaMsg('Reserva salva.')
   }
 
   // Abre o formulário em branco para um item novo.
@@ -619,6 +648,44 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 </div>
               )}
             </div>
+
+            {/* §315 (essencial): Reserva e projeção do custo — riscos/imprevistos e pós-obra como % do custo da EAP. */}
+            {(() => {
+              const base = arvore.total_geral
+              const valRiscos = base * ((num(reservaRiscos) ?? 0) / 100)
+              const valPos = base * ((num(reservaPos) ?? 0) / 100)
+              const totalProjetado = base + valRiscos + valPos
+              return (
+                <div data-testid="orc-reserva" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 12 }}>
+                  <div style={{ fontSize: 15, color: ESP, fontWeight: 700 }}>Reserva e projeção do custo</div>
+                  {reservaErro && <div role="alert" data-testid="orc-reserva-erro" style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: 9, fontSize: 13 }}>{reservaErro}</div>}
+                  {reservaMsg && <div data-testid="orc-reserva-ok" style={{ background: '#E8F3EC', color: '#166534', borderRadius: 8, padding: 9, fontSize: 13 }}>{reservaMsg}</div>}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                    <label style={{ display: 'block' }}>
+                      <span style={rotuloCampo}>Riscos e imprevistos (%) <AjudaCampo chave="projetos.orcamento_eap.reserva_riscos" rota={ROTA} /></span>
+                      <input data-testid="orc-reserva-riscos" inputMode="decimal" value={reservaRiscos} onChange={(e) => { setReservaRiscos(e.target.value); setReservaMsg(null) }} placeholder="0" style={campo} />
+                      <div style={{ fontSize: 12, color: MUT, marginTop: 4 }}>{brl(valRiscos)}</div>
+                    </label>
+                    <label style={{ display: 'block' }}>
+                      <span style={rotuloCampo}>Pós-obra (%) <AjudaCampo chave="projetos.orcamento_eap.reserva_pos_obra" rota={ROTA} /></span>
+                      <input data-testid="orc-reserva-pos" inputMode="decimal" value={reservaPos} onChange={(e) => { setReservaPos(e.target.value); setReservaMsg(null) }} placeholder="0" style={campo} />
+                      <div style={{ fontSize: 12, color: MUT, marginTop: 4 }}>{brl(valPos)}</div>
+                    </label>
+                    <div>
+                      <span style={rotuloCampo}>Custo total projetado <AjudaCampo chave="projetos.orcamento_eap.total_projetado" rota={ROTA} /></span>
+                      <div data-testid="orc-reserva-total" style={{ fontSize: 20, color: ESP, fontWeight: 700 }}>{brl(totalProjetado)}</div>
+                      <div style={{ fontSize: 11, color: MUT }}>Custo EAP {brl(base)} + reservas</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button data-testid="orc-reserva-salvar" onClick={() => void salvarReserva()} disabled={reservaSalvando}
+                      style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: reservaSalvando ? MUT : ESP, color: '#fff', fontSize: 13, fontWeight: 700, cursor: reservaSalvando ? 'default' : 'pointer' }}>
+                      {reservaSalvando ? 'Salvando…' : 'Salvar reserva'}
+                    </button>
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Aviso quando a EAP é só uma fatia do orçamento: há itens no orçamento sem complemento EAP. */}
             {orcTotal != null && orcTotal - arvore.total_geral > 0.005 && (
