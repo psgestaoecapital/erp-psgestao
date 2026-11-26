@@ -112,6 +112,10 @@ export default function CalendarioCompliancePage() {
   const [filtroRisco, setFiltroRisco] = useState<string | null>(null)
   const [filtroStatus, setFiltroStatus] = useState<string | null>('pendente')
   const [msgOk, setMsgOk] = useState<string | null>(null)
+  // Fonte do calendario: nº de documentos com validade cadastrados nas empresas
+  // selecionadas. Usado para o empty-state honesto (nao dizer "tudo em dia" quando
+  // existem vencimentos na fonte que ainda nao foram refletidos no calendario).
+  const [docsComValidade, setDocsComValidade] = useState(0)
 
   const carregar = useCallback(async () => {
     if (!companyIdsKey) return
@@ -172,6 +176,21 @@ export default function CalendarioCompliancePage() {
       // ordenar por prioridade desc (ja vem ordenado por empresa, mas misturamos)
       tarefasAll.sort((a, b) => (b.prioridade ?? 0) - (a.prioridade ?? 0))
       setTarefas(tarefasAll)
+
+      // Contar documentos com validade (fonte do calendario). Nao-fatal: se falhar,
+      // trata como 0 e o empty-state cai no caminho neutro.
+      try {
+        const { count: docsCount } = await supabase
+          .from('compliance_documentos')
+          .select('id', { count: 'exact', head: true })
+          .in('company_id', ids)
+          .eq('ativo', true)
+          .eq('sem_validade', false)
+          .not('data_validade', 'is', null)
+        setDocsComValidade(Number(docsCount ?? 0))
+      } catch {
+        setDocsComValidade(0)
+      }
     } catch (e: any) {
       setErro(e?.message || 'Falha ao carregar calendario')
     } finally {
@@ -373,25 +392,73 @@ export default function CalendarioCompliancePage() {
         {loading ? (
           <p style={{ textAlign: 'center', color: C.muted, padding: 40 }}>Carregando…</p>
         ) : tarefasFiltradas.length === 0 ? (
-          <div
-            style={{
-              textAlign: 'center',
-              padding: '40px 24px',
-              background: '#FFFFFF',
-              borderRadius: 12,
-              boxShadow: '0 1px 3px rgba(61,35,20,0.06)',
-            }}
-          >
-            <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
-            <h3 style={{ margin: '0 0 6px', fontSize: 16, color: C.espresso }}>Tudo em dia!</h3>
-            <p style={{ margin: '0 0 16px', fontSize: 13, color: C.muted }}>
-              Nenhuma tarefa pendente nos filtros atuais. Clique em &ldquo;Gerar tarefas&rdquo; para sincronizar com seus
-              documentos.
-            </p>
-            <button onClick={gerarTarefas} disabled={gerando} style={{ ...btnSec, padding: '10px 16px' }}>
-              ↻ Sincronizar agora
-            </button>
-          </div>
+          tarefas.length === 0 && docsComValidade > 0 ? (
+            // Fonte tem documentos com validade, mas o calendario ainda nao foi gerado.
+            // Empty-state honesto (criterio d): diz o que ha e oferece a acao.
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '40px 24px',
+                background: '#FFFFFF',
+                borderRadius: 12,
+                boxShadow: '0 1px 3px rgba(61,35,20,0.06)',
+                borderLeft: `4px solid ${C.orange}`,
+              }}
+            >
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🗓️</div>
+              <h3 style={{ margin: '0 0 6px', fontSize: 16, color: C.espresso }}>Calendário ainda não gerado</h3>
+              <p style={{ margin: '0 0 16px', fontSize: 13, color: C.muted }}>
+                Você tem <strong>{docsComValidade}</strong> documento{docsComValidade === 1 ? '' : 's'} com validade que
+                ainda {docsComValidade === 1 ? 'não está' : 'não estão'} no calendário. Gere o calendário para acompanhar os
+                vencimentos e não perder prazos.
+              </p>
+              <button onClick={gerarTarefas} disabled={gerando} style={{ ...btnPri, opacity: gerando ? 0.6 : 1 }}>
+                {gerando ? 'Gerando…' : `Gerar calendário de ${docsComValidade} documento${docsComValidade === 1 ? '' : 's'}`}
+              </button>
+            </div>
+          ) : tarefas.length === 0 ? (
+            // Sem fonte: nenhum documento com validade cadastrado ainda.
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '40px 24px',
+                background: '#FFFFFF',
+                borderRadius: 12,
+                boxShadow: '0 1px 3px rgba(61,35,20,0.06)',
+              }}
+            >
+              <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
+              <h3 style={{ margin: '0 0 6px', fontSize: 16, color: C.espresso }}>Nenhum documento com validade</h3>
+              <p style={{ margin: '0 0 16px', fontSize: 13, color: C.muted }}>
+                Cadastre documentos com data de validade em Compliance para que o Calendário Legal IA gere automaticamente
+                as tarefas de renovação priorizadas por risco e multa.
+              </p>
+              <Link href="/dashboard/ehs" style={{ ...btnSec, padding: '10px 16px' }}>
+                ← Voltar ao EHS
+              </Link>
+            </div>
+          ) : (
+            // Existem tarefas, mas os filtros atuais nao retornaram nenhuma.
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '40px 24px',
+                background: '#FFFFFF',
+                borderRadius: 12,
+                boxShadow: '0 1px 3px rgba(61,35,20,0.06)',
+              }}
+            >
+              <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+              <h3 style={{ margin: '0 0 6px', fontSize: 16, color: C.espresso }}>Tudo em dia!</h3>
+              <p style={{ margin: '0 0 16px', fontSize: 13, color: C.muted }}>
+                Nenhuma tarefa nos filtros atuais. Ajuste os filtros acima ou gere novas tarefas a partir dos seus
+                documentos.
+              </p>
+              <button onClick={gerarTarefas} disabled={gerando} style={{ ...btnSec, padding: '10px 16px' }}>
+                ↻ Sincronizar agora
+              </button>
+            </div>
+          )
         ) : (
           <>
             {/* Mobile: cards empilhados */}
