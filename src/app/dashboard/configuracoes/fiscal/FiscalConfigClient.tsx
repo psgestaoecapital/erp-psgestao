@@ -3,6 +3,7 @@
 import { situacaoCertificado } from '@/lib/fiscal/certificadoValidade'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { authFetch } from '@/lib/authFetch'
 import CertificadoUploadCard from '@/components/fiscal/CertificadoUploadCard'
 import ConfigFiscalEditCard from '@/components/fiscal/ConfigFiscalEditCard'
 import FocusNFeConfigCard from '@/components/fiscal/FocusNFeConfigCard'
@@ -46,6 +47,7 @@ interface ConfigRow {
   gov_nfse_municipio_codigo: string | null
   gov_nfse_municipio_aderido: boolean | null
   gov_nfse_endpoint_base: string | null
+  gov_nfse_ultima_consulta_municipio: string | null
   serie_nfse_padrao: string | null
   proxima_numeracao_nfse: number | null
   serie_nfe_padrao: string | null
@@ -271,7 +273,7 @@ export default function FiscalConfigClient() {
         supabase
           .from('erp_fiscal_provider_config')
           .select(
-            'id, provider, ambiente, focus_token_vault_id, gov_nfse_municipio_codigo, gov_nfse_municipio_aderido, gov_nfse_endpoint_base, serie_nfse_padrao, proxima_numeracao_nfse, serie_nfe_padrao, proxima_numeracao_nfe, cnae_padrao, regime_tributario, opcao_simples_nacional, percentual_total_tributos_sn, regime_apuracao_sn'
+            'id, provider, ambiente, focus_token_vault_id, gov_nfse_municipio_codigo, gov_nfse_municipio_aderido, gov_nfse_endpoint_base, gov_nfse_ultima_consulta_municipio, serie_nfse_padrao, proxima_numeracao_nfse, serie_nfe_padrao, proxima_numeracao_nfe, cnae_padrao, regime_tributario, opcao_simples_nacional, percentual_total_tributos_sn, regime_apuracao_sn'
           )
           .eq('company_id', sel.id)
           .eq('ativo', true)
@@ -427,6 +429,18 @@ export default function FiscalConfigClient() {
           ))}
         </ul>
       </div>
+
+      {/* NFS-e Nacional · item 2: sincroniza a ADESÃO do município (lista nacional) para a config desta empresa.
+          Só aparece quando o município (IBGE) já está configurado — é ele que a ação consulta. */}
+      {state.companyId && state.config?.gov_nfse_municipio_codigo && (
+        <SincronizarMunicipioCard
+          companyId={state.companyId}
+          codigo={state.config.gov_nfse_municipio_codigo}
+          aderido={state.config.gov_nfse_municipio_aderido}
+          ultimaConsulta={state.config.gov_nfse_ultima_consulta_municipio}
+          onSincronizado={carregar}
+        />
+      )}
 
       {/* Pré-voo NF-e · o que impede emitir (config + produtos + destinatários) e o que já está pronto */}
       {state.companyId && (
@@ -608,6 +622,81 @@ function CertTrocarSenhaCard({ certificadoId, onSalvo }: { certificadoId: string
           className="text-[11.5px] text-[#3D2314]/50 hover:text-[#3D2314]">cancelar</button>
       </div>
       {msg && <div className={`text-[11.5px] mt-1.5 ${msg.startsWith('Erro') ? 'text-[#A32D2D]' : 'text-[#3F7012]'}`}>{msg}</div>}
+    </div>
+  )
+}
+
+// NFS-e Nacional · item 2: botão que SINCRONIZA a adesão do município (lista nacional) para a config da empresa.
+// Idempotente — consulta a lista, grava gov_nfse_municipio_aderido / endpoint / carimbo de consulta na config.
+function SincronizarMunicipioCard({
+  companyId, codigo, aderido, ultimaConsulta, onSincronizado,
+}: { companyId: string; codigo: string; aderido: boolean | null; ultimaConsulta: string | null; onSincronizado: () => void }) {
+  const [carregando, setCarregando] = useState(false)
+  const [msg, setMsg] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null)
+
+  async function sincronizar() {
+    setCarregando(true); setMsg(null)
+    try {
+      const res = await authFetch('/api/fiscal/gov-nfse/sincronizar-municipio', {
+        method: 'POST', body: JSON.stringify({ companyId }),
+      })
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean; erro?: string; nome?: string | null; uf?: string | null; aderido?: boolean; conhecido?: boolean
+      }
+      if (!res.ok || j?.ok === false) {
+        setMsg({ tipo: 'erro', texto: j?.erro ?? `Não foi possível sincronizar (erro ${res.status}).` })
+        return
+      }
+      const nomeUf = [j.nome, j.uf].filter(Boolean).join('/')
+      setMsg({
+        tipo: 'ok',
+        texto: j.aderido
+          ? `Município ${nomeUf || codigo} aderido ao NFS-e Nacional — config atualizada.`
+          : j.conhecido
+            ? `Município ${nomeUf || codigo} ainda NÃO aderiu ao NFS-e Nacional (config atualizada). A emissão nacional só vale quando o município aderir.`
+            : `Município ${codigo} não consta na lista nacional de adesão. Sincronize a lista de municípios (tela NFSe Nacional gov.br) ou confirme o IBGE.`,
+      })
+      onSincronizado()
+    } catch (e) {
+      setMsg({ tipo: 'erro', texto: 'Erro ao sincronizar: ' + (e as Error).message })
+    } finally { setCarregando(false) }
+  }
+
+  const fmt = (iso: string | null) => {
+    if (!iso) return null
+    const d = new Date(iso)
+    return Number.isNaN(d.getTime()) ? null : d.toLocaleString('pt-BR')
+  }
+  const ultima = fmt(ultimaConsulta)
+
+  return (
+    <div className="bg-white border border-[#3D2314]/10 rounded-xl px-4 py-3 flex items-start gap-3">
+      <Landmark className="w-[18px] h-[18px] text-[#3D2314]/70 shrink-0 mt-0.5" strokeWidth={1.5} aria-hidden />
+      <div className="flex-1 min-w-0 text-[12.5px]">
+        <div className="font-medium text-[#3D2314] flex items-center gap-1">
+          Adesão do município (NFS-e Nacional)
+          <AjudaCampo chave="fiscal.config.gov_nfse_sincronizar_municipio" />
+        </div>
+        <div className="text-[#3D2314]/70 mt-0.5 leading-snug">
+          Consulta a lista nacional e marca, nesta empresa, se o município {codigo} já aderiu ao NFS-e Nacional.
+          {aderido ? ' Hoje: aderido.' : ' Hoje: não sincronizado/aderido.'}
+          {ultima ? ` Última consulta: ${ultima}.` : ''}
+        </div>
+        {msg && (
+          <div className={`text-[11.5px] mt-1.5 ${msg.tipo === 'erro' ? 'text-[#A32D2D]' : 'text-[#3F7012]'}`} role="status">
+            {msg.texto}
+          </div>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={() => void sincronizar()}
+        disabled={carregando}
+        data-testid="gov-nfse-sync-municipio"
+        className="px-3 py-1.5 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[12.5px] hover:bg-[#B07F12] disabled:opacity-50 inline-flex items-center gap-1.5 whitespace-nowrap self-center"
+      >
+        {carregando ? <><Loader2 size={13} className="animate-spin" /> Sincronizando…</> : 'Consultar/atualizar'}
+      </button>
     </div>
   )
 }
