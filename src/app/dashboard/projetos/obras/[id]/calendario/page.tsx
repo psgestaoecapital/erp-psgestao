@@ -1,7 +1,8 @@
 'use client'
 // Hub · Gestão de Obras · Calendário da obra (blueprint vivo tela 109 · ref. mercado: Calendário da Obra).
-// Dias não úteis da obra — feriados, folgas e pontos facultativos — que a gestão usa para o prazo real
-// do cronograma (um sábado de ponte não conta como dia trabalhado). Leitura/gravação guardadas por
+// Dias não úteis da obra — feriados, folgas e pontos facultativos — registrados por obra como os dias
+// em que não há trabalho. (O desconto automático desses dias no prazo do cronograma entra em fatia
+// seguinte; hoje a tela só registra os dias, sem alterar o cronograma.) Leitura/gravação guardadas por
 // empresa (fn_obra_calendario_listar / _salvar / _excluir). Aberta pelo cockpit.
 import { use, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
@@ -91,7 +92,7 @@ export default function CalendarioObraPage({ params }: { params: Promise<{ id: s
         <Link href={`/dashboard/projetos/obras/${id}/cockpit?area=hub`} style={{ fontSize: 12, color: GOLD, textDecoration: 'none', fontWeight: 600 }}>← Cockpit da obra</Link>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 8 }}>Hub · Obra</div>
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 24, fontWeight: 400, color: ESP, margin: '2px 0 4px' }}>Calendário da obra</h1>
-        <div style={{ fontSize: 13, color: MUT, marginBottom: 14 }}>Dias não úteis desta obra — feriados, folgas e pontos facultativos. O cronograma usa o calendário para contar só os dias realmente trabalhados.</div>
+        <div style={{ fontSize: 13, color: MUT, marginBottom: 14 }}>Dias não úteis desta obra — feriados, folgas e pontos facultativos. Ficam registrados aqui como os dias em que não há trabalho na obra.</div>
 
         {erro && <div role="alert" data-testid="calendario-erro" style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 12 }}>{erro}</div>}
 
@@ -132,7 +133,7 @@ export default function CalendarioObraPage({ params }: { params: Promise<{ id: s
           itens.length === 0 && !form ? (
             <div data-testid="calendario-vazia" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 20, textAlign: 'center' }}>
               <div style={{ fontSize: 14, color: ESP, fontWeight: 600, marginBottom: 4 }}>Nenhum dia não útil cadastrado</div>
-              <div style={{ fontSize: 13, color: MUT, marginBottom: 12 }}>Cadastre feriados, folgas e pontos facultativos desta obra. O cronograma passa a contar o prazo só pelos dias realmente trabalhados.</div>
+              <div style={{ fontSize: 13, color: MUT, marginBottom: 12 }}>Cadastre feriados, folgas e pontos facultativos desta obra. Cada data registrada fica marcada como dia sem trabalho na obra.</div>
               <button data-testid="calendario-novo-vazio" onClick={() => setForm(vazio())} style={btn}>+ Adicionar primeiro dia</button>
             </div>
           ) : (
