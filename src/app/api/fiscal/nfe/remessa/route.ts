@@ -5,6 +5,7 @@ import { createFiscalService } from '@/lib/fiscal/service'
 import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-builder'
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
+import { notaEspelhoDeNFeReq } from '@/lib/fiscal/espelhoNota'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
 import { validarNFeAvulsa, ufDestino, soDigitos, type CfopSaida, type FinalidadeNFe } from '@/lib/fiscal/nfeAvulsa'
@@ -23,6 +24,10 @@ interface RemessaBody {
   itens: Array<{
     produtoId: string; quantidade: number; valorUnitarioOverride?: number; cfop?: string
     icmsCst?: string; icmsBase?: number; icmsAliquota?: number; icmsValor?: number
+    // #9929 · IPI/PIS/COFINS por item (opcional; regime normal). Em branco = comportamento atual.
+    ipiCst?: string; ipiAliquota?: number; ipiValor?: number
+    pisCst?: string; pisAliquota?: number; pisValor?: number
+    cofinsCst?: string; cofinsAliquota?: number; cofinsValor?: number
   }>
   ambiente?: 'homologacao' | 'producao'
   // #3861 · NF-e avulsa: finalidade + chave referenciada, ICMS da operação (CSOSN/CST), informações complementares, frete
@@ -191,12 +196,28 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
             valor: it.icmsValor !== undefined ? Number(it.icmsValor) : 0,
           }
         : icmsOverrideOperacao
+      // #9929 · IPI/PIS/COFINS por item (aditivo): só vão ao builder quando o item informa algum campo.
+      const ipiCst = soDigitos(it.ipiCst)
+      const ipiOverride = (!!ipiCst || it.ipiAliquota !== undefined || it.ipiValor !== undefined)
+        ? { cst: ipiCst || undefined, aliquota: it.ipiAliquota !== undefined ? Number(it.ipiAliquota) : undefined, valor: it.ipiValor !== undefined ? Number(it.ipiValor) : undefined }
+        : undefined
+      const pisCst = soDigitos(it.pisCst)
+      const pisOverride = (!!pisCst || it.pisAliquota !== undefined || it.pisValor !== undefined)
+        ? { cst: pisCst || undefined, aliquota: it.pisAliquota !== undefined ? Number(it.pisAliquota) : undefined, valor: it.pisValor !== undefined ? Number(it.pisValor) : undefined }
+        : undefined
+      const cofinsCst = soDigitos(it.cofinsCst)
+      const cofinsOverride = (!!cofinsCst || it.cofinsAliquota !== undefined || it.cofinsValor !== undefined)
+        ? { cst: cofinsCst || undefined, aliquota: it.cofinsAliquota !== undefined ? Number(it.cofinsAliquota) : undefined, valor: it.cofinsValor !== undefined ? Number(it.cofinsValor) : undefined }
+        : undefined
       return {
         produtoId: it.produtoId,
         quantidade: Number(it.quantidade),
         valorUnitarioOverride: it.valorUnitarioOverride !== undefined ? Number(it.valorUnitarioOverride) : undefined,
         cfopOverride: avulsa.itensCfop[i] ?? avulsa.cfop,
         ...(icmsOverride ? { icmsOverride } : {}),
+        ...(ipiOverride ? { ipiOverride } : {}),
+        ...(pisOverride ? { pisOverride } : {}),
+        ...(cofinsOverride ? { cofinsOverride } : {}),
       }
     })
     const chaveRef = soDigitos(body.chaveReferenciada)
@@ -239,37 +260,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     // /api/fiscal/nfe/emitir) para o operador baixar o PDF "PRÉVIA — SEM VALOR FISCAL". Puramente aditivo —
     // retorna ANTES de validar/emitir: não transmite, não consome numeração/série, não grava nada.
     if (body.apenasPrevia) {
-      const d = nfeReq.destinatario
-      const end = d.endereco
-      const nota = {
-        naturezaOperacao: nfeReq.naturezaOperacao,
-        serie: nfeReq.serie,
-        finalidade: nfeReq.finalidade,
-        consumidorFinal: nfeReq.consumidorFinal ?? null,
-        destinatario: {
-          razaoSocial: d.razaoSocial,
-          documento: d.cnpj || d.cpf || null,
-          tipoDocumento: d.cnpj ? 'CNPJ' : (d.cpf ? 'CPF' : null),
-          email: d.email ?? null,
-          endereco: end ? [end.logradouro, end.numero, end.bairro, end.cidade, end.uf, end.cep].filter(Boolean).join(', ') : null,
-        },
-        itens: nfeReq.itens.map((it) => ({
-          descricao: it.descricao,
-          ncm: it.ncm ?? null,
-          cfop: it.cfop ?? null,
-          cst: it.icms?.cst ?? null,
-          cBenef: it.icms?.cBenef ?? null,
-          chassi: it.veiculo?.chassi ?? null,
-          icmsBase: it.icms?.base ?? null,
-          icmsValor: it.icms?.valor ?? null,
-          ibsCbs: it.ibsCbs ? { base: it.ibsCbs.baseCalculo, cbs: it.ibsCbs.cbsValor, ibs: it.ibsCbs.ibsValorTotal } : null,
-          valorTotal: it.valorTotal,
-        })),
-        totais: {
-          produtos: nfeReq.itens.reduce((acc, i) => acc + i.valorTotal, 0),
-          ibsCbs: nfeReq.ibsCbsTotais ? { base: nfeReq.ibsCbsTotais.baseCalculo, cbs: nfeReq.ibsCbsTotais.cbsValor, ibs: nfeReq.ibsCbsTotais.ibsValor } : null,
-        },
-      }
+      const nota = await notaEspelhoDeNFeReq(nfeReq, body.companyId)
       return NextResponse.json({ ok: true, previa: { informacoesComplementares: nfeReq.observacoes ?? '', nota } })
     }
 
