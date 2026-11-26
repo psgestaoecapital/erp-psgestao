@@ -187,7 +187,7 @@ export default function HubPerfilCard({ companyId }: { companyId: string }) {
 
           {!podeEditar && (
             <div className="mb-4 flex items-center gap-2 rounded-lg bg-[#3D2314]/5 p-3 text-sm text-[#3D2314]/70">
-              <Lock size={14} /> Só o responsável (Master) pode alterar o tipo de empresa. Você está vendo em modo leitura.
+              <Lock size={14} /> O tipo de empresa e as especialidades são definidos pela PS na liberação do Hub. Você vê em modo leitura — fale com a PS para alterar.
             </div>
           )}
 
