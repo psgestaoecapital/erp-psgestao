@@ -27,7 +27,7 @@ ok(/if \[ "\$via" = revisada \] && ! aceitacao_dispensada(?: && \[ "\$acc_quar" 
 ok(/test\("cancel\|ignor"; "i"\)\)\) then "pending"/.test(sh), '(a) Vercel só conta build real ("Canceled by Ignored Build Step" não é verde)')
 // CEO 23/10 (#3007): PR com a label `hub` é via expressa — o teste da etiqueta vem depois de `[ "$n_hub" = 0 ] &&`.
 ok(/via=rapida\s*\n\s*(?:\[ "\$n_hub" = 0 \] && )?jq -e --arg l "\$SENSIVEL" .* && via=revisada/.test(sh), '(a) a via sai da label revisao-eng-chefe')
-ok(/if \[ "\$via" = revisada \]; then\s*\n\s*a=\$\(autorizacao "\$n"\)/.test(sh), '(a) via revisada continua exigindo MERGE AUTORIZADO pelo patch-id')
+ok(/if \[ "\$via" = revisada \]; then\s*\n\s*a=\$\{autoriz_cache:-\$\(autorizacao "\$n"\)\}/.test(sh), '(a) via revisada continua exigindo MERGE AUTORIZADO pelo patch-id (autorização cacheada, item A)')
 ok(/c=\$\(estado_checks "\$sha" "\$via"( "\$so_docs")?( "\$n")?( "\$regime_disp")?\)/.test(sh), '(a) o laço passa a via para estado_checks')
 ok(/via rápida/.test(sh) && /via revisada/.test(sh) && /log "#\$n segue a /.test(sh), '(a) o log diz a via de cada PR')
 // CEO 23/10 (#3002): main não-livre segura migration em 2 níveis (deploy_travado = todas; critica_na_main = só as críticas).
