@@ -1,8 +1,9 @@
 "use client";
-// Consultor IA — Assistente de dados (SPEC Eng. Chefe RD-41 · CEO 17/11, RD-101).
-// Pergunta em linguagem natural → /api/consultor-ia (IA ROTEADOR: escolhe a RPC, os dados NÃO vão ao LLM;
-// company_id forçado no servidor; teto GLOBAL US$ 2/dia). Fallback de graça: chips + Raio-X determinístico.
-// Tema CLARO do ERP (Espresso em off-white) — corrige o "título fantasma" da V1 escura no shell branco.
+// Consultor IA — AGENTE que investiga e explica (PR B, SPEC Eng. Chefe · RD-101 · CEO 17/11).
+// Texto livre ("por quê") → /api/consultor-ia: o agente usa ferramentas, LÊ os dados e explica (streaming dos
+// passos + Resposta/Por quê/O que fazer + "Ver os dados" + trava de número). Tem custo (teto global + por empresa).
+// Atalhos (chips, situação de parceiro, Raio-X) → /api/consultor-ia/atalho e RPC direta: DETERMINÍSTICOS e GRÁTIS.
+// Empresa SEMPRE a do seletor do topo (LGPD/isolamento por CNPJ). Tema CLARO do ERP (Espresso em off-white).
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -29,102 +30,199 @@ type Resposta = {
   totais?: { em_aberto?: number; vencido?: number; pago_periodo?: number; juros_receber?: number; juros_pagar?: number };
   opcoes?: OpcaoParceiro[];
 };
+type AgenteResp = { texto: string; verDados: unknown[]; avisoNumeros: string[] };
+type Hist = { role: "user" | "assistant"; texto: string };
 
-const CHIPS = ["Contas a receber que vencem hoje", "Despesas que vencem amanhã", "Quais clientes estão inadimplentes?", "Qual o saldo das minhas contas?",
-  "Meu saldo bate com o banco?", "Lançamentos sem conciliar", "Lançamentos sem CNPJ"];
+// Atalhos GRÁTIS (determinísticos): o botão já sabe a ferramenta — nada de IA.
+const CHIPS: { label: string; tool: string; params?: Record<string, unknown> }[] = [
+  { label: "Contas a receber que vencem hoje", tool: "contas_receber", params: { periodo: "hoje" } },
+  { label: "Despesas que vencem amanhã", tool: "contas_pagar", params: { periodo: "amanha" } },
+  { label: "Quais clientes estão inadimplentes?", tool: "inadimplentes" },
+  { label: "Qual o saldo das minhas contas?", tool: "saldo_contas" },
+  { label: "Meu saldo bate com o banco?", tool: "divergencia_saldo" },
+  { label: "Lançamentos sem conciliar", tool: "lancamentos_sem_conciliar" },
+  { label: "Lançamentos sem CNPJ", tool: "lancamentos_sem_cnpj" },
+];
 const ORDEM: Record<string, number> = { alta: 0, media: 1, baixa: 2 };
 const COR: Record<string, string> = { alta: RED, media: Y, baixa: GRN };
 const DOT: Record<string, string> = { alta: "🔴", media: "🟡", baixa: "🟢" };
 const brl = (v: any) => "R$ " + Number(v || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtData = (s?: string) => { if (!s) return "—"; const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s); return m ? `${m[3]}/${m[2]}/${m[1]}` : s; };
 
+// Render leve do markdown do agente: **negrito** e quebras de linha; sem lib.
+function Prosa({ texto }: { texto: string }) {
+  return (
+    <div style={{ fontSize: 13.5, color: ESP, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+      {texto.split("\n").map((linha, i) => (
+        <div key={i} style={{ marginBottom: linha.trim() ? 4 : 8 }}>
+          {linha.split(/(\*\*[^*]+\*\*)/g).map((p, j) =>
+            p.startsWith("**") && p.endsWith("**")
+              ? <strong key={j} style={{ color: ESP }}>{p.slice(2, -2)}</strong>
+              : <span key={j}>{p}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function ConsultorIAPage() {
   const router = useRouter();
-  // LGPD / isolamento por CNPJ (CEO 18/11): a empresa é SEMPRE a do seletor do topo (ps_empresa_sel), acompanhada
-  // ao vivo pelo hook. Multi-empresa sem seleção, "consolidado" ou grupo → null → pede para escolher UM CNPJ.
-  // Nunca chutamos "a primeira empresa": a resposta tem de ser da empresa que o usuário está vendo no topo.
   const { companyId } = useEmpresaSelecionada();
   const empresa = companyId ?? "";
   const empresaRef = useRef(empresa);
+  const sessaoRef = useRef<string>("");
+  if (!sessaoRef.current) sessaoRef.current = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now());
   const [empresaInfo, setEmpresaInfo] = useState<{ nome: string; cnpj: string } | null>(null);
   const [pergunta, setPergunta] = useState("");
   const [nomeParceiro, setNomeParceiro] = useState("");
   const [loading, setLoading] = useState(false);
-  const [resposta, setResposta] = useState<Resposta | null>(null);
+  const [resposta, setResposta] = useState<Resposta | null>(null); // resultado dos ATALHOS (determinístico)
   const [raiox, setRaiox] = useState<Raiox | null>(null);
   const [erro, setErro] = useState("");
+  // Agente (texto livre):
+  const [agente, setAgente] = useState<AgenteResp | null>(null);
+  const [passos, setPassos] = useState<string[]>([]);
+  const [verDadosAberto, setVerDadosAberto] = useState(false);
+  const [historico, setHistorico] = useState<Hist[]>([]);
+  const [ultimaPergunta, setUltimaPergunta] = useState("");
+  const [fb, setFb] = useState<null | boolean>(null);
+  const [oqueFaltou, setOqueFaltou] = useState("");
+  const [fbEnviado, setFbEnviado] = useState(false);
 
-  // Troca de empresa no topo: limpa tudo que foi respondido para a empresa anterior e mostra o CNPJ atual.
   useEffect(() => {
     empresaRef.current = empresa;
-    setResposta(null); setRaiox(null); setErro(""); setEmpresaInfo(null);
+    setResposta(null); setRaiox(null); setErro(""); setEmpresaInfo(null); setAgente(null); setPassos([]); setHistorico([]); setFb(null); setFbEnviado(false);
     if (!empresa) return;
     let vivo = true;
     supabase.from("companies").select("nome_fantasia, razao_social, cnpj").eq("id", empresa).maybeSingle()
-      .then(({ data }) => {
-        if (!vivo || !data) return;
-        const d = data as { nome_fantasia?: string | null; razao_social?: string | null; cnpj?: string | null };
-        setEmpresaInfo({ nome: d.nome_fantasia || d.razao_social || "", cnpj: d.cnpj || "" });
-      });
+      .then(({ data }) => { if (!vivo || !data) return; const d = data as { nome_fantasia?: string | null; razao_social?: string | null; cnpj?: string | null }; setEmpresaInfo({ nome: d.nome_fantasia || d.razao_social || "", cnpj: d.cnpj || "" }); });
     return () => { vivo = false; };
   }, [empresa]);
 
-  // Assistente (IA roteador) — pergunta livre.
-  async function perguntar(texto?: string) {
+  function limparRespostas() { setResposta(null); setRaiox(null); setErro(""); setAgente(null); setPassos([]); setVerDadosAberto(false); setFb(null); setFbEnviado(false); setOqueFaltou(""); }
+
+  // AGENTE (texto livre) — streaming SSE: mostra os passos ao vivo e a resposta final.
+  async function perguntarAgente(texto?: string) {
     const q = (texto ?? pergunta).trim();
     if (!q || !empresa) return;
     const alvo = empresa;
     if (texto) setPergunta(texto);
-    setLoading(true); setErro(""); setResposta(null); setRaiox(null);
+    limparRespostas(); setLoading(true); setUltimaPergunta(q);
+    const histEnviar = historico.slice(-10);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch("/api/consultor-ia", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token ?? ""}` },
-        body: JSON.stringify({ pergunta: q, company_id: alvo }),
+        body: JSON.stringify({ pergunta: q, company_id: alvo, sessao_id: sessaoRef.current, historico: histEnviar }),
+      });
+      if (!res.ok || !res.body) { setErro("Não consegui responder agora. Tente de novo."); setLoading(false); return; }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      let textoFinal = "";
+      let avisos: string[] = [];
+      let verDados: unknown[] = [];
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (empresaRef.current !== alvo) { reader.cancel(); setLoading(false); return; }
+        buf += dec.decode(value, { stream: true });
+        const partes = buf.split("\n\n");
+        buf = partes.pop() ?? "";
+        for (const bloco of partes) {
+          const linha = bloco.split("\n").find((l) => l.startsWith("data:"));
+          if (!linha) continue;
+          let ev: any; try { ev = JSON.parse(linha.slice(5).trim()); } catch { continue; }
+          if (ev.tipo === "passo" && ev.texto) setPassos((p) => [...p, ev.texto]);
+          else if (ev.tipo === "aviso_numero") avisos = ev.valores || [];
+          else if (ev.tipo === "resposta") { textoFinal = ev.texto || ""; verDados = ev.ver_dados || []; }
+          else if (ev.tipo === "bloqueado" || ev.tipo === "erro") setErro(ev.mensagem || "Não consegui responder agora.");
+        }
+      }
+      if (textoFinal) {
+        setAgente({ texto: textoFinal, verDados, avisoNumeros: avisos });
+        setHistorico((h) => [...h, { role: "user" as const, texto: q }, { role: "assistant" as const, texto: textoFinal }].slice(-20));
+      } else if (!erro) setErro("Não consegui montar a resposta agora. Tente reformular ou use um atalho.");
+    } catch { setErro("Falha de conexão. Tente de novo em instantes."); }
+    setLoading(false);
+  }
+
+  // ATALHO determinístico (grátis) — o cliente diz a ferramenta; o servidor executa e devolve o payload de render.
+  async function atalho(tool: string, params?: Record<string, unknown>) {
+    if (!empresa) return;
+    const alvo = empresa;
+    limparRespostas(); setLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("/api/consultor-ia/atalho", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token ?? ""}` },
+        body: JSON.stringify({ tool, params: params ?? {}, company_id: alvo }),
       });
       const j = (await res.json()) as Resposta;
-      if (empresaRef.current !== alvo) { setLoading(false); return; } // empresa trocada no meio: descarta
-      if (!res.ok || j.ok === false) { setErro(j.error || "Não consegui responder agora. Tente de novo."); setLoading(false); return; }
+      if (empresaRef.current !== alvo) { setLoading(false); return; }
+      if (!res.ok || j.ok === false) { setErro(j.error || "Não consegui buscar agora. Tente de novo."); setLoading(false); return; }
       setResposta(j);
     } catch { setErro("Falha de conexão. Tente de novo em instantes."); }
     setLoading(false);
   }
 
-  // Raio-X determinístico (grátis) — atalho/fallback, sem IA.
+  // Raio-X determinístico (grátis).
   async function rodarRaiox() {
     if (!empresa) return;
     const alvo = empresa;
-    setLoading(true); setErro(""); setResposta(null); setRaiox(null);
+    limparRespostas(); setLoading(true);
     const { data, error } = await supabase.rpc("fn_consultor_raiox", { p_company_id: alvo });
-    if (empresaRef.current !== alvo) { setLoading(false); return; } // empresa trocada no meio: descarta
+    if (empresaRef.current !== alvo) { setLoading(false); return; }
     if (error) { setErro("Não consegui analisar agora. Tente de novo."); setLoading(false); return; }
     const r = data as Raiox;
     if (r && r.ok === false) { setErro(r.erro === "sem_acesso" ? "Você não tem acesso aos dados desta empresa." : "Não consegui analisar agora."); setLoading(false); return; }
     setRaiox(r); setLoading(false);
   }
 
+  async function enviarFeedback(util: boolean) {
+    setFb(util);
+    if (util) { // 👍 grava na hora; 👎 só depois de dizer o que faltou
+      await gravarFeedback(true, "");
+    }
+  }
+  async function gravarFeedback(util: boolean, oque: string) {
+    if (!empresa || !agente) return;
+    try {
+      await supabase.rpc("fn_consultor_feedback_registrar", {
+        p_company_id: empresa, p_sessao_id: sessaoRef.current, p_pergunta: ultimaPergunta.slice(0, 500),
+        p_resposta_resumo: agente.texto.slice(0, 1000), p_util: util, p_o_que_faltou: oque.slice(0, 1000) || null,
+      });
+    } catch { /* feedback nunca bloqueia */ }
+    setFbEnviado(true);
+  }
+
   const achados = (resposta?.tipo === "raiox" ? resposta.achados : raiox?.achados) || [];
   const achadosOrd = achados.slice().sort((a, b) => (ORDEM[a.severidade] ?? 3) - (ORDEM[b.severidade] ?? 3));
-  const bloqueadoOuFalha = resposta?.bloqueado || resposta?.naoEntendi;
 
   return (
     <div style={{ maxWidth: 820, margin: "0 auto", padding: "0 16px", color: ESP }}>
-      {/* CABEÇALHO (sem nome da empresa — vem do contexto) */}
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 20, fontWeight: 700, color: ESP, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 24 }}>💬</span> Consultor IA · Assistente dos seus dados
+          <span style={{ fontSize: 24 }}>💬</span> Consultor IA · seu analista financeiro
         </div>
         <div style={{ fontSize: 12.5, color: TXM, marginTop: 3, lineHeight: 1.5, maxWidth: 580 }}>
-          Pergunte em português — <strong style={{ color: ESP }}>“contas a receber que vencem hoje”, “o cliente X está cadastrado?”</strong> — e eu trago direto dos seus dados. Os atalhos abaixo são gratuitos.
+          Pergunte <strong style={{ color: ESP }}>“por que o saldo do cliente X está negativo?”</strong> — eu investigo nos seus dados e explico o porquê e o que fazer. Os atalhos abaixo são gratuitos.
         </div>
       </div>
 
-      {/* EMPRESA CONSULTADA — o assistente só lê dados deste CNPJ (o do seletor do topo) */}
-      <div data-testid="consultor-empresa" style={{ background: empresa ? "#F3EDE3" : "#FDF2E9", border: `1px solid ${empresa ? BD : GO}`, borderRadius: 10, padding: "8px 12px", marginBottom: 12, fontSize: 12, color: ESP }}>
+      {/* EMPRESA CONSULTADA */}
+      <div data-testid="consultor-empresa" style={{ background: empresa ? "#F3EDE3" : "#FDF2E9", border: `1px solid ${empresa ? BD : GO}`, borderRadius: 10, padding: "8px 12px", marginBottom: 10, fontSize: 12, color: ESP }}>
         {empresa
           ? <><Lock size={13} strokeWidth={1.5} style={{ verticalAlign: "-2px", marginRight: 4 }} aria-hidden /><AjudaCampo chave="inteligencia.consultor.empresa" /> Consultando só os dados de <strong>{empresaInfo?.nome || "…"}</strong>{empresaInfo?.cnpj ? <> · CNPJ {empresaInfo.cnpj}</> : null}. Para outra empresa, troque no seletor do topo.</>
           : <>Selecione <strong>uma empresa</strong> no seletor do topo. O assistente responde por um CNPJ de cada vez e não mistura dados de empresas.</>}
+      </div>
+
+      {/* AVISO LGPD (com "?") */}
+      <div style={{ background: "#F7F3EC", border: `1px solid ${BD}`, borderRadius: 10, padding: "7px 12px", marginBottom: 12, fontSize: 11.5, color: TXM, display: "flex", alignItems: "center", gap: 2 }}>
+        <AjudaCampo chave="inteligencia.consultor.lgpd" /> As respostas são geradas por IA a partir dos dados desta empresa. Só os dados necessários para a sua pergunta são enviados ao provedor de IA, que não os usa para treinar modelos. O assistente nunca altera nada — ele explica e mostra o link para você corrigir.
       </div>
 
       {/* CAIXA DE PERGUNTA */}
@@ -134,20 +232,20 @@ export default function ConsultorIAPage() {
             Pergunte sobre seus dados<AjudaCampo chave="inteligencia.consultor.sintoma" />
           </div>
           <textarea value={pergunta} onChange={(e) => setPergunta(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); perguntar(); } }}
-            placeholder="Ex.: quais despesas vencem amanhã? — ou toque num atalho abaixo."
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); perguntarAgente(); } }}
+            placeholder="Ex.: por que o saldo do IGP está negativo se ele pagou o boleto com juros?"
             rows={2}
             style={{ width: "100%", background: OW, border: `1px solid ${BD}`, color: ESP, borderRadius: 10, padding: "10px 12px", fontSize: 13, outline: "none", resize: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} />
         </label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
           {CHIPS.map((c) => (
-            <button key={c} type="button" onClick={() => perguntar(c)}
-              style={{ background: OW, border: `1px solid ${BD}`, color: TXM, borderRadius: 999, padding: "6px 12px", fontSize: 11, cursor: "pointer" }}>
-              {c}
+            <button key={c.label} type="button" onClick={() => atalho(c.tool, c.params)} disabled={loading || !empresa}
+              style={{ background: OW, border: `1px solid ${BD}`, color: TXM, borderRadius: 999, padding: "6px 12px", fontSize: 11, cursor: loading || !empresa ? "not-allowed" : "pointer" }}>
+              {c.label}
             </button>
           ))}
         </div>
-        {/* ATALHO: situação de UM cliente/fornecedor (RD-95 "?") — pergunta "por que o saldo do X...", "o X pagou?" */}
+        {/* ATALHO: situação de UM cliente/fornecedor (grátis, determinístico) */}
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${BD}` }}>
           <label data-ajuda="inteligencia.consultor.situacao_parceiro" style={{ display: "block" }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: TXM, marginBottom: 6, display: "flex", alignItems: "center" }}>
@@ -155,10 +253,10 @@ export default function ConsultorIAPage() {
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <input value={nomeParceiro} onChange={(e) => setNomeParceiro(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && nomeParceiro.trim()) { e.preventDefault(); perguntar(`Situação de ${nomeParceiro.trim()}`); } }}
+                onKeyDown={(e) => { if (e.key === "Enter" && nomeParceiro.trim()) { e.preventDefault(); atalho("situacao_parceiro", { termo: nomeParceiro.trim() }); } }}
                 placeholder="Nome ou CNPJ — ex.: IGP Cereais"
                 style={{ flex: "1 1 220px", background: OW, border: `1px solid ${BD}`, color: ESP, borderRadius: 10, padding: "10px 12px", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-              <button type="button" onClick={() => nomeParceiro.trim() && perguntar(`Situação de ${nomeParceiro.trim()}`)} disabled={loading || !empresa || !nomeParceiro.trim()}
+              <button type="button" onClick={() => nomeParceiro.trim() && atalho("situacao_parceiro", { termo: nomeParceiro.trim() })} disabled={loading || !empresa || !nomeParceiro.trim()}
                 style={{ borderRadius: 10, border: `1px solid ${GO}`, background: "transparent", color: ESP, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: loading || !empresa || !nomeParceiro.trim() ? "not-allowed" : "pointer" }}>
                 Ver situação
               </button>
@@ -166,9 +264,9 @@ export default function ConsultorIAPage() {
           </label>
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-          <button type="button" onClick={() => perguntar()} disabled={loading || !empresa || !pergunta.trim()}
+          <button type="button" onClick={() => perguntarAgente()} disabled={loading || !empresa || !pergunta.trim()}
             style={{ flex: "1 1 220px", borderRadius: 10, border: "none", padding: "12px 16px", fontSize: 14, fontWeight: 700, cursor: loading || !empresa || !pergunta.trim() ? "not-allowed" : "pointer", color: "#fff", background: loading || !empresa || !pergunta.trim() ? "#CDB89A" : `linear-gradient(135deg,${ESP},${GO})` }}>
-            {loading ? "Consultando…" : "Perguntar ao assistente"}
+            {loading ? "Investigando…" : "Perguntar ao analista"}
           </button>
           <button type="button" onClick={rodarRaiox} disabled={loading || !empresa}
             style={{ borderRadius: 10, border: `1px solid ${GO}`, background: "transparent", color: ESP, padding: "12px 16px", fontSize: 13, fontWeight: 600, cursor: loading || !empresa ? "not-allowed" : "pointer" }}>
@@ -178,26 +276,83 @@ export default function ConsultorIAPage() {
       </div>
 
       {/* ERRO */}
-      {erro && <div style={{ background: "#FBEAEA", border: `1px solid #E6B8B8`, borderRadius: 10, padding: 12, color: RED, fontSize: 12.5, marginBottom: 12 }}>{erro}</div>}
+      {erro && <div style={{ background: "#FBEAEA", border: `1px solid #E6B8B8`, borderRadius: 10, padding: 12, color: RED, fontSize: 12.5, marginBottom: 12 }}>{erro}
+        <button type="button" onClick={rodarRaiox} style={{ display: "block", marginTop: 8, background: "transparent", border: `1px solid ${GO}`, color: ESP, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>🔎 Rodar Raio-X (grátis)</button>
+      </div>}
 
-      {/* AVISO (teto estourado / não entendeu) → aponta para o Raio-X grátis */}
-      {bloqueadoOuFalha && (
-        <div style={{ background: "#FBF3DE", border: `1px solid ${GO}`, borderRadius: 12, padding: 14, marginBottom: 12 }}>
-          <div style={{ fontSize: 13, color: ESP, fontWeight: 600 }}>{resposta?.mensagem}</div>
-          <button type="button" onClick={rodarRaiox} style={{ marginTop: 10, background: "transparent", border: `1px solid ${GO}`, color: ESP, borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-            🔎 Rodar Raio-X dos meus dados (grátis)
-          </button>
+      {/* PASSOS do agente (streaming) */}
+      {loading && passos.length > 0 && (
+        <div data-testid="consultor-passos" style={{ background: CARD, border: `1px solid ${BD}`, borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
+          {passos.map((p, i) => (
+            <div key={i} style={{ fontSize: 12.5, color: i === passos.length - 1 ? ESP : TXM, display: "flex", alignItems: "center", gap: 8, padding: "2px 0" }}>
+              <span>{i === passos.length - 1 ? "⏳" : "✓"}</span> {p}
+            </div>
+          ))}
         </div>
       )}
 
-      {/* RESPOSTA DO ASSISTENTE */}
-      {resposta?.ok && !bloqueadoOuFalha && resposta.resumo && (
+      {/* RESPOSTA DO AGENTE (texto livre) */}
+      {agente && (
+        <div data-testid="consultor-resposta-agente" style={{ marginBottom: 12 }}>
+          <div style={{ background: CARD, border: `1px solid ${BD}`, borderLeft: `4px solid ${GO}`, borderRadius: 12, padding: "14px 16px" }}>
+            <Prosa texto={agente.texto} />
+            {agente.avisoNumeros.length > 0 && (
+              <div style={{ marginTop: 10, background: "#FBF3DE", border: `1px solid ${GO}`, borderRadius: 8, padding: "8px 10px", fontSize: 11.5, color: Y }}>
+                Confira este valor: {agente.avisoNumeros.join(", ")} — não encontrei esse valor exato nos dados consultados.
+              </div>
+            )}
+          </div>
+
+          {/* VER OS DADOS (recolhido) */}
+          {agente.verDados.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <button type="button" onClick={() => setVerDadosAberto((v) => !v)}
+                style={{ background: "transparent", border: `1px solid ${BD}`, color: TXM, borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>
+                {verDadosAberto ? "Ocultar os dados" : "Ver os dados que usei"}
+              </button>
+              {verDadosAberto && (
+                <pre style={{ marginTop: 8, background: OW, border: `1px solid ${BD}`, borderRadius: 10, padding: 12, fontSize: 11, color: TXM, overflowX: "auto", maxHeight: 360 }}>
+                  {JSON.stringify(agente.verDados, null, 2)}
+                </pre>
+              )}
+            </div>
+          )}
+
+          {/* FEEDBACK 👍/👎 + o que faltou (com "?") */}
+          <div data-ajuda="inteligencia.consultor.feedback" style={{ marginTop: 10, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12, color: TXM, display: "flex", alignItems: "center" }}>A resposta ajudou?<AjudaCampo chave="inteligencia.consultor.feedback" /></span>
+            {fbEnviado ? (
+              <span style={{ fontSize: 12, color: GRN, fontWeight: 600 }}>Obrigado pelo retorno!</span>
+            ) : (
+              <>
+                <button type="button" onClick={() => enviarFeedback(true)} aria-label="Ajudou"
+                  style={{ background: fb === true ? "#EAF4EA" : "transparent", border: `1px solid ${BD}`, borderRadius: 8, padding: "5px 12px", fontSize: 14, cursor: "pointer" }}>👍</button>
+                <button type="button" onClick={() => setFb(false)} aria-label="Não ajudou"
+                  style={{ background: fb === false ? "#FBEAEA" : "transparent", border: `1px solid ${BD}`, borderRadius: 8, padding: "5px 12px", fontSize: 14, cursor: "pointer" }}>👎</button>
+                {fb === false && (
+                  <div style={{ display: "flex", gap: 8, flex: "1 1 240px", flexWrap: "wrap" }}>
+                    <input value={oqueFaltou} onChange={(e) => setOqueFaltou(e.target.value)} placeholder="O que faltou?"
+                      style={{ flex: "1 1 180px", background: OW, border: `1px solid ${BD}`, color: ESP, borderRadius: 8, padding: "7px 10px", fontSize: 12.5, outline: "none", boxSizing: "border-box" }} />
+                    <button type="button" onClick={() => gravarFeedback(false, oqueFaltou)}
+                      style={{ border: `1px solid ${GO}`, background: "transparent", color: ESP, borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Enviar</button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* RESPOSTA DOS ATALHOS (determinística) */}
+      {resposta?.ok && resposta.naoEntendi && (
+        <div style={{ background: "#FBF3DE", border: `1px solid ${GO}`, borderRadius: 12, padding: 14, marginBottom: 12, fontSize: 13, color: ESP, fontWeight: 600 }}>{resposta.mensagem}</div>
+      )}
+      {resposta?.ok && !resposta.naoEntendi && resposta.resumo && (
         <div style={{ marginBottom: 12 }}>
           <div style={{ background: CARD, border: `1px solid ${BD}`, borderLeft: `4px solid ${GO}`, borderRadius: 12, padding: "12px 14px", fontSize: 13.5, fontWeight: 600, color: ESP }}>
             {resposta.resumo}
           </div>
 
-          {/* LISTA (receber/pagar/inadimplentes) */}
           {resposta.tipo === "lista" && (resposta.linhas?.length ?? 0) > 0 && (
             <div style={{ overflowX: "auto", marginTop: 10, border: `1px solid ${BD}`, borderRadius: 12, background: CARD }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -219,27 +374,12 @@ export default function ConsultorIAPage() {
             </div>
           )}
 
-          {/* CLIENTE */}
-          {resposta.tipo === "cliente" && (resposta.linhas?.length ?? 0) > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
-              {resposta.linhas!.map((c: any, i: number) => (
-                <div key={c.id ?? i} style={{ background: CARD, border: `1px solid ${BD}`, borderRadius: 12, padding: "10px 14px" }}>
-                  <div style={{ fontWeight: 700, color: ESP }}>{c.razao_social || c.nome_fantasia || c.nome || "Cliente"}</div>
-                  <div style={{ fontSize: 12, color: TXM, marginTop: 2 }}>
-                    {(c.cpf_cnpj || c.cnpj_cpf) ? `CNPJ/CPF: ${c.cpf_cnpj || c.cnpj_cpf}` : ""}{(c.cidade) ? ` · ${c.cidade}${c.uf ? "/" + c.uf : ""}` : ""}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* SITUAÇÃO DE UM CLIENTE/FORNECEDOR — POR QUE o saldo está assim, com link para corrigir */}
           {resposta.tipo === "situacao_parceiro" && (
             <div style={{ marginTop: 10 }}>
               {(resposta.opcoes?.length ?? 0) > 0 && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {resposta.opcoes!.map((o) => (
-                    <button key={o.id} type="button" onClick={() => perguntar(`Situação do ${o.tipo} ${o.nome}`)}
+                    <button key={o.id} type="button" onClick={() => atalho("situacao_parceiro", { termo: o.nome, tipo: o.tipo })}
                       style={{ textAlign: "left", background: CARD, border: `1px solid ${BD}`, borderRadius: 12, padding: "10px 14px", cursor: "pointer" }}>
                       <span style={{ fontWeight: 700, color: ESP }}>{o.nome}</span>
                       <span style={{ fontSize: 12, color: TXM }}> · {o.tipo === "fornecedor" ? "fornecedor" : "cliente"}{o.cidade ? ` · ${o.cidade}` : ""}{o.documento_mascarado ? ` · ${o.documento_mascarado}` : ""}</span>
@@ -296,7 +436,6 @@ export default function ConsultorIAPage() {
             </div>
           )}
 
-          {/* DIVERGÊNCIA sistema × banco, por conta */}
           {resposta.tipo === "divergencia" && (
             <div style={{ marginTop: 10 }}>
               {(resposta.contas?.length ?? 0) > 0 && (
@@ -325,11 +464,8 @@ export default function ConsultorIAPage() {
                 </div>
               )}
               {(resposta.contas_sem_extrato?.length ?? 0) > 0 && (
-                <div style={{ fontSize: 12, color: TXM, marginTop: 8 }}>
-                  Sem extrato para comparar: {resposta.contas_sem_extrato!.map((c) => c.conta_nome).join(", ")}.
-                </div>
+                <div style={{ fontSize: 12, color: TXM, marginTop: 8 }}>Sem extrato para comparar: {resposta.contas_sem_extrato!.map((c) => c.conta_nome).join(", ")}.</div>
               )}
-              {/* Lançamentos que causam a diferença — já na MESMA resposta (sem 2º clique). Mesmo estilo de lista_lancamentos. */}
               {(resposta.linhas?.length ?? 0) > 0 && (
                 <div style={{ marginTop: 10 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: ESP, marginBottom: 6 }}>Lançamentos sem conciliar que explicam a diferença</div>
@@ -337,74 +473,40 @@ export default function ConsultorIAPage() {
                     {resposta.linhas!.map((l: any, i: number) => (
                       <div key={l.id ?? i} style={{ background: CARD, border: `1px solid ${BD}`, borderRadius: 12, padding: "10px 14px", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
                         <div style={{ minWidth: 0, flex: "1 1 260px" }}>
-                          <div style={{ fontWeight: 700, color: ESP, fontSize: 13 }}>
-                            {l.descricao || l.numero_documento || "Lançamento"}
-                            <span style={{ fontWeight: 500, color: TXM, fontSize: 11, marginLeft: 6 }}>{l.natureza === "pagar" ? "a pagar" : "a receber"}</span>
-                          </div>
-                          <div style={{ fontSize: 12, color: TXM, marginTop: 2 }}>
-                            {l.contraparte_nome || "Sem fornecedor/cliente"} · {l.contraparte_cnpj ? `CNPJ/CPF ${l.contraparte_cnpj}` : <span style={{ color: RED, fontWeight: 600 }}>sem CNPJ</span>}
-                          </div>
-                          <div style={{ fontSize: 11.5, color: TXM, marginTop: 2 }}>
-                            Venc. {fmtData(l.data_vencimento)}{l.data_pagamento ? ` · pago em ${fmtData(l.data_pagamento)}` : ""}{l.conta ? ` · ${l.conta}` : ""} · {l.status || "—"}
-                            {!l.conciliado && (l.data_pagamento || l.status === "pago" || l.status === "recebido") ? <span style={{ marginLeft: 6, background: "#FDF2E9", color: Y, borderRadius: 999, padding: "1px 8px", fontWeight: 600 }}>sem conciliar</span> : null}
-                          </div>
+                          <div style={{ fontWeight: 700, color: ESP, fontSize: 13 }}>{l.descricao || l.numero_documento || "Lançamento"}<span style={{ fontWeight: 500, color: TXM, fontSize: 11, marginLeft: 6 }}>{l.natureza === "pagar" ? "a pagar" : "a receber"}</span></div>
+                          <div style={{ fontSize: 12, color: TXM, marginTop: 2 }}>{l.contraparte_nome || "Sem fornecedor/cliente"} · {l.contraparte_cnpj ? `CNPJ/CPF ${l.contraparte_cnpj}` : <span style={{ color: RED, fontWeight: 600 }}>sem CNPJ</span>}</div>
+                          <div style={{ fontSize: 11.5, color: TXM, marginTop: 2 }}>Venc. {fmtData(l.data_vencimento)}{l.data_pagamento ? ` · pago em ${fmtData(l.data_pagamento)}` : ""}{l.conta ? ` · ${l.conta}` : ""} · {l.status || "—"}</div>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <span style={{ fontWeight: 700, color: ESP, fontSize: 13.5 }}>{brl(l.valor)}</span>
-                          {l.rota_link && (
-                            <button type="button" onClick={() => router.push(l.rota_link)}
-                              style={{ background: "transparent", border: `1px solid ${GO}`, color: ESP, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
-                              Abrir lançamento →
-                            </button>
-                          )}
+                          {l.rota_link && <button type="button" onClick={() => router.push(l.rota_link)} style={{ background: "transparent", border: `1px solid ${GO}`, color: ESP, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>Abrir lançamento →</button>}
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
-              {(resposta.contas?.length ?? 0) > 0 && (resposta.linhas?.length ?? 0) === 0 && (
-                <button type="button" onClick={() => perguntar("Lançamentos sem conciliar")}
-                  style={{ marginTop: 10, background: OW, border: `1px solid ${BD}`, color: ESP, borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                  Ver os lançamentos sem conciliar
-                </button>
-              )}
             </div>
           )}
 
-          {/* LANÇAMENTOS (sem conciliar / sem CNPJ / busca) — cada um com o botão para abrir e corrigir */}
           {resposta.tipo === "lista_lancamentos" && (resposta.linhas?.length ?? 0) > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
               {resposta.linhas!.map((l: any, i: number) => (
                 <div key={l.id ?? i} style={{ background: CARD, border: `1px solid ${BD}`, borderRadius: 12, padding: "10px 14px", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
                   <div style={{ minWidth: 0, flex: "1 1 260px" }}>
-                    <div style={{ fontWeight: 700, color: ESP, fontSize: 13 }}>
-                      {l.descricao || l.numero_documento || "Lançamento"}
-                      <span style={{ fontWeight: 500, color: TXM, fontSize: 11, marginLeft: 6 }}>{l.natureza === "pagar" ? "a pagar" : "a receber"}</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: TXM, marginTop: 2 }}>
-                      {l.contraparte_nome || "Sem fornecedor/cliente"} · {l.contraparte_cnpj ? `CNPJ/CPF ${l.contraparte_cnpj}` : <span style={{ color: RED, fontWeight: 600 }}>sem CNPJ</span>}
-                    </div>
-                    <div style={{ fontSize: 11.5, color: TXM, marginTop: 2 }}>
-                      Venc. {fmtData(l.data_vencimento)}{l.data_pagamento ? ` · pago em ${fmtData(l.data_pagamento)}` : ""}{l.conta ? ` · ${l.conta}` : ""} · {l.status || "—"}
-                      {!l.conciliado && (l.data_pagamento || l.status === "pago" || l.status === "recebido") ? <span style={{ marginLeft: 6, background: "#FDF2E9", color: Y, borderRadius: 999, padding: "1px 8px", fontWeight: 600 }}>sem conciliar</span> : null}
-                    </div>
+                    <div style={{ fontWeight: 700, color: ESP, fontSize: 13 }}>{l.descricao || l.numero_documento || "Lançamento"}<span style={{ fontWeight: 500, color: TXM, fontSize: 11, marginLeft: 6 }}>{l.natureza === "pagar" ? "a pagar" : "a receber"}</span></div>
+                    <div style={{ fontSize: 12, color: TXM, marginTop: 2 }}>{l.contraparte_nome || "Sem fornecedor/cliente"} · {l.contraparte_cnpj ? `CNPJ/CPF ${l.contraparte_cnpj}` : <span style={{ color: RED, fontWeight: 600 }}>sem CNPJ</span>}</div>
+                    <div style={{ fontSize: 11.5, color: TXM, marginTop: 2 }}>Venc. {fmtData(l.data_vencimento)}{l.data_pagamento ? ` · pago em ${fmtData(l.data_pagamento)}` : ""}{l.conta ? ` · ${l.conta}` : ""} · {l.status || "—"}</div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span style={{ fontWeight: 700, color: ESP, fontSize: 13.5 }}>{brl(l.valor)}</span>
-                    {l.rota_link && (
-                      <button type="button" onClick={() => router.push(l.rota_link)}
-                        style={{ background: "transparent", border: `1px solid ${GO}`, color: ESP, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
-                        Abrir lançamento →
-                      </button>
-                    )}
+                    {l.rota_link && <button type="button" onClick={() => router.push(l.rota_link)} style={{ background: "transparent", border: `1px solid ${GO}`, color: ESP, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>Abrir lançamento →</button>}
                   </div>
                 </div>
               ))}
             </div>
           )}
 
-          {/* VALOR (saldo) */}
           {resposta.tipo === "valor" && (
             <div style={{ marginTop: 10, background: CARD, border: `1px solid ${BD}`, borderRadius: 12, padding: 20, textAlign: "center" }}>
               <div style={{ fontSize: 28, fontWeight: 800, color: Number(resposta.valor) < 0 ? RED : ESP }}>{brl(resposta.valor)}</div>
@@ -414,7 +516,7 @@ export default function ConsultorIAPage() {
         </div>
       )}
 
-      {/* RAIO-X determinístico (chip/fallback) ou tipo raiox */}
+      {/* RAIO-X determinístico */}
       {(raiox?.ok || resposta?.tipo === "raiox") && (
         <div style={{ marginBottom: 12 }}>
           {achadosOrd.length === 0 ? (
@@ -449,7 +551,7 @@ export default function ConsultorIAPage() {
       )}
 
       <div style={{ fontSize: 10, color: TXD, textAlign: "center", marginTop: 16 }}>
-        O assistente lê só sua pergunta e escolhe qual consulta rodar — os números vêm direto do seu banco, pela empresa da sua sessão. Os atalhos e o Raio-X não têm custo.
+        O analista investiga nos seus dados, pela empresa da sua sessão, e todo número vem do seu banco. Os atalhos e o Raio-X não têm custo.
       </div>
     </div>
   );
