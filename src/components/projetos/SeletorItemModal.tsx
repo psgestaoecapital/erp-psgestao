@@ -7,7 +7,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Search, X, Package, HardHat, Wrench, ShieldCheck, Pencil } from "lucide-react";
+import { Search, X, Package, HardHat, Wrench, ShieldCheck, Pencil, Hammer } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { erroAmigavel } from "@/lib/erroAmigavel";
@@ -16,7 +16,7 @@ import { parseNumBR } from "@/lib/num";
 // RD-95: abre dentro da ficha do serviço (rota dinâmica) → textos do "?" na rota fixa dela
 const ROTA_AJUDA_SERVICO = "/dashboard/projetos/catalogo/[id]";
 
-export type TipoItem = "insumo" | "mao_obra" | "equipamento" | "epi";
+export type TipoItem = "insumo" | "mao_obra" | "equipamento" | "epi" | "ferramenta";
 
 export interface ItemEscolhido {
   tipo: TipoItem;
@@ -43,6 +43,23 @@ interface MoRow {
   custo_hora: number | null;
 }
 
+// Mão de obra da EMPRESA no BOM (Diego/FC 24/11): além da FUNÇÃO (projetos_mao_obra, vínculo vivo via mao_obra_id),
+// PESSOA (projetos_equipe_membro) e EQUIPE (projetos_equipe, custo médio/h ou efetivo/h). Pessoa e equipe não têm
+// coluna própria no BOM → gravam CONGELADOS (manual: nome+custo+unidade), nunca de outra empresa.
+interface EquipeRow {
+  id: string;
+  nome: string;
+  custo_medio_hora: number | null;
+  custo_hora_efetivo: number | null;
+}
+interface PessoaRow {
+  id: string;
+  equipe_id: string | null;
+  nome_pessoa: string | null;
+  funcao_nome: string | null;
+  custo_hora: number | null;
+}
+
 interface LocalRow {
   id: string;
   nome: string;
@@ -53,6 +70,7 @@ const ABAS: Array<{ tipo: TipoItem; label: string; icon: typeof Package }> = [
   { tipo: "insumo", label: "Material", icon: Package },
   { tipo: "mao_obra", label: "Mão de obra", icon: HardHat },
   { tipo: "equipamento", label: "Equipamento", icon: Wrench },
+  { tipo: "ferramenta", label: "Ferramentas", icon: Hammer },
   { tipo: "epi", label: "EPI", icon: ShieldCheck },
 ];
 
@@ -84,6 +102,8 @@ export function SeletorItemModal({
   const [busca, setBusca] = useState("");
   const [produtos, setProdutos] = useState<ProdutoRow[]>([]);
   const [mos, setMos] = useState<MoRow[]>([]);
+  const [equipes, setEquipes] = useState<EquipeRow[]>([]);
+  const [pessoas, setPessoas] = useState<PessoaRow[]>([]);
   const [locais, setLocais] = useState<LocalRow[]>([]);
   const [produtoLocais, setProdutoLocais] = useState<Record<string, string[]>>({});
   const [localSel, setLocalSel] = useState<string>(TODOS);
@@ -106,7 +126,7 @@ export function SeletorItemModal({
       setErro(null);
       try {
         const supabase = supabaseBrowser();
-        const [fontesR, moR] = await Promise.all([
+        const [fontesR, moR, equipeR, pessoaR] = await Promise.all([
           supabase.rpc("fn_bom_estoque_fontes", { p_company_id: companyId }),
           supabase
             .from("projetos_mao_obra")
@@ -115,6 +135,19 @@ export function SeletorItemModal({
             .eq("ativo", true)
             .order("funcao")
             .limit(300),
+          supabase
+            .from("projetos_equipe")
+            .select("id, nome, custo_medio_hora, custo_hora_efetivo")
+            .eq("company_id", companyId)
+            .eq("ativo", true)
+            .order("nome")
+            .limit(200),
+          supabase
+            .from("projetos_equipe_membro")
+            .select("id, equipe_id, nome_pessoa, funcao_nome, custo_hora")
+            .eq("company_id", companyId)
+            .order("nome_pessoa")
+            .limit(500),
         ]);
         if (cancel) return;
         const f = (fontesR.data as { produtos?: ProdutoRow[]; locais?: LocalRow[]; produto_locais?: Record<string, string[]> } | null) ?? null;
@@ -123,6 +156,10 @@ export function SeletorItemModal({
         setLocais(!fontesR.error && f ? f.locais ?? [] : []);
         setProdutoLocais(!fontesR.error && f ? f.produto_locais ?? {} : {});
         setMos(!moR.error ? ((moR.data as MoRow[]) || []) : []);
+        setEquipes(!equipeR.error ? ((equipeR.data as EquipeRow[]) || []) : []);
+        setPessoas(!pessoaR.error ? ((pessoaR.data as PessoaRow[]) || []) : []);
+        // Só o estoque (fontes) e as funções derrubam a aba com erro visível; equipe/pessoa falham em silêncio (a busca
+        // de função + manual seguem valendo — empresa sem equipe/pessoa cai no caminho padrão).
         const err = fontesR.error || moR.error;
         setErro(err ? erroAmigavel(err) : null);
       } catch (e: any) {
@@ -136,12 +173,37 @@ export function SeletorItemModal({
     };
   }, [open, companyId]);
 
-  const itensFiltrados = useMemo(() => {
+  // Linha da lista: selo (Função/Pessoa/Equipe) + o ItemEscolhido limpo que vai no escolher().
+  type Linha = { key: string; selo: string | null; item: ItemEscolhido };
+  const itensFiltrados = useMemo<Linha[]>(() => {
     const q = busca.toLowerCase().trim();
     if (aba === "mao_obra") {
-      return mos
-        .filter((m) => !q || m.funcao.toLowerCase().includes(q))
-        .map((m) => ({ tipo: "mao_obra" as TipoItem, item_id: m.id, produto_id: null, local_id: null, manual: false, nome: m.funcao, unidade: "h", custo: m.custo_hora }));
+      const out: Linha[] = [];
+      // FUNÇÃO — vínculo vivo (mao_obra_id); custo acompanha o cadastro.
+      for (const m of mos) {
+        if (q && !m.funcao.toLowerCase().includes(q)) continue;
+        out.push({ key: `f:${m.id}`, selo: "Função", item: { tipo: "mao_obra", item_id: m.id, produto_id: null, local_id: null, manual: false, nome: m.funcao, unidade: "h", custo: m.custo_hora } });
+      }
+      // PESSOA — congelada (sem coluna de pessoa no BOM): nome + custo/h do membro da equipe.
+      for (const p of pessoas) {
+        const nome = (p.nome_pessoa || "").trim();
+        if (!nome) continue;
+        const rotulo = p.funcao_nome ? `${nome} · ${p.funcao_nome}` : nome;
+        if (q && !rotulo.toLowerCase().includes(q)) continue;
+        out.push({ key: `p:${p.id}`, selo: "Pessoa", item: { tipo: "mao_obra", item_id: "", produto_id: null, local_id: null, manual: true, nome: rotulo, unidade: "h", custo: p.custo_hora } });
+      }
+      // EQUIPE — 3 opções na hora, com rótulo claro (congeladas):
+      //  • TOTAL/h = soma do custo/h de todas as pessoas da equipe (equipe inteira em 1h) → PADRÃO sugerido (vem 1º);
+      //  • MÉDIO/h = média por pessoa;  • EFETIVO/h = o fixado da equipe.
+      // Coerência do coeficiente: total/h → horas de EQUIPE por unidade; médio/efetivo → horas-PESSOA (ver o "?").
+      for (const e of equipes) {
+        if (q && !e.nome.toLowerCase().includes(q)) continue;
+        const totalH = pessoas.filter((p) => p.equipe_id === e.id).reduce((s, p) => s + (Number(p.custo_hora) || 0), 0);
+        if (totalH > 0) out.push({ key: `e:${e.id}:tot`, selo: "Equipe · total/h", item: { tipo: "mao_obra", item_id: "", produto_id: null, local_id: null, manual: true, nome: `Equipe ${e.nome} (total/h — equipe inteira)`, unidade: "h", custo: Math.round(totalH * 100) / 100 } });
+        if (e.custo_medio_hora != null) out.push({ key: `e:${e.id}:med`, selo: "Equipe · médio", item: { tipo: "mao_obra", item_id: "", produto_id: null, local_id: null, manual: true, nome: `Equipe ${e.nome} (médio/pessoa)`, unidade: "h", custo: e.custo_medio_hora } });
+        if (e.custo_hora_efetivo != null) out.push({ key: `e:${e.id}:ef`, selo: "Equipe · efetivo", item: { tipo: "mao_obra", item_id: "", produto_id: null, local_id: null, manual: true, nome: `Equipe ${e.nome} (efetivo/pessoa)`, unidade: "h", custo: e.custo_hora_efetivo } });
+      }
+      return out;
     }
     const localItem = localSel !== TODOS && localSel !== SEM_LOCAL ? localSel : null;
     return produtos
@@ -156,16 +218,20 @@ export function SeletorItemModal({
         return true; // "Todos": nunca esconde produto por falta de local
       })
       .map((p) => ({
-        tipo: aba,
-        item_id: p.id,
-        produto_id: p.id,
-        local_id: localItem,
-        manual: false,
-        nome: p.nome,
-        unidade: p.unidade,
-        custo: p.custo,
+        key: p.id,
+        selo: null,
+        item: {
+          tipo: aba,
+          item_id: p.id,
+          produto_id: p.id,
+          local_id: localItem,
+          manual: false,
+          nome: p.nome,
+          unidade: p.unidade,
+          custo: p.custo,
+        } as ItemEscolhido,
       }));
-  }, [aba, busca, produtos, mos, localSel, produtoLocais]);
+  }, [aba, busca, produtos, mos, equipes, pessoas, localSel, produtoLocais]);
 
   function escolher(it: ItemEscolhido) {
     onSelect(it);
@@ -237,11 +303,31 @@ export function SeletorItemModal({
             </label>
           )}
 
+          {aba === "mao_obra" && (
+            <div data-ajuda="projetos.catalogo.bom.mo_modo" className="flex items-start gap-1 rounded-lg bg-[#C8941A]/[0.06] px-3 py-2 text-xs text-[#3D2314]/70" data-testid="bom-mo-modos">
+              <span>
+                <strong className="text-[#3D2314]">Por hora</strong> (equipe própria): escolha a função, pessoa ou equipe na lista — o custo é por hora × horas por unidade.{" "}
+                <strong className="text-[#3D2314]">Empreitada</strong>: use “Digitar item manual”, informe a <strong>unidade</strong> (m², metro, un, ponto…) e o valor pago por unidade à equipe.
+              </span>
+              <AjudaCampo chave="projetos.catalogo.bom.mo_modo" rota={ROTA_AJUDA_SERVICO} />
+            </div>
+          )}
+
           <button onClick={() => setManualOn((v) => !v)} data-testid="bom-seletor-manual-toggle"
             className="inline-flex items-center gap-1.5 text-xs font-medium text-[#C8941A] hover:text-[#B07F12]">
             <Pencil size={13} /> {manualOn ? "Cancelar entrada manual" : "Digitar item manual"}
           </button>
 
+          {manualOn && aba === "mao_obra" && (
+            <div className="flex items-center gap-1.5 text-xs text-[#3D2314]/70" data-testid="bom-manual-unidades-mo">
+              <span>Unidade:</span>
+              {["h", "m²", "verba"].map((u) => (
+                <button key={u} type="button" onClick={() => setManUnidade(u)}
+                  className={`rounded-full border px-2 py-0.5 ${manUnidade === u ? "border-[#C8941A] bg-[#C8941A]/12 text-[#B07F12]" : "border-[#3D2314]/15 hover:bg-[#3D2314]/5"}`}>{u}</button>
+              ))}
+              <span className="text-[#3D2314]/40">ou digite abaixo</span>
+            </div>
+          )}
           {manualOn && (
             <div className="grid grid-cols-1 gap-2 rounded-lg border border-[#3D2314]/10 bg-[#FAF7F2] p-3 sm:grid-cols-[1fr_90px_110px_auto]" data-testid="bom-seletor-manual">
               <label className="flex flex-col gap-1 text-xs"><span className="flex items-center text-[#3D2314]/70">Nome<AjudaCampo chave="projetos.catalogo.seletor.manual_nome" rota={ROTA_AJUDA_SERVICO} /></span>
@@ -270,15 +356,18 @@ export function SeletorItemModal({
             </div>
           ) : (
             <ul className="divide-y divide-[#3D2314]/8">
-              {itensFiltrados.map((it) => (
-                <li key={it.item_id}>
-                  <button onClick={() => escolher(it)} className="flex w-full items-center justify-between gap-3 p-3 text-left hover:bg-[#3D2314]/5">
+              {itensFiltrados.map((row) => (
+                <li key={row.key}>
+                  <button onClick={() => escolher(row.item)} className="flex w-full items-center justify-between gap-3 p-3 text-left hover:bg-[#3D2314]/5">
                     <div className="min-w-0 flex-1">
-                      <div className="font-medium text-[#3D2314]">{it.nome}</div>
-                      <div className="text-xs text-[#3D2314]/60">{it.unidade && <span>Unidade: {it.unidade}</span>}</div>
+                      <div className="flex items-center gap-2">
+                        {row.selo && <span className="shrink-0 rounded bg-[#C8941A]/12 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#B07F12]">{row.selo}</span>}
+                        <span className="truncate font-medium text-[#3D2314]">{row.item.nome}</span>
+                      </div>
+                      <div className="text-xs text-[#3D2314]/60">{row.item.unidade && <span>Unidade: {row.item.unidade}</span>}</div>
                     </div>
                     <div className="text-right">
-                      <div className="font-mono text-sm text-[#3D2314]">{fmtBRL(it.custo)}</div>
+                      <div className="font-mono text-sm text-[#3D2314]">{fmtBRL(row.item.custo)}</div>
                       {aba === "mao_obra" && <div className="text-xs text-[#3D2314]/50">/ h</div>}
                     </div>
                   </button>
