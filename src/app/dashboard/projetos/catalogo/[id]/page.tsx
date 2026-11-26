@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { BomEditor, type BomLinha } from "@/components/projetos/BomEditor";
+import { UNIDADES_MEDIDA } from "@/lib/projetos/unidades";
 import { ComposicaoCpu } from "@/components/projetos/ComposicaoCpu";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { CampoDecimal } from "@/components/comum/CampoDecimal";
@@ -472,13 +473,18 @@ export default function ServicoEditorPage({
                   Unidade
                   <AjudaCampo chave="projetos.catalogo.servico.unidade" rota={ROTA_AJUDA} />
                 </label>
+                {/* CEO 26/11: oferece o catálogo universal de unidades (qualquer ramo); segue aceitando texto livre */}
                 <input
                   type="text"
+                  list="unidades-medida-hub"
                   value={(valorAtual("unidade") as string) ?? ""}
                   onChange={(e) => handleEdit("unidade", e.target.value)}
-                  placeholder="m²"
+                  placeholder="m², m³, m, ponto, kg, un…"
                   className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
+                <datalist id="unidades-medida-hub">
+                  {UNIDADES_MEDIDA.map((u) => (<option key={u.value} value={u.value}>{u.label}</option>))}
+                </datalist>
               </div>
               <div data-ajuda="projetos.catalogo.servico.produtividade">
                 <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
