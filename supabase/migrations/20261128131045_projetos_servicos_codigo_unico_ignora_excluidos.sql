@@ -96,3 +96,9 @@ BEGIN
   RETURN v_novo_id;
 END;
 $function$;
+
+-- check_fn_guards (Regra 1): toda migration que recria função SECURITY DEFINER reinclui o REVOKE
+-- explícito, ancorado na assinatura, espelhando a ACL viva (authenticated, service_role; anon já
+-- não tem EXECUTE). O CREATE OR REPLACE acima não reabre nada — estas linhas apenas tornam a ACL explícita.
+REVOKE ALL ON FUNCTION public.fn_projetos_duplicar_servico(uuid, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_projetos_duplicar_servico(uuid, text, text) TO authenticated, service_role;
