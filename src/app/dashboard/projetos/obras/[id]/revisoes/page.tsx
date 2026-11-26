@@ -333,7 +333,7 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
                       </span>
                       <AjudaCampo chave="projetos.revisao.status" rota={ROTA} />
                       <span style={{ flex: 1 }} />
-                      <span style={{ fontSize: 12, color: MUT }}>Solicitada em {fmtDataHora(r.solicitado_em ?? r.criado_em)} <AjudaCampo chave="projetos.revisao.solicitada_em" rota={ROTA} /></span>
+                      <span style={{ fontSize: 12, color: MUT }}>{r.status === 'rascunho' ? 'Aberta' : 'Solicitada'} em {fmtDataHora(r.status === 'rascunho' ? r.criado_em : (r.solicitado_em ?? r.criado_em))} <AjudaCampo chave="projetos.revisao.solicitada_em" rota={ROTA} /></span>
                     </div>
 
                     {r.motivo && (
