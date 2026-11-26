@@ -15,7 +15,7 @@ const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.erro
 // ── leitura do script ──
 const sh = readFileSync(SCRIPT_FILA, 'utf8')
 ok(/LOTE_MIG_MAX=\$\{LOTE_MIG_MAX:-6\}/.test(sh), 'LOTE_MIG_MAX padrão 6 (escala no aditivo; LOTE_MIG_MAX=1 volta ao comportamento antigo)')
-ok(/LOTE_MIG_CRIT_MAX=\$\{LOTE_MIG_CRIT_MAX:-5\}/.test(sh), 'LOTE_MIG_CRIT_MAX padrão 5 (lote de críticas, CEO 01/11)')
+ok(/LOTE_MIG_CRIT_MAX=\$\{LOTE_MIG_CRIT_MAX:-10\}/.test(sh), 'LOTE_MIG_CRIT_MAX padrão 10 (lote de críticas, item B CEO 25/11; era 5)')
 ok(/n_critica" = 1 \] && \[ "\$n_critica_solo" = 0 \] && \[ "\$lote_mig_crit_n" -ge "\$LOTE_MIG_CRIT_MAX"/.test(sh), 'migration crítica BATELÁVEL excedente ao teto LOTE_MIG_CRIT_MAX espera a próxima rodada')
 ok(/n_critica" = 1 \] && lote_mig_crit_n=\$\(\(lote_mig_crit_n \+ 1\)\)/.test(sh), 'o merge de migration crítica incrementa o contador de críticas do lote')
 ok(/migrations-independentes\.ts/.test(sh) && /duvida:checagem falhou/.test(sh), 'a fila consulta o analisador de independência e, se ele falha, é dúvida')
@@ -46,26 +46,32 @@ ok(independentes('insert into public.t_a(id) values (1);', [A]).startsWith('duvi
 const add = { aceitacao: 'success' as const, migration: true }
 const rev = { labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'success' as const, migration: true }
 const t_e = 'create table public.t_e (id int);'
+// Conteúdo CRÍTICO por si e INDEPENDENTE entre si (CREATE OR REPLACE VIEW muda leitura existente; nomes distintos).
+// Após o item A (CEO 25/11), uma migration ADITIVA (create table = A/B/C) de PR autorizada é rebaixada p/ aditiva e não
+// entra no teto de crítica; para exercitar o LOTE DE CRÍTICAS, as PRs `rev` precisam de conteúdo crítico de verdade.
+const CA = 'create or replace view public.v_crit_a as select 1;'
+const CB = 'create or replace view public.v_crit_b as select 2;'
+const CC = 'create or replace view public.v_crit_c as select 3;'
 if (!temFerramentas()) console.log('… cenários da fila pulados: jq ou git ausente')
 else comFilaSimulada((rodar) => {
   // ESCALA NO ADITIVO: aditivas independentes batelam além do antigo teto 3 (default agora 6).
   let x = rodar([{ n: 1, ...add, sqlMigration: A }, { n: 2, ...add, sqlMigration: B }, { n: 3, ...add, sqlMigration: C }, { n: 4, ...add, sqlMigration: t_e }])
   ok(merges(x.escritas).join() === '1,2,3,4', 'fila: 4 migrations ADITIVAS independentes publicam juntas (escala no aditivo, teto 6)')
   // LOTE DE CRÍTICAS (CEO 01/11): críticas BATELÁVEIS (não-solo) independentes batelam até LOTE_MIG_CRIT_MAX=5, num só @pos.
-  x = rodar([{ n: 1, ...rev, sqlMigration: A }, { n: 2, ...rev, sqlMigration: B }, { n: 3, ...rev, sqlMigration: C }])
+  x = rodar([{ n: 1, ...rev, sqlMigration: CA }, { n: 2, ...rev, sqlMigration: CB }, { n: 3, ...rev, sqlMigration: CC }])
   ok(merges(x.escritas).join() === '1,2,3', 'fila: migrations CRÍTICAS bateláveis independentes batelam (teto 5, CEO 01/11)')
   // MISTO: 1 crítica entra, as aditivas independentes seguem no mesmo lote.
-  x = rodar([{ n: 1, ...rev, sqlMigration: A }, { n: 2, ...add, sqlMigration: B }, { n: 3, ...add, sqlMigration: C }])
+  x = rodar([{ n: 1, ...rev, sqlMigration: CA }, { n: 2, ...add, sqlMigration: B }, { n: 3, ...add, sqlMigration: C }])
   ok(merges(x.escritas).join() === '1,2,3', 'fila: 1 crítica + aditivas independentes publicam no mesmo lote')
   // teto do crítico configurável (prova dos dois lados): LOTE_MIG_CRIT_MAX=2 deixa 2 críticas baterem.
-  x = rodar([{ n: 1, ...rev, sqlMigration: A }, { n: 2, ...rev, sqlMigration: B }, { n: 3, ...rev, sqlMigration: C }], false, 5000, { LOTE_MIG_CRIT_MAX: '2' })
+  x = rodar([{ n: 1, ...rev, sqlMigration: CA }, { n: 2, ...rev, sqlMigration: CB }, { n: 3, ...rev, sqlMigration: CC }], false, 5000, { LOTE_MIG_CRIT_MAX: '2' })
   ok(merges(x.escritas).join() === '1,2', 'fila: LOTE_MIG_CRIT_MAX=2 deixa 2 críticas no mesmo lote')
   // independência (vale para aditivas e críticas):
   x = rodar([{ n: 1, ...add, sqlMigration: A }, { n: 2, ...add, sqlMigration: AA }, { n: 3, ...add, sqlMigration: C }])
   ok(merges(x.escritas).join() === '1,3', 'fila: a que toca a mesma tabela fica para a próxima rodada; a independente entra')
   x = rodar([{ n: 1, ...add, sqlMigration: A }, { n: 2, ...add, sqlMigration: DEP }])
   ok(merges(x.escritas).join() === '1', 'fila: dependência de objeto criado por outra do lote impede o lote')
-  x = rodar([{ n: 1, ...rev, sqlMigration: A }, { n: 2, ...rev, autorizada: false, sqlMigration: B }], false, 5000, { LOTE_MIG_CRIT_MAX: '2' })
+  x = rodar([{ n: 1, ...rev, sqlMigration: CA }, { n: 2, ...rev, autorizada: false, sqlMigration: CB }], false, 5000, { LOTE_MIG_CRIT_MAX: '2' })
   ok(merges(x.escritas).join() === '1', 'fila: sensível sem autorização fica fora (mesmo com teto crítico 2)')
   x = rodar([{ n: 1, ...add, sqlMigration: A }, { n: 2, ...add, sqlMigration: 'select 1;' }])
   ok(merges(x.escritas).join() === '1', 'fila: dúvida (nenhum objeto identificável) cai para 1 por rodada')

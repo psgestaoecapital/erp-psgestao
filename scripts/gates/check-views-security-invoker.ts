@@ -29,8 +29,12 @@ ok(excecoesViews.length > 0, `Exceções (b) documentadas: ${excecoesViews.join(
 const novas = readdirSync('supabase/migrations').filter(f => f > '20261005160000' && f.endsWith('.sql'))
 for (const f of novas) {
   const sql = readFileSync(`supabase/migrations/${f}`, 'utf8').replace(/--.*$/gm, '')
-  for (const m of sql.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+(?:public\.)?(\w+)\s*(\([^)]*\))?\s*(WITH\s*\([^)]*\))?/gi)) {
-    ok(/security_invoker\s*=\s*(true|on)/i.test(m[3] || ''), `${f}: view ${m[1]} criada com security_invoker=true`)
+  for (const m of sql.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+(?:(\w+)\.)?(\w+)\s*(\([^)]*\))?\s*(WITH\s*\([^)]*\))?/gi)) {
+    // RD-79 trata de views de PUBLIC legíveis por authenticated. View em outro schema (ex.: consultor, só acessível
+    // pelo papel consultor_leitor, nunca por authenticated) tem seu próprio modelo de segurança — fora do escopo.
+    const schema = (m[1] || 'public').toLowerCase()
+    if (schema !== 'public') continue
+    ok(/security_invoker\s*=\s*(true|on)/i.test(m[4] || ''), `${f}: view ${m[2]} criada com security_invoker=true`)
   }
 }
 if (falhas) { console.error(`\n${falhas} falha(s) em views sem security_invoker`); process.exit(1) }

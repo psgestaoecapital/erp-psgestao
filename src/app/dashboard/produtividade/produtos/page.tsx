@@ -333,37 +333,72 @@ function LinhaProduto({ p, expandido, onExpandir, onSalvar, onArquivar, companyI
 }
 
 type ItemArvore = { origem_nome?: string | null; produto_nome?: string | null; rendimento_pct?: number | null; [k: string]: unknown }
+type LigPadrao = { codigo: string | null; nome: string | null; padrao_pct: number | null }
+type EstruturaProduto = { oriundo_de: LigPadrao[]; gera: LigPadrao[]; soma_gera_pct: number | null; soma_fora: boolean }
+
+const padrao = (n: number | null) => n != null ? `${n.toLocaleString('pt-BR')}%` : 'a definir'
 
 function Arvore({ companyId, plantId, produtoId, flashErr }: { companyId: string; plantId: string; produtoId: string; flashErr: (m: string) => void }) {
   const [itens, setItens] = useState<ItemArvore[] | null>(null)
+  const [est, setEst] = useState<EstruturaProduto | null>(null)
   useEffect(() => {
     let vivo = true
     void (async () => {
-      const { data, error } = await supabase.rpc('fn_prod_estrutura_listar', { p_company_id: companyId, p_plant_id: plantId, p_produto_id: produtoId, p_incluir_arquivados: false })
+      const [arv, dp] = await Promise.all([
+        supabase.rpc('fn_prod_estrutura_listar', { p_company_id: companyId, p_plant_id: plantId, p_produto_id: produtoId, p_incluir_arquivados: false }),
+        supabase.rpc('fn_prod_estrutura_do_produto', { p_company_id: companyId, p_plant_id: plantId, p_produto_id: produtoId }),
+      ])
       if (!vivo) return
-      if (error) { flashErr(erroAmigavel(error, 'Não foi possível carregar a árvore. Tente de novo.')); setItens([]); return }
-      const r = data as { ok?: boolean; itens?: ItemArvore[] } | null
-      setItens(r?.ok ? (r.itens ?? []) : [])
+      if (arv.error) { flashErr(erroAmigavel(arv.error, 'Não foi possível carregar a árvore. Tente de novo.')); setItens([]) }
+      else { const r = arv.data as { ok?: boolean; itens?: ItemArvore[] } | null; setItens(r?.ok ? (r.itens ?? []) : []) }
+      const e = dp.data as ({ ok?: boolean } & EstruturaProduto) | null
+      setEst(e?.ok ? e : { oriundo_de: [], gera: [], soma_gera_pct: null, soma_fora: false })
     })()
     return () => { vivo = false }
   }, [companyId, plantId, produtoId, flashErr])
 
   return (
-    <div style={{ fontSize: 12.5, color: C.esp }}>
-      <div style={{ fontWeight: 700, marginBottom: 6, color: C.espM, textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4 }}>Árvore de desmontagem</div>
-      {itens === null ? <div style={{ color: C.espM }}>Carregando…</div>
-        : itens.length === 0 ? <div style={{ color: C.espM }}>Sem estrutura de desmontagem para este produto ainda.</div>
-        : (
-          <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 4 }}>
-            {itens.map((it, i) => {
-              const origem = it.origem_nome ?? '—'
-              const saida = it.produto_nome ?? '—'
-              const rend = typeof it.rendimento_pct === 'number' ? `${it.rendimento_pct.toLocaleString('pt-BR')}%` : null
-              return <li key={i}><b>{origem}</b> → {saida}{rend ? <span style={{ color: C.espM }}> · rendimento {rend}</span> : null}</li>
-            })}
-          </ul>
-        )}
-      <div style={{ marginTop: 8, color: C.espL, fontSize: 11.5, fontStyle: 'italic' }}>Edição da árvore na tela de fluxo.</div>
+    <div style={{ fontSize: 12.5, color: C.esp, display: 'grid', gap: 12 }}>
+      {/* Corte oriundo de — de quais origens este produto sai, com o padrão de cada uma */}
+      <div>
+        <div style={{ fontWeight: 700, marginBottom: 6, color: C.espM, textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4, display: 'inline-flex', alignItems: 'center' }}>Corte oriundo de<Aj k="prod.produto.oriundo_de" /></div>
+        {est === null ? <div style={{ color: C.espM }}>Carregando…</div>
+          : est.oriundo_de.length === 0 ? <div style={{ color: C.espM }}>Não cadastrado como saída de nenhuma origem.</div>
+          : <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 3 }}>
+              {est.oriundo_de.map((o, i) => <li key={i}><b>{o.codigo ? `${o.codigo} · ` : ''}{o.nome}</b> <span style={{ color: C.espM }}>· padrão {padrao(o.padrao_pct)}</span></li>)}
+            </ul>}
+      </div>
+
+      {/* Cortes que saem desta origem + soma */}
+      <div>
+        <div style={{ fontWeight: 700, marginBottom: 6, color: C.espM, textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4, display: 'inline-flex', alignItems: 'center' }}>Cortes que saem desta origem<Aj k="prod.produto.gera_cortes" /></div>
+        {est === null ? <div style={{ color: C.espM }}>Carregando…</div>
+          : est.gera.length === 0 ? <div style={{ color: C.espM }}>Este produto não gera outros cortes no cadastro.</div>
+          : <>
+              <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 3 }}>
+                {est.gera.map((g, i) => <li key={i}>{g.codigo ? `${g.codigo} · ` : ''}{g.nome} <span style={{ color: C.espM }}>· padrão {padrao(g.padrao_pct)}</span></li>)}
+              </ul>
+              <div style={{ marginTop: 4, fontSize: 12, color: est.soma_fora ? C.amber : C.green }}>Soma dos padrões: {padrao(est.soma_gera_pct)}{est.soma_fora ? ' (fora de 97–103%)' : ''}</div>
+            </>}
+      </div>
+
+      {/* Árvore completa de desmontagem (como já era) */}
+      <div>
+        <div style={{ fontWeight: 700, marginBottom: 6, color: C.espM, textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4 }}>Árvore de desmontagem</div>
+        {itens === null ? <div style={{ color: C.espM }}>Carregando…</div>
+          : itens.length === 0 ? <div style={{ color: C.espM }}>Sem estrutura de desmontagem para este produto ainda.</div>
+          : (
+            <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 4 }}>
+              {itens.map((it, i) => {
+                const origem = it.origem_nome ?? '—'
+                const saida = it.produto_nome ?? '—'
+                const rend = typeof it.rendimento_pct === 'number' ? `${it.rendimento_pct.toLocaleString('pt-BR')}%` : null
+                return <li key={i}><b>{origem}</b> → {saida}{rend ? <span style={{ color: C.espM }}> · rendimento {rend}</span> : null}</li>
+              })}
+            </ul>
+          )}
+        <div style={{ marginTop: 8, color: C.espL, fontSize: 11.5, fontStyle: 'italic' }}>Edição da árvore na tela de fluxo.</div>
+      </div>
     </div>
   )
 }
@@ -533,8 +568,15 @@ function ColarListaModal({ companyId, plantId, onClose, onGravou }: {
 // Reusa o backend existente (RD-26): fn_prod_atak_produtos lista as fontes e os produtos do conector;
 // a gravação reusa fn_prod_produto_colar (upsert por código — não duplica). RD-100: rótulos sempre
 // "sistema vinculado"/"fonte vinculada", nunca o nome do fornecedor do conector.
-type FonteVinc = { dominio: string; produtos: number }
-type ItemVinc = { descricao: string; ocorrencias: number; categoria_nome: string | null }
+type FonteVinc = { dominio: string; produtos: number | null }
+type ItemVinc = { codigo: string | null; descricao: string; ocorrencias: number; ja_importado: boolean }
+// nomes próprios das fontes de produção (RD-96) — sem jargão do domínio bruto
+const ROTULO_FONTE: Record<string, string> = {
+  producao_frigorifico: 'Produção (frigorífico)', desossa_rendimento: 'Desossa (rendimento)', miudos_5quarto: 'Miúdos (5º quarto)',
+}
+const rotuloFonte = (d: string) => ROTULO_FONTE[d] ?? d
+// papel sugerido pelo começo do nome: cortes que entram na desossa são intermediários; o resto, produto final
+const papelSugerido = (desc: string) => (/^\s*(BOLA|TRASEIRO|DIANTEIRO|CARCA[CÇ]A)/i.test(desc ?? '') ? 'intermediario' : 'acabado')
 
 function ImportarVinculadoModal({ companyId, plantId, codigosExistentes, onClose, onGravou }: {
   companyId: string; plantId: string; codigosExistentes: Set<string>
@@ -543,7 +585,8 @@ function ImportarVinculadoModal({ companyId, plantId, codigosExistentes, onClose
   const [fontes, setFontes] = useState<FonteVinc[]>([])
   const [fonte, setFonte] = useState('')
   const [itens, setItens] = useState<ItemVinc[]>([])
-  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [sel, setSel] = useState<Set<string>>(new Set())   // chave de seleção = código
+  const [papeis, setPapeis] = useState<Record<string, string>>({})   // código → papel (editável; default sugerido)
   const [busca, setBusca] = useState('')
   const [carregandoFontes, setCarregandoFontes] = useState(true)
   const [carregandoItens, setCarregandoItens] = useState(false)
@@ -583,26 +626,31 @@ function ImportarVinculadoModal({ companyId, plantId, codigosExistentes, onClose
     return () => { vivo = false }
   }, [companyId, plantId, fonte])
 
-  const jaImportado = useCallback((descricao: string) => codigosExistentes.has((descricao ?? '').trim().toLowerCase()), [codigosExistentes])
+  const chaveDe = (i: ItemVinc) => (i.codigo ?? '').trim()
+  const papelDe = (i: ItemVinc) => papeis[chaveDe(i)] ?? papelSugerido(i.descricao)
+  const jaImportado = useCallback((i: ItemVinc) => i.ja_importado || codigosExistentes.has(chaveDe(i).toLowerCase()), [codigosExistentes])
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
-    return itens.filter((i) => i.descricao && (!q || i.descricao.toLowerCase().includes(q)))
+    return itens.filter((i) => i.descricao && (!q || i.descricao.toLowerCase().includes(q) || (i.codigo ?? '').toLowerCase().includes(q)))
   }, [itens, busca])
-  const selecionaveis = useMemo(() => filtrados.filter((i) => !jaImportado(i.descricao)), [filtrados, jaImportado])
-  const todosSel = selecionaveis.length > 0 && selecionaveis.every((i) => sel.has(i.descricao))
+  const selecionaveis = useMemo(() => filtrados.filter((i) => chaveDe(i) && !jaImportado(i)), [filtrados, jaImportado])
+  const todosSel = selecionaveis.length > 0 && selecionaveis.every((i) => sel.has(chaveDe(i)))
 
-  const toggle = (d: string) => setSel((s) => { const n = new Set(s); if (n.has(d)) n.delete(d); else n.add(d); return n })
+  const toggle = (c: string) => setSel((s) => { const n = new Set(s); if (n.has(c)) n.delete(c); else n.add(c); return n })
   const toggleTodos = () => setSel((s) => {
     const n = new Set(s)
-    if (todosSel) selecionaveis.forEach((i) => n.delete(i.descricao))
-    else selecionaveis.forEach((i) => n.add(i.descricao))
+    if (todosSel) selecionaveis.forEach((i) => n.delete(chaveDe(i)))
+    else selecionaveis.forEach((i) => n.add(chaveDe(i)))
     return n
   })
 
   async function importar() {
     if (sel.size === 0) return
     setBusy(true); setErro(null)
-    const linhas = [...sel].map((d) => d.replace(/;/g, ',').trim()).filter(Boolean).map((v) => `${v};${v}`).join('\n')
+    // uma linha por produto: código;descrição;papel (fn_prod_produto_colar grava chave_externa = código)
+    const porCodigo = new Map(itens.map((i) => [chaveDe(i), i]))
+    const linhas = [...sel].map((c) => porCodigo.get(c)).filter((i): i is ItemVinc => !!i)
+      .map((i) => `${chaveDe(i)};${(i.descricao ?? '').replace(/;/g, ',').trim()};${papelDe(i)}`).join('\n')
     const { data, error } = await supabase.rpc('fn_prod_produto_colar', { p_company_id: companyId, p_plant_id: plantId, p_linhas: linhas, p_gravar: true })
     setBusy(false)
     if (error) { setErro(erroAmigavel(error, 'Não foi possível importar. Tente de novo.')); return }
@@ -635,7 +683,7 @@ function ImportarVinculadoModal({ companyId, plantId, codigosExistentes, onClose
                 Fonte vinculada<Aj k="prod.produto.importar_fonte" />
                 <select data-testid="importar-fonte" value={fonte} onChange={(e) => setFonte(e.target.value)} style={{ ...inp, width: 'auto', flex: 1 }}>
                   <option value="">Escolha a fonte…</option>
-                  {fontes.map((f) => <option key={f.dominio} value={f.dominio}>{f.dominio} ({f.produtos})</option>)}
+                  {fontes.map((f) => <option key={f.dominio} value={f.dominio}>{rotuloFonte(f.dominio)}{f.produtos != null ? ` (${f.produtos})` : ''}</option>)}
                 </select>
               </label>
             )}
@@ -661,13 +709,23 @@ function ImportarVinculadoModal({ companyId, plantId, codigosExistentes, onClose
                     <div style={{ maxHeight: 320, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: 8 }}>
                       {filtrados.length === 0 && <div style={{ padding: '14px', fontSize: 12.5, color: C.espM, textAlign: 'center' }}>Nenhum produto nesta fonte.</div>}
                       {filtrados.map((i, idx) => {
-                        const ja = jaImportado(i.descricao)
+                        const ja = jaImportado(i)
+                        const c = chaveDe(i)
+                        const semCodigo = !c
                         return (
-                          <label key={i.descricao + idx} data-ajuda="prod.produto.importar_selecao" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderBottom: idx < filtrados.length - 1 ? `1px solid ${C.cream}` : 'none', cursor: ja ? 'default' : 'pointer', opacity: ja ? 0.6 : 1 }}>
-                            <input type="checkbox" data-testid="importar-item" checked={ja || sel.has(i.descricao)} disabled={ja} onChange={() => toggle(i.descricao)} />
-                            <span style={{ flex: 1, fontSize: 13, color: C.esp }}>{i.descricao}{i.categoria_nome ? <span style={{ color: C.espL, fontSize: 11.5 }}> · {i.categoria_nome}</span> : null}</span>
+                          <div key={(i.codigo ?? i.descricao) + idx} data-ajuda="prod.produto.importar_selecao" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderBottom: idx < filtrados.length - 1 ? `1px solid ${C.cream}` : 'none', opacity: ja || semCodigo ? 0.6 : 1 }}>
+                            <input type="checkbox" data-testid="importar-item" checked={!semCodigo && (ja || sel.has(c))} disabled={ja || semCodigo} onChange={() => toggle(c)} />
+                            <span style={{ flex: 1, fontSize: 13, color: C.esp }}>{i.codigo && <b style={{ fontFamily: 'ui-monospace, monospace', color: C.espM, marginRight: 6 }}>{i.codigo}</b>}{i.descricao}</span>
+                            {!ja && !semCodigo && (
+                              <label data-ajuda="prod.produto.importar_papel" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <select data-testid="importar-papel" value={papelDe(i)} onChange={(e) => setPapeis((p) => ({ ...p, [c]: e.target.value }))} style={{ ...inp, width: 'auto', padding: '3px 6px', fontSize: 11.5 }}>
+                                  {PAPEIS.map((p) => <option key={p.value} value={p.value}>{p.value === 'intermediario' ? 'Intermediário' : p.value === 'acabado' ? 'Produto final' : p.label.split(' (')[0]}</option>)}
+                                </select><Aj k="prod.produto.importar_papel" />
+                              </label>
+                            )}
                             {ja && <span style={{ fontSize: 11, fontWeight: 700, color: C.green, background: C.greenBg, padding: '2px 7px', borderRadius: 20 }}>já importado</span>}
-                          </label>
+                            {semCodigo && <span style={{ fontSize: 11, color: C.espM }} title="Sem código no sistema vinculado — use “Colar lista” ou “Novo produto”.">sem código</span>}
+                          </div>
                         )
                       })}
                     </div>
