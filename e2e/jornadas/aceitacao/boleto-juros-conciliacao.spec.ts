@@ -56,7 +56,8 @@ test.describe('Financeiro — boleto com juros fica pago (direto e na conciliaç
       for (const l of criado.lotes) await tenta(() => dbDelete('conciliacao_lote', `id=eq.${l}`))
       if (criado.receber.length) {
         await tenta(() => dbDelete('erp_receber_baixa', `receber_id=in.(${criado.receber.join(',')})`))
-        await tenta(() => dbPatch('erp_receber', `id=in.(${criado.receber.join(',')})`, { status: 'cancelado', deleted_at: agora }))
+        // solta o FK para a conta (erp_receber_conta_bancaria_id_fkey) ANTES de apagar a conta, senão o delete da conta falha
+        await tenta(() => dbPatch('erp_receber', `id=in.(${criado.receber.join(',')})`, { status: 'cancelado', deleted_at: agora, conta_bancaria_id: null, movimento_banco_id: null }))
       }
       for (const c of criado.contas) await tenta(() => dbDelete('erp_banco_contas', `id=eq.${c}`))
     } finally {
