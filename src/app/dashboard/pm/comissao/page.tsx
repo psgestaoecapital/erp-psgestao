@@ -201,27 +201,27 @@ export default function ComissaoPage() {
         <div role="dialog" aria-modal="true" style={modalWrap} onClick={() => !busy && setForm(null)}>
           <div style={modalBox} onClick={(e) => e.stopPropagation()} data-testid="comissao-form">
             <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 12px' }}>{form.id ? 'Editar comissão' : 'Novo lançamento de comissão'}</h2>
-            <Campo label="Vendedor" chave="pm.comissao.campo_vendedor">
+            <Campo label="Vendedor" ajuda="pm.comissao.campo_vendedor">
               <select value={form.vendedor_id} onChange={(e) => setForm({ ...form, vendedor_id: e.target.value })} style={inp} data-testid="comissao-f-vendedor">
                 <option value="">Selecione…</option>
                 {vendedores.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}
               </select>
             </Campo>
-            <Campo label="Job (opcional)" chave="pm.comissao.campo_job">
+            <Campo label="Job (opcional)" ajuda="pm.comissao.campo_job">
               <select value={form.job_id} onChange={(e) => setForm({ ...form, job_id: e.target.value })} style={inp} data-testid="comissao-f-job">
                 <option value="">— Avulsa (sem job) —</option>
                 {jobs.map((j) => <option key={j.id} value={j.id}>{j.titulo}</option>)}
               </select>
             </Campo>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              <Campo label="Base (R$)" chave="pm.comissao.campo_base" flex>
+              <Campo label="Base (R$)" ajuda="pm.comissao.campo_base" flex>
                 <CampoMoeda value={form.base_valor} onChange={(v) => setForm({ ...form, base_valor: v })} placeholder="R$ 0,00" style={inp} testId="comissao-f-base" />
               </Campo>
-              <Campo label="Percentual (%)" chave="pm.comissao.campo_percentual" flex>
+              <Campo label="Percentual (%)" ajuda="pm.comissao.campo_percentual" flex>
                 <input type="text" inputMode="decimal" value={form.percentual} onChange={(e) => setForm({ ...form, percentual: e.target.value })} style={inp} data-testid="comissao-f-percentual" />
               </Campo>
             </div>
-            <Campo label="Competência" chave="pm.comissao.campo_competencia">
+            <Campo label="Competência" ajuda="pm.comissao.campo_competencia">
               <input type="month" value={form.competencia} onChange={(e) => setForm({ ...form, competencia: e.target.value })} style={inp} data-testid="comissao-f-competencia" />
             </Campo>
             <div style={{ fontSize: 13, color: TEXTM, margin: '6px 0 12px' }}>Comissão calculada: <strong style={{ color: ESPRESSO }} data-testid="comissao-f-previa">{brl(valorPrevia)}</strong></div>
@@ -237,9 +237,10 @@ export default function ComissaoPage() {
   )
 }
 
-function Campo({ label, chave, children, flex }: { label: string; chave: string; children: React.ReactNode; flex?: boolean }) {
-  return <label style={{ display: 'block', marginBottom: 10, flex: flex ? '1 1 140px' : undefined }}>
-    <span style={{ fontSize: 12, fontWeight: 700, color: TEXTM, display: 'inline-flex', alignItems: 'center' }}>{label}<AjudaCampo chave={chave} rota={ROTA} /></span>
+// RD-95: o par "?" vem da prop `ajuda` (nome que o detector de cobertura credita como atributo no ancestral do campo).
+function Campo({ label, ajuda, children, flex }: { label: string; ajuda: string; children: React.ReactNode; flex?: boolean }) {
+  return <label data-ajuda={ajuda} style={{ display: 'block', marginBottom: 10, flex: flex ? '1 1 140px' : undefined }}>
+    <span style={{ fontSize: 12, fontWeight: 700, color: TEXTM, display: 'inline-flex', alignItems: 'center' }}>{label}<AjudaCampo chave={ajuda} rota={ROTA} /></span>
     {children}
   </label>
 }
