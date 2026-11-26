@@ -268,7 +268,7 @@ export default function PainelProjetos() {
             valor={!resumo ? "…" : resumo.margem_prevista_pct === null ? "—" : `${fmtPct(resumo.margem_prevista_pct)}`}
             href="/dashboard/projetos/obras/resultado?area=hub"
           />
-          <KpiPrincipal label="Propostas pendentes" chave="projetos.painel.kpi.propostas_pendentes" valor={resumo ? String(resumo.propostas_pendentes) : "…"} href="/dashboard/projetos/propostas" />
+          <KpiPrincipal label="Propostas pendentes" chave="projetos.painel.kpi.propostas_pendentes" valor={resumo ? String(resumo.propostas_pendentes) : "…"} href="/dashboard/projetos/propostas?status=pendente" />
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -338,7 +338,7 @@ export default function PainelProjetos() {
             valor={resumo ? resumo.orcamentos_parados : null}
             texto={(n) => n === 1 ? "proposta enviada há mais de 7 dias sem resposta" : "propostas enviadas há mais de 7 dias sem resposta"}
             vazioTexto="Nenhuma proposta enviada esperando resposta há mais de 7 dias."
-            href="/dashboard/projetos/propostas"
+            href="/dashboard/projetos/propostas?status=parado"
           />
         </div>
       </section>
