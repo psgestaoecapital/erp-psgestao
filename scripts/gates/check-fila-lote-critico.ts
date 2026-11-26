@@ -1,13 +1,14 @@
-// Gate — LOTE DE MIGRATIONS CRÍTICAS (CEO 01/11). A fila crítica chegou a 44 com vazão de 2-3/h: cada crítica saía
-// sozinha e esperava ~20 min de @pos. O CEO aprovou batelar até LOTE_MIG_CRIT_MAX=5 migrations CRÍTICAS num MESMO @pos,
-// com CARVE-OUT das categorias perigosas (NR-36, fiscal, financeiro de cliente, RLS/permissão/LGPD) e de qualquer
-// conserto-main, que continuam publicando SOZINHAS (1 por @pos). Se o @pos do lote falhar, o guardião bisseta.
+// Gate — LOTE DE MIGRATIONS CRÍTICAS (CEO 01/11; teto 5→10 em CEO 25/11, item B). A fila crítica chegou a 44 com vazão de
+// 2-3/h: cada crítica saía sozinha e esperava ~20 min de @pos. O CEO aprovou batelar até LOTE_MIG_CRIT_MAX migrations
+// CRÍTICAS BATELÁVEIS (padrão subiu de 5 para 10) num MESMO @pos, com CARVE-OUT das categorias perigosas (NR-36, fiscal,
+// financeiro de cliente, RLS/permissão/LGPD) e de qualquer conserto-main, que continuam publicando SOZINHAS (1 por @pos).
+// Se o @pos do lote falhar, o guardião bisseta (com 10, pior caso ~4 rodadas de @pos).
 //
 // Este teste prova, nesta ordem:
-//  Parte 1 — a mecânica está no script (teto 5, n_critica_solo, encerra a rodada no SOLO).
+//  Parte 1 — a mecânica está no script (teto 10, n_critica_solo, encerra a rodada no SOLO).
 //  Parte 2 — o classificador critica-solo.ts (puro): fiscal/financeiro/RLS/NR-36 → SOLO; função/estrutura → batelável;
 //            migration ilegível → SOLO (viés de segurança).
-//  Parte 3 — o comportamento real contra o `gh` simulado: até 5 críticas batelam num @pos; teto respeitado; SOLO publica
+//  Parte 3 — o comportamento real contra o `gh` simulado: críticas bateláveis batelam num @pos (padrão 10); teto respeitado; SOLO publica
 //            sozinha e encerra a rodada; e o CAMINHO DE FALHA — @pos do lote vermelho segura toda crítica seguinte.
 import { readFileSync } from 'node:fs'
 import { criticaSolo } from '../merge/critica-solo'
@@ -25,7 +26,7 @@ const ok = (cond: boolean, msg: string) => {
 
 // ── Parte 1: a mecânica está no script ──
 const sh = readFileSync(SCRIPT_FILA, 'utf8')
-ok(/LOTE_MIG_CRIT_MAX=\$\{LOTE_MIG_CRIT_MAX:-5\}/.test(sh), 'teto do lote de críticas = 5 por padrão (CEO 01/11)')
+ok(/LOTE_MIG_CRIT_MAX=\$\{LOTE_MIG_CRIT_MAX:-10\}/.test(sh), 'teto do lote de críticas = 10 por padrão (item B, CEO 25/11; era 5)')
 ok(/n_critica_solo=0/.test(sh), 'n_critica_solo declarado (carve-out das categorias perigosas)')
 ok(/critica-solo\.ts/.test(sh), 'a fila chama o classificador critica-solo.ts')
 ok(/index\("conserto-main"\)/.test(sh) && /n_critica_solo=1/.test(sh), 'conserto-main é SOLO (pela etiqueta)')
@@ -83,9 +84,11 @@ if (!temFerramentas()) {
   console.log('… cenários pulados: jq ou git ausente neste ambiente (as partes 1 e 2 continuam valendo)')
 } else {
   comFilaSimulada((rodar) => {
-    // crítica BATELÁVEL: revisao-eng-chefe + autorizada + migration, SQL estrutural (não cai no carve-out).
+    // crítica BATELÁVEL: revisao-eng-chefe + autorizada + migration. Conteúdo CRÍTICO por si (CREATE OR REPLACE VIEW muda
+    // leitura existente) e BATELÁVEL (não-fiscal) — continua crítica mesmo após o item A (CEO 25/11), que só rebaixa a
+    // migration ADITIVA de PR autorizada. (Antes era `create function`, que o item A passaria a tratar como aditiva.)
     const crit = (n: number) => ({ n, labels: ['revisao-eng-chefe'], autorizada: true, migration: true,
-      sqlMigration: `create function fn_nova_${n}() returns void language sql as $$ select 1 $$;` })
+      sqlMigration: `create or replace view public.v_lote_${n} as select ${n} as x;` })
     // crítica SOLO: conteúdo fiscal.
     const solo = (n: number) => ({ n, labels: ['revisao-eng-chefe'], autorizada: true, migration: true,
       sqlMigration: `insert into nfe_lote(id) values (${n});` })
@@ -141,6 +144,11 @@ if (!temFerramentas()) {
     x = rodar([soDemoSemLabel(1), crit(2)], false, 5000, {}, {})
     ok(merges(x.escritas).includes(1) && !merges(x.escritas).includes(2),
       '8) sem a label so-demo: migration financeira cai no carve-out → SOLO (como hoje)')
+
+    // 9) TETO configurável (item B, CEO 25/11): com LOTE_MIG_CRIT_MAX=3, a 4ª crítica BATELÁVEL espera a próxima rodada —
+    //    prova que o teto é LIDO e aplicado no valor configurado (o padrão subiu p/ 10; aqui provamos a mecânica no valor).
+    x = rodar([crit(1), crit(2), crit(3), crit(4)], false, 5000, { LOTE_MIG_CRIT_MAX: '3' }, {})
+    ok(merges(x.escritas).join() === '1,2,3', '9) LOTE_MIG_CRIT_MAX=3: só 3 críticas batelam (a 4ª espera — teto respeitado)')
   })
 }
 
