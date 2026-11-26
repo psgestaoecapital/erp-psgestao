@@ -1,4 +1,4 @@
-// Consultor IA · agente analista — aceite do pipeline na DEMO (CEO 25/11). Migration 20261128120035 · @pos-migration.
+// Consultor IA · agente analista — aceite do pipeline na DEMO (CEO 25/11). Migration 20261128093035 · @pos-migration.
 // Code: gilberto-chamados.
 //
 // Roda o banco de 20 perguntas (e2e/fixtures/consultor-ia-perguntas.json) contra a "Comércio (GE) - DEMO" via a rota
