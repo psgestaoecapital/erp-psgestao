@@ -253,11 +253,15 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
     setErro(null);
     try {
       const supabase = supabaseBrowser();
-      const { error } = await supabase
-        .from("projetos_servicos_bom")
-        .delete()
-        .eq("id", linha.id);
+      // RD-98 p4 (exclusão rastreável): nunca DELETE físico direto. A RPC guarda por empresa, grava
+      // o snapshot em projetos_servicos_bom_excluido + audit_log_global (quem/quando/motivo) e só então
+      // remove a linha viva — o trigger recalcula o custo do serviço.
+      const { data, error } = await supabase.rpc("fn_projetos_bom_excluir", {
+        p_bom_id: linha.id,
+        p_motivo: null,
+      });
       if (error) throw error;
+      if (data && data.ok === false) throw new Error(data.erro || "Não foi possível remover o item.");
       await supabase.rpc("fn_projetos_atualizar_cache_bom", { p_servico_id: servicoId });
       await onChange();
     } catch (e: any) {
