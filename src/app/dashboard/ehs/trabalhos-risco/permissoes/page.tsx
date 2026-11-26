@@ -2,7 +2,9 @@
 // PS EHS · EHS-7 / M11 — Trabalhos de risco: Permissão de Trabalho (PT) · fatia 1
 // Libera serviços de alto risco (altura, confinado, elétrica, a quente...) com responsável, período e
 // medidas de controle conferidas. Backend: ehs_permissao_trabalho + ehs_pt_medida (RLS por empresa via
-// get_user_company_ids). Soft delete (ativo=false). Padrão visual PS EHS (RD-96), "?" em todo campo (RD-95).
+// get_user_company_ids). Escrita SÓ por RPC com guarda (RD-98 p3): fn_ehs_pt_salvar / fn_ehs_pt_desativar;
+// medida removida vira soft-delete rastreável no servidor — nunca DELETE físico (RD-98 p4). Erro em
+// linguagem do usuário (critério e). Padrão visual PS EHS (RD-96), "?" em todo campo (RD-95).
 
 'use client'
 
@@ -39,6 +41,24 @@ const TIPOS: { valor: string; rotulo: string; nr?: string }[] = [
 ]
 const rotuloTipo = (v: string) => TIPOS.find((t) => t.valor === v)?.rotulo || v
 const nrTipo = (v: string) => TIPOS.find((t) => t.valor === v)?.nr
+
+// Erro em linguagem do usuário (critério e) — traduz os códigos das RPCs; nunca mostra o erro cru do banco.
+function msgErroPT(e: any, fallback: string): string {
+  const raw = String(e?.message || e?.error_description || e?.details || e?.hint || '')
+  const mapa: Record<string, string> = {
+    titulo_obrigatorio: 'Informe a tarefa (título) da permissão.',
+    tipo_invalido: 'Tipo de trabalho inválido. Escolha uma das opções da lista.',
+    status_invalido: 'Situação inválida. Escolha uma das opções da lista.',
+    periodo_invalido: 'O fim da validade não pode ser antes do início.',
+    pt_invalida: 'Esta permissão não foi encontrada para edição (pode ter sido desativada).',
+    pt_nao_encontrada: 'Esta permissão não foi encontrada.',
+    motivo_obrigatorio: 'Informe o motivo para desativar.',
+    sem_acesso: 'Você não tem acesso a esta empresa.',
+  }
+  for (const chave of Object.keys(mapa)) { if (raw.includes(chave)) return mapa[chave] }
+  if (raw.includes('42501')) return 'Você não tem acesso a esta empresa.'
+  return fallback
+}
 
 const STATUS: { valor: string; rotulo: string; cor: string }[] = [
   { valor: 'rascunho', rotulo: 'Rascunho', cor: C.muted },
@@ -123,7 +143,7 @@ export default function PermissoesTrabalhoPage() {
       if (error) throw error
       setLista((data || []) as PT[])
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao carregar as permissões de trabalho')
+      setErro(msgErroPT(e, 'Não foi possível carregar as permissões de trabalho.'))
     } finally {
       setLoading(false)
     }
@@ -145,14 +165,12 @@ export default function PermissoesTrabalhoPage() {
     if (motivo === null) return
     if (!motivo.trim()) { alert('Informe o motivo para desativar.'); return }
     try {
-      const { error } = await supabase
-        .from('ehs_permissao_trabalho')
-        .update({ ativo: false, observacoes: ((p.observacoes ? p.observacoes + ' ' : '') + `[desativada: ${motivo.trim()}]`).slice(0, 2000), atualizado_em: new Date().toISOString() })
-        .eq('id', p.id)
+      const { data, error } = await supabase.rpc('fn_ehs_pt_desativar', { p_id: p.id, p_motivo: motivo.trim() })
       if (error) throw error
+      if (data && (data as any).ok === false) throw new Error((data as any).erro || '')
       carregar()
     } catch (e: any) {
-      alert(e?.message || 'Falha ao desativar')
+      alert(msgErroPT(e, 'Não foi possível desativar a permissão de trabalho.'))
     }
   }
 
@@ -316,41 +334,35 @@ function PTFormModal({ companyId, pt, onClose, onSaved }: { companyId: string; p
     setSalvando(true)
     setErro(null)
     try {
-      const campos = {
-        numero: numero.trim() || null,
-        tipo,
-        titulo: titulo.trim(),
-        descricao: descricao.trim() || null,
-        local: local.trim() || null,
-        setor: setor.trim() || null,
-        data_inicio: dataInicio ? new Date(dataInicio).toISOString() : null,
-        data_fim: dataFim ? new Date(dataFim).toISOString() : null,
-        responsavel_emissao: responsavel.trim() || null,
-        executantes: executantes.trim() || null,
-        status,
-        observacoes: observacoes.trim() || null,
-      }
-      let ptId = pt?.id
-      if (ptId) {
-        const { error } = await supabase.from('ehs_permissao_trabalho')
-          .update({ ...campos, atualizado_em: new Date().toISOString() }).eq('id', ptId)
-        if (error) throw error
-        const { error: delErr } = await supabase.from('ehs_pt_medida').delete().eq('pt_id', ptId)
-        if (delErr) throw delErr
-      } else {
-        const { data, error } = await supabase.from('ehs_permissao_trabalho')
-          .insert({ company_id: companyId, ...campos }).select('id').single()
-        if (error) throw error
-        ptId = data!.id
-      }
-      if (linhas.length > 0) {
-        const payload = linhas.map((m, i) => ({ company_id: companyId, pt_id: ptId, ordem: i + 1, descricao: m.descricao, atendido: m.atendido }))
-        const { error: insErr } = await supabase.from('ehs_pt_medida').insert(payload)
-        if (insErr) throw insErr
-      }
+      // Origem única via RPC com guarda (RD-98 p3): nada de escrita direta na tabela pelo cliente.
+      // As medidas removidas viram soft-delete rastreável no servidor — nunca DELETE físico (RD-98 p4).
+      const medidasPayload = linhas.map((m, i) => ({
+        id: m.id ?? null,
+        descricao: m.descricao,
+        atendido: !!m.atendido,
+        ordem: i + 1,
+      }))
+      const { error } = await supabase.rpc('fn_ehs_pt_salvar', {
+        p_company_id: companyId,
+        p_id: pt?.id ?? null,
+        p_numero: numero.trim() || null,
+        p_tipo: tipo,
+        p_titulo: titulo.trim(),
+        p_descricao: descricao.trim() || null,
+        p_local: local.trim() || null,
+        p_setor: setor.trim() || null,
+        p_data_inicio: dataInicio ? new Date(dataInicio).toISOString() : null,
+        p_data_fim: dataFim ? new Date(dataFim).toISOString() : null,
+        p_responsavel_emissao: responsavel.trim() || null,
+        p_executantes: executantes.trim() || null,
+        p_status: status,
+        p_observacoes: observacoes.trim() || null,
+        p_medidas: medidasPayload,
+      })
+      if (error) throw error
       onSaved()
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao salvar a permissão')
+      setErro(msgErroPT(e, 'Não foi possível salvar a permissão de trabalho.'))
       setSalvando(false)
     }
   }
