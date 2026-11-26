@@ -468,6 +468,19 @@ export default function CatalogoServicosPage() {
                 Sem CPU
               </span>
             )}
+            {/* Chamado #11274: o custo mostrava só a mão de obra porque os materiais/equipamentos
+                estavam sem preço (entram como R$ 0,00 e não somam). Avisa na lista, onde o cliente
+                circulou o valor, para ele entender que falta precificar o material — não é bug de soma. */}
+            {(precos[s.id]?.insumos_total ?? 0) > 0 &&
+              (s.custo_material ?? 0) === 0 &&
+              (s.custo_equipamento ?? 0) === 0 && (
+                <span
+                  className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800"
+                  title="Há materiais/equipamentos na composição sem preço: eles entram como R$ 0,00 e não somam no custo. O valor ao lado reflete só o que tem preço (ex.: mão de obra). Abra o serviço e informe o custo do material."
+                >
+                  Material sem preço
+                </span>
+              )}
             {s.produtividade_unidade_dia === null && (
               <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-800">
                 Sem produtividade
