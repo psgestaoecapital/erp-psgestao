@@ -126,10 +126,24 @@ export default function ImprimirContratoFeePage({ params }: { params: Promise<{ 
           <div><span className="lab">Condição de pagamento:</span> {ct.condicao_pagamento || ct.forma_pagamento || '—'}</div>
           <div><span className="lab">Valor total:</span> <strong>{fmtBRL(ct.valor_total)}</strong></div>
         </div>
-        {(ct.objeto || ct.escopo || ct.observacoes) && (
+        {/* #11401: objeto, serviços/produtos (escopo) e observações aparecem em blocos SEPARADOS.
+            Antes colapsavam em `objeto || escopo || observacoes`, escondendo os serviços quando o objeto estava preenchido. */}
+        {ct.objeto && (
           <div style={{ marginTop: 8 }}>
-            <span className="lab">Objeto / escopo:</span>
-            <div style={{ whiteSpace: 'pre-wrap', marginTop: 2 }}>{ct.objeto || ct.escopo || ct.observacoes}</div>
+            <span className="lab">Objeto do contrato:</span>
+            <div style={{ whiteSpace: 'pre-wrap', marginTop: 2 }}>{ct.objeto}</div>
+          </div>
+        )}
+        {ct.escopo && (
+          <div style={{ marginTop: 8 }}>
+            <span className="lab">Serviços / produtos contratados:</span>
+            <div style={{ whiteSpace: 'pre-wrap', marginTop: 2 }}>{ct.escopo}</div>
+          </div>
+        )}
+        {ct.observacoes && (
+          <div style={{ marginTop: 8 }}>
+            <span className="lab">Observações:</span>
+            <div style={{ whiteSpace: 'pre-wrap', marginTop: 2 }}>{ct.observacoes}</div>
           </div>
         )}
       </div>
