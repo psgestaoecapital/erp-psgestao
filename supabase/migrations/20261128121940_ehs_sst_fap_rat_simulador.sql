@@ -109,8 +109,9 @@ ON CONFLICT (chave) DO UPDATE SET
   vertical = EXCLUDED.vertical, ordem = EXCLUDED.ordem, status = EXCLUDED.status;
 
 -- a tela aparece no inventário (entrega só conta se o usuário a enxerga)
-INSERT INTO public.system_screens (rota, area, titulo, descricao_funcional, estado_real)
-VALUES ('/dashboard/ehs/sst/fap-rat', 'compliance', 'Simulador FAP/RAT',
+-- system_screens.id é text NOT NULL SEM default: o id (slug) tem de ser fornecido no INSERT (conserto-main)
+INSERT INTO public.system_screens (id, rota, area, titulo, descricao_funcional, estado_real)
+VALUES ('dashboard.ehs_sst_fap_rat', '/dashboard/ehs/sst/fap-rat', 'compliance', 'Simulador FAP/RAT',
         'Calculadora de contribuição SAT/RAT ajustada pelo FAP: base da folha × grau de risco × FAP → alíquota efetiva, contribuição mensal e economia/acréscimo no ano. Funciona sem o adicional financeiro.',
         'parcial')
 ON CONFLICT (rota) DO UPDATE SET
