@@ -15,6 +15,7 @@ import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
 import { ClienteBusca } from "@/components/pm/ClienteBusca";
 import { JobFluxo } from "@/components/pm/JobFluxo";
+import { JobEtapas } from "@/components/pm/JobEtapas";
 import { JobComentarios } from "@/components/pm/JobComentarios";
 import { Cronometro } from "@/components/pm/Cronometro";
 import { BotaoPlay } from "@/components/pm/BotaoPlay";
@@ -641,6 +642,7 @@ export default function PautaPage() {
                 if (sug !== 'parar' && status === 'concluida' && exigeApontamentoAoConcluir(status, await totalHorasDoJob(id))) setSemHorasJob(id);
               }}
               onMudou={(codigo) => { if (codigo) setAberto((a) => (a ? { ...a, codigo } : a)); void carregar(1); }} />
+            {empresa && <JobEtapas key={`e-${aberto.id}`} empresa={empresa} jobId={aberto.id} />}
             {empresa && <JobComentarios key={`k-${aberto.id}`} empresa={empresa} jobId={aberto.id} userId={userId} equipe={equipe} />}
             <div className="mt-3 flex gap-2">
               <Link className={btn} href={`/dashboard/producao`}>Abrir em Jobs</Link>

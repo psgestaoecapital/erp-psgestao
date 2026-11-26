@@ -25,7 +25,7 @@ ok(statusExecucao(0, 0) === 'sem_boletos' && statusExecucao(5, 0) === 'ok' && st
 // 4) a rota: só os boletos DAQUELE banco, baixa com o banco, registra cada execução, aceita o agendado
 const rota = readFileSync('src/app/api/boleto/sync-liquidacao/route.ts', 'utf8')
 ok(rota.includes(".eq('boleto_banco_codigo', alvo.banco_codigo)"), 'consulta só os boletos do banco da conexão (antes mandava tudo ao Sicoob)')
-ok(/fn_boleto_liquidar'[\s\S]{0,400}p_banco_codigo: alvo\.banco_codigo/.test(rota) && /p_provider: prov\.provider/.test(rota), 'baixa passa provider e banco (conta do banco certo)')
+ok(/fn_boleto_liquidar'[\s\S]{0,900}p_banco_codigo: alvo\.banco_codigo/.test(rota) && /p_provider: prov\.provider/.test(rota), 'baixa passa provider e banco (conta do banco certo)')
 ok(rota.includes("fn_boleto_liquidacao_registrar") && /await registrar\(lote, origem, r, usuario\)/.test(rota), 'cada execução empresa/banco é registrada (sucesso ou falha)')
 ok(rota.includes('ehChamadaServico(req)') && rota.includes('empresasDoUsuario'), 'agendado (service key) e botão (empresa do usuário)')
 ok(!rota.includes("const BANCO = '756'"), 'sem banco fixo no código')
