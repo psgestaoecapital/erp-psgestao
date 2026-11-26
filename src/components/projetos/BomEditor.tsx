@@ -52,6 +52,9 @@ interface Props {
   produtividadeBase?: "hora" | "dia" | null;
   equipePessoas?: number | null;
   jornadaHorasDia?: number | null;
+  // CEO 26/11: ao confirmar o card de produtividade, a página grava esses valores no serviço
+  // (projetos_servicos) para pré-preencher na próxima vez (fonte única).
+  onProdutividadeServico?: (v: { produtividade_pessoa: number | null; produtividade_base: "hora" | "dia"; equipe_pessoas: number | null; jornada_horas_dia: number | null }) => void | Promise<void>;
 }
 
 const METODO_LABEL: Record<string, string> = {
@@ -104,7 +107,7 @@ function parseNumero(s: string): number | null {
   return parseNumBR(s);
 }
 
-export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, equipePadrao, unidadeServico, diasUteisMes, produtividadePessoa, produtividadeBase, equipePessoas, jornadaHorasDia }: Props) {
+export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, equipePadrao, unidadeServico, diasUteisMes, produtividadePessoa, produtividadeBase, equipePessoas, jornadaHorasDia, onProdutividadeServico }: Props) {
   const [seletorOpen, setSeletorOpen] = useState(false);
   const [salvandoLinha, setSalvandoLinha] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -125,6 +128,15 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
         .eq("id", linha.id);
       if (error) throw error;
       await supabase.rpc("fn_projetos_atualizar_cache_bom", { p_servico_id: servicoId });
+      // CEO 26/11: grava os inputs no serviço p/ o card pré-preencher na próxima vez (fonte única).
+      if (onProdutividadeServico) {
+        await onProdutividadeServico({
+          produtividade_pessoa: r.produtividade_pessoa,
+          produtividade_base: r.produtividade_base,
+          equipe_pessoas: r.equipe_pessoas,
+          jornada_horas_dia: r.jornada_horas_dia,
+        });
+      }
       await onChange();
     } catch (e: any) {
       setErro(erroAmigavel(e, "Falha ao aplicar a produtividade"));

@@ -18,6 +18,11 @@ const ROTA = "/dashboard/projetos/catalogo/[id]";
 export interface ProdResultado {
   quantidade: number;
   observacao: string | null;
+  // CEO 26/11: devolve os inputs p/ a página do catálogo gravar no serviço e pré-preencher na próxima vez.
+  produtividade_pessoa: number | null;
+  produtividade_base: "hora" | "dia";
+  equipe_pessoas: number | null;
+  jornada_horas_dia: number | null;
 }
 
 const fmt = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 4 });
@@ -60,7 +65,14 @@ export function CalcProdutividadeModal({
   function confirmar() {
     if (q === null || prodEquipeHora === null) return;
     const obs = `Mão de obra por hora (${origem === "propria" ? "equipe própria" : "equipe terceira"}): ${fmt(pessoasN as number)} pessoa(s) × ${fmt(prodPessoaHora as number)} ${un}/pessoa/h = ${fmt(prodEquipeHora)} ${un}/h da equipe. Custo por ${un} = custo/h da equipe ÷ ${fmt(prodEquipeHora)} (= ${fmt(q as number)} h por ${un}).`;
-    onConfirm({ quantidade: Math.round((q as number) * 1000000) / 1000000, observacao: obs });
+    onConfirm({
+      quantidade: Math.round((q as number) * 1000000) / 1000000,
+      observacao: obs,
+      produtividade_pessoa: prodN ?? null,
+      produtividade_base: base,
+      equipe_pessoas: pessoasN ?? null,
+      jornada_horas_dia: jornOk,
+    });
   }
 
   const inp = "rounded !border !border-[#3D2314]/12 !bg-white px-2 py-1.5 text-right text-sm !text-[#3D2314] focus:!border-[#C8941A] focus:outline-none";
