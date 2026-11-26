@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { modeloPara, assertIAPermitida, IABloqueadaError, registrarFalhaIA } from '@/lib/aiModel'
-import { rodarAgente, numerosInventados, type Mensagem, type ToolResult } from '@/lib/consultor/agente'
-import { validarSqlConsultor } from '@/lib/consultor/sqlGuard'
+import { rodarAgente, avaliarTeto, analisarComTrava, type Mensagem, type ToolResult } from '@/lib/consultor/agente'
+import { fazerExecutarTool } from '@/lib/consultor/tools'
 
 // Consultor IA — AGENTE ANALISTA (CEO 25/11, RD-101). O modelo consulta o banco DAQUELA empresa (ferramenta
 // consultar_dados → parser T1 + fn_consultor_sql, empresa fixada) quantas vezes precisar, cruza e explica.
@@ -27,52 +27,6 @@ function getUsuario(token: string) {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: `Bearer ${token}` } },
   })
-}
-
-// executa uma ferramenta do agente com o company_id FORÇADO (nunca o que o modelo mandar), no token do usuário.
-function fazerExecutarTool(sb: ReturnType<typeof getUsuario>, companyId: string) {
-  return async (nome: string, input: Record<string, unknown>): Promise<unknown> => {
-    if (nome === 'consultar_dados') {
-      const sql = typeof input.sql === 'string' ? input.sql : ''
-      const g = await validarSqlConsultor(sql)          // T1 (parser) antes do banco
-      if (!g.ok) return { erro: 'consulta não permitida: ' + g.motivo }
-      const { data, error } = await sb.rpc('fn_consultor_sql', { p_company_id: companyId, p_sql: sql })
-      if (error) return { erro: error.message }
-      return data
-    }
-    if (nome === 'situacao_parceiro') {
-      const termo = typeof input.termo === 'string' ? input.termo.slice(0, 120) : ''
-      const tipo = typeof input.tipo === 'string' && ['cliente', 'fornecedor'].includes(input.tipo) ? input.tipo : 'auto'
-      if (termo.length < 2) return { erro: 'informe o nome ou CNPJ do cliente/fornecedor' }
-      const { data, error } = await sb.rpc('fn_consultor_situacao_parceiro', { p_company_id: companyId, p_termo: termo, p_tipo: tipo })
-      return error ? { erro: error.message } : data
-    }
-    if (nome === 'raio_x') {
-      const { data, error } = await sb.rpc('fn_consultor_raiox', { p_company_id: companyId })
-      return error ? { erro: error.message } : data
-    }
-    if (nome === 'divergencia_saldo') {
-      const { data, error } = await sb.rpc('fn_consultor_divergencia_contas', { p_company_id: companyId })
-      return error ? { erro: error.message } : data
-    }
-    if (nome === 'lancamentos_detalhe') {
-      const filtro = typeof input.filtro === 'string' ? input.filtro : 'nao_conciliados'
-      const termo = typeof input.termo === 'string' ? input.termo.slice(0, 100) : null
-      const conta = typeof input.conta === 'string' ? input.conta.slice(0, 80) : null
-      const { data, error } = await sb.rpc('fn_consultor_lancamentos_detalhe', { p_company_id: companyId, p_filtro: filtro, p_termo: termo, p_conta: conta, p_limite: 50 })
-      return error ? { erro: error.message } : data
-    }
-    if (nome === 'saldo_contas') {
-      const { data, error } = await sb.rpc('fn_saldo_bancos_dinamico', { p_company_ids: [companyId] })
-      return error ? { erro: error.message } : { saldo_total: Number(data ?? 0) }
-    }
-    if (nome === 'listagem') {
-      const tipo = input.tipo === 'pagar' ? 'pagar' : 'receber'
-      const { data, error } = await sb.rpc('fn_ge_listagem_v2', { p_company_id: companyId, p_tipo: tipo, p_data_inicio: null, p_data_fim: null, p_status_filtro: 'todos', p_status_filtros: ['todos'] })
-      return error ? { erro: error.message } : data
-    }
-    return { erro: 'ferramenta desconhecida' }
-  }
 }
 
 function sse(obj: unknown) { return `data: ${JSON.stringify(obj)}\n\n` }
@@ -109,11 +63,8 @@ export async function POST(req: NextRequest) {
       admin.rpc('fn_ia_global_pode_gastar', { p_feature: FEATURE, p_custo_estimado: CUSTO_ESTIMADO }),
     ])
     const okE = (ge as { pode?: boolean } | null)?.pode, okG = (gg as { pode?: boolean } | null)?.pode
-    if (!okE || !okG) {
-      return NextResponse.json({ ok: true, bloqueado: true,
-        mensagem: !okE ? 'Esta empresa atingiu o limite diário do assistente. Use os atalhos abaixo (Raio-X) — eles não têm custo.'
-                       : 'O assistente atingiu o limite diário do sistema. Use os atalhos abaixo — não têm custo.' })
-    }
+    const teto = avaliarTeto(okE, okG)
+    if (teto) return NextResponse.json({ ok: true, bloqueado: true, mensagem: teto.mensagem })
   } catch {
     return NextResponse.json({ ok: true, bloqueado: true, mensagem: 'Não consegui checar o limite de custo agora. Use os atalhos abaixo — não têm custo.' })
   }
@@ -139,38 +90,28 @@ export async function POST(req: NextRequest) {
     : ''
 
   const sb = getUsuario(u.token)
-  const executarTool = fazerExecutarTool(sb, companyId)
+  // adaptador explícito: isola o executor do tipo exato do client do Supabase (só precisamos de rpc → { data, error }).
+  const executarTool = fazerExecutarTool({ rpc: (fn, params) => sb.rpc(fn, params ?? {}) }, companyId)
 
   const stream = new ReadableStream({
     async start(controller) {
       const enc = new TextEncoder()
       const push = (o: unknown) => controller.enqueue(enc.encode(sse(o)))
       try {
-        const r = await rodarAgente({
-          apiKey, modelo, empresaNome, empresaCnpj, dicionario, pergunta, historico, executarTool,
+        // trava de número embutida: roda o agente e, se citar valor fora das consultas, refaz UMA vez e avisa.
+        const r = await analisarComTrava({
+          pergunta, historico,
           onPasso: (texto) => push({ tipo: 'passo', texto }),
-        })
-
-        // trava de número: todo valor R$ citado tem de vir de uma consulta. Refaz UMA vez; persistindo, avisa.
-        let resposta = r.resposta
-        let toolResults: ToolResult[] = r.toolResults
-        let custo = r.custoUsd
-        let inventados = numerosInventados(resposta, toolResults)
-        if (inventados.length > 0) {
-          push({ tipo: 'passo', texto: 'Conferindo os números citados…' })
-          const r2 = await rodarAgente({
+          rodar: (p) => rodarAgente({
             apiKey, modelo, empresaNome, empresaCnpj, dicionario, executarTool,
-            historico: [...historico, { role: 'user', content: pergunta }, { role: 'assistant', content: resposta }],
-            pergunta: `Revise sua resposta anterior. Estes valores citados NÃO apareceram em nenhuma consulta: ${inventados.map((n) => brl(Number(n))).join(', ')}. `
-              + `Refaça as consultas necessárias e reescreva a resposta usando SOMENTE valores que vierem dos dados. Se não conseguir confirmar um valor, não o cite.`,
+            pergunta: p.pergunta, historico: p.historico, maxRounds: p.maxRounds,
             onPasso: (texto) => push({ tipo: 'passo', texto }),
-            maxRounds: 6,
-          })
-          resposta = r2.resposta || resposta
-          toolResults = [...toolResults, ...r2.toolResults]
-          custo += r2.custoUsd
-          inventados = numerosInventados(resposta, toolResults)
-        }
+          }),
+        })
+        const resposta = r.resposta
+        const toolResults: ToolResult[] = r.toolResults
+        const custo = r.custoUsd
+        const inventados = r.inventados
 
         // registra o custo REAL
         admin.rpc('fn_ia_empresa_registrar_gasto', { p_company_id: companyId, p_feature: FEATURE, p_custo_usd: Number(custo.toFixed(6)), p_chamadas: 1 }).then(() => {}, () => {})

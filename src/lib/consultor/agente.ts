@@ -198,6 +198,62 @@ export async function rodarAgente(opts: {
   }
 }
 
+// ── teto de custo (CEO 25/11): dado o resultado das RPCs fn_ia_empresa/global_pode_gastar, decide o bloqueio ──────
+// Bloqueia quando a empresa OU o sistema bateram o teto; devolve a mensagem HONESTA + aponta os atalhos grátis.
+export function avaliarTeto(okEmpresa: boolean | undefined, okGlobal: boolean | undefined): { mensagem: string } | null {
+  if (okEmpresa && okGlobal) return null
+  return {
+    mensagem: !okEmpresa
+      ? 'Esta empresa atingiu o limite diário do assistente. Use os atalhos abaixo (Raio-X) — eles não têm custo.'
+      : 'O assistente atingiu o limite diário do sistema. Use os atalhos abaixo — não têm custo.',
+  }
+}
+
+// formata R$ pt-BR (usado na mensagem de revisão da trava de número)
+function brl(v: number): string { return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
+
+// ── orquestração com a TRAVA DE NÚMERO (CEO 25/11) ──────────────────────────────────────────────────────────────
+// Roda o agente; se citar valor em R$ que NÃO veio de nenhuma consulta, REFAZ uma vez pedindo correção; persistindo,
+// devolve os valores em `inventados` (a tela mostra o aviso "confira estes valores"). `rodar` é injetável (a rota passa
+// a chamada real à Messages API; o gate de CI passa um mock) — por isso esta função é testável sem rede.
+export async function analisarComTrava(opts: {
+  rodar: (p: { pergunta: string; historico: Mensagem[]; maxRounds?: number }) => Promise<ResultadoAgente>
+  pergunta: string
+  historico: Mensagem[]
+  onPasso?: (texto: string) => void
+}): Promise<{
+  resposta: string; toolResults: ToolResult[]; custoUsd: number; inventados: string[]
+  rounds: number; limiteTempo: boolean; limiteRodadas: boolean; refez: boolean
+}> {
+  const r = await opts.rodar({ pergunta: opts.pergunta, historico: opts.historico })
+  let resposta = r.resposta
+  let toolResults = r.toolResults
+  let custoUsd = r.custoUsd
+  let inventados = numerosInventados(resposta, toolResults)
+  let refez = false
+
+  if (inventados.length > 0) {
+    refez = true
+    opts.onPasso?.('Conferindo os números citados…')
+    const r2 = await opts.rodar({
+      historico: [...opts.historico, { role: 'user', content: opts.pergunta }, { role: 'assistant', content: resposta }],
+      pergunta:
+        `Revise sua resposta anterior. Estes valores citados NÃO apareceram em nenhuma consulta: ${inventados.map((n) => brl(Number(n))).join(', ')}. ` +
+        `Refaça as consultas necessárias e reescreva a resposta usando SOMENTE valores que vierem dos dados. Se não conseguir confirmar um valor, não o cite.`,
+      maxRounds: 6,
+    })
+    resposta = r2.resposta || resposta
+    toolResults = [...toolResults, ...r2.toolResults]
+    custoUsd += r2.custoUsd
+    inventados = numerosInventados(resposta, toolResults)
+  }
+
+  return {
+    resposta, toolResults, custoUsd, inventados, refez,
+    rounds: r.rounds, limiteTempo: r.limiteTempo, limiteRodadas: r.limiteRodadas,
+  }
+}
+
 // ── trava de número (CEO 25/11): todo valor em R$ citado tem de aparecer nos resultados das ferramentas ─────────
 // extrai números "contábeis" (com separador de milhar/decimal pt-BR) do texto da resposta
 export function numerosDaResposta(texto: string): string[] {
