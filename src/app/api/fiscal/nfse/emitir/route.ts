@@ -11,6 +11,7 @@ import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
 import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/types'
 import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
 import { SELECT_CONFIG_EMISSOR, dadosEmissorDaConfig } from '@/lib/fiscal/emissorConfig'
+import { municipioInformaIm } from '@/lib/fiscal/municipioInformaIm'
 import { dataBrasil } from '@/lib/fiscal/dataBrasil'
 import { CAMPOS_CADASTRO_TOMADOR, enderecoFiscalDoCliente, escolherCadastroTomador, filtroCadastroTomador, nomeCadastro, type CadastroTomador } from '@/lib/fiscal/tomadorEndereco'
 import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, totaisLiquidosNfse, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
@@ -100,6 +101,14 @@ interface DadosNFSeRPC {
 function humanizarErroFiscal(msg: string | null | undefined): string | null | undefined {
   if (!msg) return msg
   const m = String(msg)
+  // #11040: erro de pattern num campo de CÓDIGO (cTribMun = código de tributação municipal), NÃO no texto.
+  // A mensagem genérica de "símbolo no texto" abaixo confundia o atendente. Dá a ação certa.
+  if (/cTribMun/i.test(m)) {
+    return 'A prefeitura recusou a nota no código de tributação municipal (cTribMun): o formato do código não é ' +
+      'aceito por este município. Em geral é porque o município aderiu à NFS-e Nacional e a nota deve sair no padrão ' +
+      'nacional (sem código municipal). Avise o suporte para revisar a configuração fiscal do município da empresa. ' +
+      '(Detalhe técnico: ' + m.slice(0, 200) + ')'
+  }
   if (/facet '?pattern'?|is not accepted by the pattern|xInfComp|xDiscrim|caractere n[aã]o/i.test(m)) {
     return 'A prefeitura recusou a nota por um símbolo não permitido no texto (ex.: •, — ou aspas curvas). ' +
       'Revise a descrição do serviço e as observações, remova símbolos especiais, e emita de novo. ' +
@@ -209,6 +218,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       const { data: cfgEmissor } = await supabaseAdmin.from('erp_fiscal_provider_config').select(SELECT_CONFIG_EMISSOR)
         .eq('company_id', body.companyId).eq('provider', 'focusnfe').eq('ativo', true).maybeSingle()
       const emissor = dadosEmissorDaConfig(cfgEmissor, body.manual.cnae)
+      // #9726 · a IM do prestador vai na DPS só se o município emissor informa IM (Guarujá do Sul → E0120).
+      const informaImEmissor = await municipioInformaIm(emissor.codigoMunicipio)
       nfseReq = {
         serie: emissor.serie,
         dataEmissao: new Date().toISOString(),
@@ -223,6 +234,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           razaoSocial: emp.razao_social,
           inscricaoMunicipal: emp.inscricao_municipal ?? undefined,
           codigoMunicipio: emissor.codigoMunicipio,
+          informaInscricaoMunicipal: informaImEmissor,
         },
         tomador: body.manual.tomador,
       }
