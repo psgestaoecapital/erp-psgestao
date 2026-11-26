@@ -312,21 +312,17 @@ function Inner() {
   }
   async function executarCancelar(v: Venda, motivo: string, cancelarTitulo = false) {
     setBusy(true)
-    // 1) a VENDA é cancelada primeiro
-    const { data, error } = await supabase.rpc('fn_veic_venda_cancelar', { p_venda_id: v.id, p_user: await userId(), p_motivo: motivo || null })
-    const r = data as { ok?: boolean; erro?: string; mensagem?: string; titulos_nao_excluidos?: number } | null
-    if (error || !r?.ok) { setBusy(false); setErro((error ? msgAmigavel(error.message) : null) || r?.mensagem || r?.erro || 'Falha'); return }
-    // 2) SÓ DEPOIS da venda cancelada, cancela os títulos a receber em aberto (quando o usuário pediu). Reusa fn_receber_cancelar.
-    let titErros = 0
-    if (cancelarTitulo) {
-      for (const t of titulosAbertos(v.id)) {
-        if (!t.receber_id) continue
-        const { data: dc, error: ec } = await supabase.rpc('fn_receber_cancelar', { p_id: t.receber_id, p_motivo: motivo || 'Venda cancelada' })
-        if (ec || (dc as { ok?: boolean } | null)?.ok === false) titErros++
-      }
-    }
+    // A venda e os títulos a receber em aberto são tratados numa ÚNICA transação no backend
+    // (fn_veic_venda_cancelar com p_titulos): 'cancelar' cancela a venda + os títulos em aberto;
+    // 'manter' cancela só a venda. Título pago nunca é cancelado. Sem o laço de RPC no cliente.
+    const { data, error } = await supabase.rpc('fn_veic_venda_cancelar', {
+      p_venda_id: v.id, p_user: await userId(), p_motivo: motivo || null,
+      p_titulos: cancelarTitulo ? 'cancelar' : 'manter',
+    })
+    const r = data as { ok?: boolean; erro?: string; mensagem?: string; titulos_cancelados?: number } | null
     setBusy(false)
-    setMsg(cancelarTitulo ? (titErros ? `Venda cancelada; ${titErros} título(s) não puderam ser cancelados — trate no Contas a Receber.` : 'Venda e título cancelados.') : 'Venda cancelada.')
+    if (error || !r?.ok) { setErro((error ? msgAmigavel(error.message) : null) || r?.mensagem || r?.erro || 'Falha'); return }
+    setMsg(cancelarTitulo ? `Venda e ${r?.titulos_cancelados ?? 0} título(s) cancelados.` : 'Venda cancelada.')
     void carregar()
   }
 
