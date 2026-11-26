@@ -8,11 +8,25 @@
 import { useCallback, useEffect, useState } from 'react'
 import { authFetch } from '@/lib/authFetch'
 import { Loader2, CheckCircle2, AlertCircle, Info } from 'lucide-react'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 
 type Estado = {
   configurado: boolean; salvoEm: string | null; ultimaConsultaOk: string | null; ultimoErro: string | null; ultimoErroEm: string | null
   versao: string | null; vigenciaFim: string | null; usoNasNotas: boolean
+  lei12741Ativo: boolean; ehSimples: boolean; pctTributosSn: number | null
   generica: { versao: string | null; vigenciaFim: string | null } | null
+}
+
+// Interruptor próprio (RD-96) — acessível (role=switch), funciona no toque/celular.
+function Switch({ ligado, onToggle, disabled, testid }: { ligado: boolean; onToggle: () => void; disabled?: boolean; testid: string }) {
+  return (
+    <button
+      type="button" role="switch" aria-checked={ligado} disabled={disabled} onClick={onToggle} data-testid={testid}
+      className={`relative inline-flex h-[22px] w-[40px] flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${ligado ? 'bg-[#C8941A]' : 'bg-[#3D2314]/20'}`}
+    >
+      <span className={`inline-block h-[16px] w-[16px] transform rounded-full bg-white shadow transition-transform ${ligado ? 'translate-x-[21px]' : 'translate-x-[3px]'}`} />
+    </button>
+  )
 }
 type Teste = {
   tipo: 'produto' | 'servico'; codigo: string; uf: string; descricao: string; ok: boolean; erro: string | null
@@ -33,6 +47,7 @@ export default function IbptTokenCard({ companyId }: { companyId: string }) {
   const [token, setToken] = useState('')
   const [trocando, setTrocando] = useState(false)
   const [fase, setFase] = useState<'ocioso' | 'testando' | 'removendo'>('ocioso')
+  const [salvando, setSalvando] = useState<'lei12741Ativo' | 'ibptEmpresaNasNotas' | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null)
   const [teste, setTeste] = useState<{ generico: boolean; testes: Teste[] } | null>(null)
 
@@ -69,6 +84,17 @@ export default function IbptTokenCard({ companyId }: { companyId: string }) {
     } finally { setFase('ocioso') }
   }
 
+  // #11321 · liga/desliga, por empresa, a Lei 12.741 nas notas e (regime normal) o uso do token.
+  async function salvarToggle(campo: 'lei12741Ativo' | 'ibptEmpresaNasNotas', valor: boolean) {
+    setSalvando(campo); setMsg(null)
+    try {
+      const r = await authFetch('/api/fiscal/ibpt-token', { method: 'PATCH', body: JSON.stringify({ companyId, [campo]: valor }) })
+      const j = (await r.json().catch(() => null)) as { ok?: boolean; mensagem?: string } | null
+      if (r.ok && j?.ok) await carregar()
+      else setMsg({ ok: false, texto: j?.mensagem ?? 'Não foi possível salvar.' })
+    } finally { setSalvando(null) }
+  }
+
   const gen = estado?.generica
   const mostrarCampo = !estado?.configurado || trocando
 
@@ -90,12 +116,47 @@ export default function IbptTokenCard({ companyId }: { companyId: string }) {
               </span>
             )}
         </div>
-        {estado?.configurado && !estado.usoNasNotas && (
-          <div className="text-[11px] text-[#8A5A00] mt-1 flex items-start gap-1.5"><Info size={12} className="mt-0.5 flex-shrink-0" />
-            As notas ainda usam a tabela genérica: o uso do token da empresa nas notas é liberado pela PS depois da conferência da primeira consulta.
-          </div>
-        )}
       </div>
+
+      {/* #11321 · liga/desliga o "valor aproximado dos tributos" (Lei 12.741) nas notas, por empresa. */}
+      {estado && (
+        <div className="border-t border-[#3D2314]/10 pt-3 space-y-2.5" data-testid="ibpt-toggles">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1 text-[13px] text-[#3D2314]">
+              Mostrar os tributos aproximados nas notas (Lei 12.741)
+              <AjudaCampo chave="fiscal.config.lei12741_ativo" />
+            </div>
+            <div className="flex items-center gap-2">
+              {salvando === 'lei12741Ativo' && <Loader2 size={13} className="animate-spin text-[#3D2314]/50" />}
+              <Switch ligado={estado.lei12741Ativo} disabled={salvando !== null} testid="ibpt-toggle-lei12741"
+                onToggle={() => void salvarToggle('lei12741Ativo', !estado.lei12741Ativo)} />
+            </div>
+          </div>
+          <div className="text-[11px] text-[#3D2314]/55 flex items-start gap-1.5"><Info size={12} className="mt-0.5 flex-shrink-0" />
+            <span>
+              Só aparece em vendas a <strong>consumidor final</strong> — em nota a contribuinte não sai.
+              {estado.ehSimples
+                ? ` No Simples, usa o percentual cadastrado${estado.pctTributosSn != null ? ` (${pct(estado.pctTributosSn)})` : ''}.`
+                : ' No regime normal, usa a tabela/token do IBPT.'}
+            </span>
+          </div>
+
+          {!estado.ehSimples && (
+            <div className="flex items-center justify-between gap-3 pt-0.5">
+              <div className="flex items-center gap-1 text-[13px] text-[#3D2314]">
+                Usar o token da empresa nas notas
+                <AjudaCampo chave="fiscal.config.ibpt_empresa_nas_notas" />
+                {(!estado.configurado || !estado.ultimaConsultaOk) && <span className="text-[11px] text-[#3D2314]/45">(configure e teste o token abaixo)</span>}
+              </div>
+              <div className="flex items-center gap-2">
+                {salvando === 'ibptEmpresaNasNotas' && <Loader2 size={13} className="animate-spin text-[#3D2314]/50" />}
+                <Switch ligado={estado.usoNasNotas} disabled={salvando !== null || !estado.configurado || !estado.ultimaConsultaOk} testid="ibpt-toggle-usar-token"
+                  onToggle={() => void salvarToggle('ibptEmpresaNasNotas', !estado.usoNasNotas)} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {mostrarCampo ? (
         <div className="space-y-2">

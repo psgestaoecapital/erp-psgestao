@@ -324,7 +324,7 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                   )}
                   {mapaLink && (
                     <a data-testid="ficha-mapa-link" href={mapaLink} target="_blank" rel="noopener noreferrer"
-                      style={{ fontSize: 13, color: GOLD, fontWeight: 600, textDecoration: 'none' }}>Abrir no mapa ↗</a>
+                      style={{ fontSize: 13, color: GOLD, fontWeight: 600, textDecoration: 'none' }}>Abrir no mapa →</a>
                   )}
                 </div>
               </div>

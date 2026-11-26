@@ -54,8 +54,10 @@ CREATE POLICY sugestao_msg_sel ON public.sugestao_mensagem
     )
   );
 
--- 3) view da fila expõe o sinal novo (CREATE OR REPLACE — só acrescenta a coluna) -------------------
-CREATE OR REPLACE VIEW public.v_sugestao_fila AS
+-- 3) view da fila expõe o sinal novo (CREATE OR REPLACE — acrescenta a coluna)
+-- RD-79: CREATE OR REPLACE VIEW sem WITH reseta reloptions e desliga security_invoker (vaza chamados entre
+-- empresas via authenticated). Reaplica security_invoker=true inline (conserto-main gilberto-esteira 23/11).
+CREATE OR REPLACE VIEW public.v_sugestao_fila WITH (security_invoker = true) AS
  SELECT s.id,
     s.company_id,
     c.nome_fantasia AS empresa,
