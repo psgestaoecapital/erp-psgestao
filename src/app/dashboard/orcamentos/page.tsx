@@ -13,6 +13,8 @@ import { useCompanyIds } from "@/lib/useCompanyIds";
 import ServicoAutocomplete, { type ServicoSelecionado } from "@/components/comum/ServicoAutocomplete";
 import ServicoEngenhariaAutocomplete, { type ServicoEngSelecionado } from "@/components/comum/ServicoEngenhariaAutocomplete";
 import NumeracaoConfigModal from "@/components/orcamento/NumeracaoConfigModal";
+import BuscaItemUnificada, { type ResultadoBusca } from "@/components/orcamento/BuscaItemUnificada";
+import { FinalizarOrcamentoModal, type OrcParaFinalizar } from "@/components/orcamento/FinalizarOrcamentoModal";
 import AnexosCard from "@/components/crm/AnexosCard";
 import { erroAmigavel } from "@/lib/erroAmigavel";
 
@@ -175,6 +177,10 @@ export default function OrcamentosPage(){
   const [bdiPct,setBdiPct]=useState(0);
   const [temProjetos,setTemProjetos]=useState(false);
   const [podeAlterarPreco,setPodeAlterarPreco]=useState(true);
+  // Busca unificada (CEO 24/11): item escolhido vira linha do tipo certo reusando os selecionar* existentes.
+  const [pendingPick,setPendingPick]=useState<{idx:number;r:ResultadoBusca}|null>(null);
+  // Finalização (CEO 24/11): painel pós-salvar (imprimir/enviar). Nunca envia sozinho.
+  const [finalizarOrc,setFinalizarOrc]=useState<OrcParaFinalizar|null>(null);
 
   // Empresa individual para novos orçamentos
   const companyIdParaCadastro = useMemo(()=>{
@@ -566,6 +572,25 @@ export default function OrcamentosPage(){
     novosItens[idx]={...novosItens[idx],servico_id:undefined,servico_codigo:'',servico_descricao:'',produto_nome:''};
     setItens(novosItens);
   };
+  // Busca unificada: cria a linha do tipo certo e deixa o efeito abaixo chamar o selecionar* correspondente
+  // (reuso exato da lógica de preço/BDI/ISS já existente — não recria nada).
+  const adicionarPorBusca=(r:ResultadoBusca)=>{
+    const idx=itens.length;
+    const base = r.tipo==='produto'?EMPTY_ITEM : r.tipo==='catalogo'?EMPTY_ITEM_SERVICO_ENG : EMPTY_ITEM_SERVICO;
+    setItens(prev=>[...prev,{...base,ordem:prev.length+1}]);
+    setPendingPick({idx,r});
+  };
+  useEffect(()=>{
+    if(!pendingPick)return;
+    const {idx,r}=pendingPick;
+    if(itens.length>idx){
+      if(r.tipo==='produto')selecionarProduto(idx,r.produto);
+      else if(r.tipo==='servico')selecionarServico(idx,r.servico);
+      else selecionarServicoEng(idx,r.eng);
+      setPendingPick(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[itens,pendingPick]);
   const removerItem=(idx:number)=>setItens(itens.filter((_,i)=>i!==idx).map((it,i)=>({...it,ordem:i+1})));
   
   const atualizarItem=(idx:number,campo:keyof ItemOrc,valor:any)=>{
@@ -729,6 +754,8 @@ export default function OrcamentosPage(){
     setPdfNovo(null);setPdfValor("");
 
     setMsg(`✅ Orçamento ${form.numero} ${editing?'atualizado':'criado'}!${avisoPdf}`);
+    // Finalização (CEO 24/11): oferece imprimir/enviar. Salvar já está feito; enviar é opcional.
+    if(orcId)setFinalizarOrc({id:String(orcId),numero:String(form.numero||""),hash_publico:form.hash_publico||null,cliente_nome:form.cliente_nome||null,cliente_email:form.cliente_email||null,cliente_telefone:form.cliente_telefone||null});
     setShowForm(false);setEditing(null);setPermEdit(null);loadOrcamentos();
     setTimeout(()=>setMsg(""),3000);
   };
@@ -1102,13 +1129,22 @@ export default function OrcamentosPage(){
           )}
 
           {/* Itens */}
+          {/* Busca unificada (CEO 24/11): um campo só acha em Catálogo · Serviço fiscal · Produto — o usuário não precisa saber o tipo antes. */}
+          <div style={{marginBottom:10}}>
+            <BuscaItemUnificada companyId={companyIdParaCadastro} produtos={produtosCache} onPick={adicionarPorBusca} />
+            <div style={{display:"flex",flexWrap:"wrap",gap:12,marginTop:5,fontSize:10,color:TXD}}>
+              <span style={{display:"inline-flex",alignItems:"center",gap:3}}>Catálogo<AjudaCampo chave="orcamentos.item.fonte_catalogo" rota="/dashboard/orcamentos"/></span>
+              <span style={{display:"inline-flex",alignItems:"center",gap:3}}>Serviço fiscal<AjudaCampo chave="orcamentos.item.fonte_servico" rota="/dashboard/orcamentos"/></span>
+              <span style={{display:"inline-flex",alignItems:"center",gap:3}}>Produto<AjudaCampo chave="orcamentos.item.fonte_produto" rota="/dashboard/orcamentos"/></span>
+            </div>
+          </div>
           <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span>📦 Itens do Orçamento</span>
             <div style={{display:"flex",gap:6}}>
               <button onClick={addItem} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>+ Produto</button>
               <button onClick={addItemServico} data-testid="orc-add-servico" style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:P+"15",color:P,border:`1px solid ${P}40`,cursor:"pointer",fontWeight:600}}>+ Serviço</button>
               {temProjetos && (
-                <button onClick={addItemServicoEng} data-testid="orc-add-servico-eng" title={`Serviço do catálogo de engenharia (preço = custo + BDI ${bdiPct}%)`} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:"#7C3AED15",color:"#7C3AED",border:`1px solid #7C3AED40`,cursor:"pointer",fontWeight:600}}>+ Serviço eng.</button>
+                <button onClick={addItemServicoEng} data-testid="orc-add-servico-eng" title={`Serviço que você cadastrou no Catálogo, com composição de custo (CPU) e BDI (preço = custo + BDI ${bdiPct}%)`} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:"#7C3AED15",color:"#7C3AED",border:`1px solid #7C3AED40`,cursor:"pointer",fontWeight:600}}>+ Serviço do catálogo</button>
               )}
               {/* Despesa/omisso (Diego/FC) — custo indireto que fecha o orçamento. Genérico p/ todo prestador de campo. */}
               <button onClick={addItemDespesa} data-testid="orc-add-despesa" title="Custo indireto/omisso: hospedagem, alimentação, deslocamento/mobilização, equipamento, diárias..." style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:"#B4530915",color:"#B45309",border:"1px solid #B4530940",cursor:"pointer",fontWeight:600}}>+ Despesa/Omisso</button>
@@ -1493,6 +1529,8 @@ export default function OrcamentosPage(){
       )}
 
       <div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:20}}>PS Gestão e Capital — Orçamentos v1.0 · Link público · Histórico · IA de preço em breve</div>
+
+      {finalizarOrc && <FinalizarOrcamentoModal orc={finalizarOrc} onClose={()=>setFinalizarOrc(null)} />}
     </div>
   );
 }

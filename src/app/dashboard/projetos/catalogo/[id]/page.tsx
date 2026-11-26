@@ -222,6 +222,13 @@ export default function ServicoEditorPage({
   const precoVenda = preview?.preco_venda ?? custoTotal * (1 + (bdiPct ?? 0) / 100);
   const margemMinima = config?.margem_minima_pct ?? null;
 
+  // Material na composição, mas custo R$ 0: os produtos/insumos não têm preço de custo cadastrado,
+  // então o material não soma no custo total (chamado #11274 — "o custo só puxa da mão de obra").
+  // Avisa em linguagem do usuário em vez de mostrar um total baixo em silêncio (RD-98).
+  const validacaoResumo =
+    data?.validacao && !Array.isArray(data.validacao) ? data.validacao : null;
+  const materialSemCusto = (validacaoResumo?.tem_material ?? false) && custoMaterial === 0;
+
   function pctOf(v: number, total: number) {
     if (!total) return 0;
     return (v / total) * 100;
@@ -588,6 +595,13 @@ export default function ServicoEditorPage({
                 {servico.unidade && (
                   <p className="mt-0.5 text-right text-xs text-[#3D2314]/60">
                     por {servico.unidade}
+                  </p>
+                )}
+                {materialSemCusto && (
+                  <p className="mt-3 rounded-lg bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
+                    Há material na composição, mas o custo dele está R$ 0,00 — por isso o custo total só
+                    soma a mão de obra. Cadastre o preço de custo dos produtos/insumos usados para o
+                    material entrar na conta.
                   </p>
                 )}
               </div>
