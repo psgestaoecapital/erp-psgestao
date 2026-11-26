@@ -413,7 +413,7 @@ function ModalEntradaEstoque({
         <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 22, fontWeight: 400, margin: '4px 0 16px' }}>Entrada de Estoque</h2>
         {erro && <div style={{ background: '#fce8e8', color: C.red, padding: '10px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
 
-        <Field label="EPI *">
+        <Field label="EPI *" ajuda={<AjudaCampo chave="compliance.epi.estoque.entrada_epi" rota={ROTA} />}>
           <select value={catalogoId} onChange={(e) => setCatalogoId(e.target.value)} style={inputStyle}>
             <option value="">Selecione…</option>
             {catalogo.filter((c) => !c.is_global).length > 0 && (
@@ -433,8 +433,8 @@ function ModalEntradaEstoque({
           </select>
         </Field>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10 }}>
-          <Field label="Quantidade *"><input type="number" min={1} value={quantidade} onChange={(e) => setQuantidade(parseInt(e.target.value) || 1)} style={inputStyle} /></Field>
-          <Field label="Localização *"><input value={localizacao} onChange={(e) => setLocalizacao(e.target.value)} placeholder="Ex: Almoxarifado Sede" style={inputStyle} /></Field>
+          <Field label="Quantidade *" ajuda={<AjudaCampo chave="compliance.epi.estoque.entrada_quantidade" rota={ROTA} />}><input type="number" min={1} value={quantidade} onChange={(e) => setQuantidade(parseInt(e.target.value) || 1)} style={inputStyle} /></Field>
+          <Field label="Localização *" ajuda={<AjudaCampo chave="compliance.epi.estoque.entrada_localizacao" rota={ROTA} />}><input value={localizacao} onChange={(e) => setLocalizacao(e.target.value)} placeholder="Ex: Almoxarifado Sede" style={inputStyle} /></Field>
         </div>
         <p style={{ fontSize: 11, color: C.muted, margin: '8px 0 0', lineHeight: 1.5 }}>
           O lote do EPI é registrado por movimento (na entrega ao funcionário), seguindo NR-6. Para o estoque controlamos saldo agregado por EPI + localização.
@@ -473,7 +473,7 @@ function ModalEditarMinimo({ row, onClose, onSaved }: { row: EstoqueRow; onClose
         <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, margin: '0 0 12px' }}>Editar mínimo de alerta</h3>
         <p style={{ fontSize: 12, color: C.muted, margin: '0 0 12px' }}>{row.catalogo_nome} · {row.localizacao}</p>
         {erro && <div style={{ background: '#fce8e8', color: C.red, padding: '8px 10px', borderRadius: 8, marginBottom: 10, fontSize: 12 }}>{erro}</div>}
-        <Field label="Quantidade mínima de alerta">
+        <Field label="Quantidade mínima de alerta" ajuda={<AjudaCampo chave="compliance.epi.estoque.minimo_alerta" rota={ROTA} />}>
           <input type="number" min={0} value={valor} onChange={(e) => setValor(parseInt(e.target.value) || 0)} style={inputStyle} autoFocus />
         </Field>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
@@ -542,8 +542,8 @@ function ModalBaixarEstoque({ row, onClose, onSaved }: { row: EstoqueRow; onClos
   )
 }
 
-function Field({ label, children }: { label: string; children: any }) {
-  return <div style={{ marginBottom: 10 }}><label style={labelStyle}>{label}</label>{children}</div>
+function Field({ label, children, ajuda }: { label: string; children: any; ajuda?: React.ReactNode }) {
+  return <div style={{ marginBottom: 10 }}><label style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center', gap: 6 }}>{label}{ajuda}</label>{children}</div>
 }
 
 function Th({ children, align }: { children: any; align?: 'left' | 'center' | 'right' }) {

@@ -127,8 +127,8 @@ export async function POST(req: NextRequest) {
       .select('id', { count: 'exact', head: true })
       .eq('company_id', companyId!)
       .eq('provider', 'omie')
-    await supabaseAdmin.from('omie_imports').delete().eq('company_id', companyId!).eq('import_type', 'nfse')
-    await supabaseAdmin.from('omie_imports').insert({
+    // marca a última importação (um registro por company×import_type): atualiza o existente, senão insere — sem apagar nada.
+    const marca = {
       company_id: companyId,
       import_type: 'nfse',
       record_count: totalNfse ?? r.inseridas + r.atualizadas,
@@ -137,7 +137,12 @@ export async function POST(req: NextRequest) {
         proxima_pagina: proxima,
         total_omie: r.total_omie,
       },
-    })
+    }
+    const { data: atualizados } = await supabaseAdmin.from('omie_imports')
+      .update(marca).eq('company_id', companyId!).eq('import_type', 'nfse').select('id')
+    if (!atualizados || atualizados.length === 0) {
+      await supabaseAdmin.from('omie_imports').insert(marca)
+    }
   }
 
   // Em dry_run, diagnostica a 1ª nota (mapeia? quais chaves tem?) sem gravar — pin do nome real dos campos do OMIE.
