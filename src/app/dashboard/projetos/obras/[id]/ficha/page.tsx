@@ -32,7 +32,12 @@ const EDIFICACAO = [
   { v: 'misto', l: 'Misto' },
 ]
 
-type Ficha = { ok: boolean; numero?: string; nome?: string | null; cliente_nome?: string | null; tipo_execucao?: string | null; modelo_contratacao?: string | null; matricula?: string | null; inscricao_imobiliaria?: string | null; tipo_edificacao?: string | null; area_construida_m2?: number | null; area_terreno_m2?: number | null; endereco?: string | null; bairro?: string | null; cidade?: string | null; uf?: string | null; cep?: string | null; erro?: string }
+const ART_RRT = [
+  { v: 'ART', l: 'ART — Anotação de Responsabilidade Técnica (engenharia · CREA)' },
+  { v: 'RRT', l: 'RRT — Registro de Responsabilidade Técnica (arquitetura · CAU)' },
+]
+
+type Ficha = { ok: boolean; numero?: string; nome?: string | null; cliente_nome?: string | null; tipo_execucao?: string | null; modelo_contratacao?: string | null; matricula?: string | null; inscricao_imobiliaria?: string | null; tipo_edificacao?: string | null; area_construida_m2?: number | null; area_terreno_m2?: number | null; endereco?: string | null; bairro?: string | null; cidade?: string | null; uf?: string | null; cep?: string | null; responsavel_tecnico_nome?: string | null; responsavel_tecnico_registro?: string | null; art_rrt_tipo?: string | null; art_rrt_numero?: string | null; erro?: string }
 
 export default function FichaObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -53,14 +58,20 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [cidade, setCidade] = useState('')
   const [uf, setUf] = useState('')
   const [cep, setCep] = useState('')
+  const [respNome, setRespNome] = useState('')
+  const [respRegistro, setRespRegistro] = useState('')
+  const [artTipo, setArtTipo] = useState('')
+  const [artNumero, setArtNumero] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [busyId, setBusyId] = useState(false)
   const [busyEnd, setBusyEnd] = useState(false)
+  const [busyRt, setBusyRt] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [ok, setOk] = useState(false)
   const [okId, setOkId] = useState(false)
   const [okEnd, setOkEnd] = useState(false)
+  const [okRt, setOkRt] = useState(false)
   // Localização no mapa (tela 314 crit. h): pino lat/long derivado do CEP, sem migration.
   const [coord, setCoord] = useState<{ lat: number; lon: number } | null>(null)
   const [mapaMsg, setMapaMsg] = useState<string | null>(null)
@@ -94,6 +105,13 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     if (e && e.ok) {
       setEndereco(e.endereco ?? ''); setBairro(e.bairro ?? ''); setCidade(e.cidade ?? '')
       setUf(e.uf ?? ''); setCep(e.cep ?? '')
+    }
+    // Responsável técnico vem de um leitor próprio (collision-free; fn_obra_ficha_ler não é tocado por esta fatia)
+    const { data: rtData } = await supabase.rpc('fn_obra_ficha_resptec_ler', { p_obra_id: id })
+    const r = rtData as Ficha | null
+    if (r && r.ok) {
+      setRespNome(r.responsavel_tecnico_nome ?? ''); setRespRegistro(r.responsavel_tecnico_registro ?? '')
+      setArtTipo(r.art_rrt_tipo ?? ''); setArtNumero(r.art_rrt_numero ?? '')
     }
     // Resumo da regularização (alvará e licenças) a partir do dado real. Falha aqui não derruba a ficha.
     try {
@@ -172,6 +190,18 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     const j = data as Ficha | null
     if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar o endereço da obra.')); return }
     setOkEnd(true)
+  }
+
+  const salvarRespTecnico = async () => {
+    setBusyRt(true); setErro(null); setOkRt(false)
+    const { data, error } = await supabase.rpc('fn_obra_ficha_resptec_salvar', {
+      p_obra_id: id, p_responsavel_tecnico_nome: respNome || null, p_responsavel_tecnico_registro: respRegistro || null,
+      p_art_rrt_tipo: artTipo || null, p_art_rrt_numero: artNumero || null,
+    })
+    setBusyRt(false)
+    const j = data as Ficha | null
+    if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar o responsável técnico.')); return }
+    setOkRt(true)
   }
 
   // dd/mm/aaaa a partir de 'YYYY-MM-DD' (sem fuso: a validade é uma data, não um instante).
@@ -329,6 +359,41 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                 </div>
               </div>
 
+              {/* Responsável técnico — profissional, registro (CREA/CAU) e ART/RRT da obra (tela 314 "ficha da obra") */}
+              <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 14 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700 }}>Responsável técnico</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Responsável técnico<AjudaCampo chave="projetos.obra_ficha.resp_tecnico_nome" rota={ROTA} /></span>
+                    <input data-testid="ficha-resp-tecnico-nome" style={campo} value={respNome} placeholder="Engenheiro ou arquiteto" onChange={(e) => { setRespNome(e.target.value); setOkRt(false) }} />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Registro profissional (CREA/CAU)<AjudaCampo chave="projetos.obra_ficha.resp_tecnico_registro" rota={ROTA} /></span>
+                    <input data-testid="ficha-resp-tecnico-registro" style={campo} value={respRegistro} placeholder="Ex.: CREA-SC 123456-7" onChange={(e) => { setRespRegistro(e.target.value); setOkRt(false) }} />
+                  </label>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Tipo (ART/RRT)<AjudaCampo chave="projetos.obra_ficha.art_rrt_tipo" rota={ROTA} /></span>
+                    <select data-testid="ficha-art-rrt-tipo" style={campo} value={artTipo} onChange={(e) => { setArtTipo(e.target.value); setOkRt(false) }}>
+                      <option value="">Não informado</option>
+                      {ART_RRT.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Número da ART/RRT<AjudaCampo chave="projetos.obra_ficha.art_rrt_numero" rota={ROTA} /></span>
+                    <input data-testid="ficha-art-rrt-numero" style={campo} value={artNumero} placeholder="Número do documento" onChange={(e) => { setArtNumero(e.target.value); setOkRt(false) }} />
+                  </label>
+                </div>
+                {okRt && <div data-testid="ficha-resp-tecnico-ok" style={{ background: '#EAF6EC', color: VERDE, borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 600 }}>Responsável técnico salvo.</div>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button data-testid="ficha-salvar-resp-tecnico" disabled={busyRt} onClick={() => void salvarRespTecnico()}
+                    style={{ flex: 1, padding: '12px 16px', borderRadius: 8, border: 'none', background: ESP, color: '#fff', fontSize: 14, fontWeight: 700, cursor: busyRt ? 'wait' : 'pointer' }}>
+                    {busyRt ? 'Salvando…' : 'Salvar responsável técnico'}
+                  </button>
+                  <AjudaCampo chave="projetos.obra_ficha.salvar_resp_tecnico" rota={ROTA} />
+                </div>
+              </div>
               {/* Regularização (alvará e licenças) — tela 314 "Na ficha: alvará e licenças com validade, CNO, ARTs e RRTs".
                   Resumo do dado real (fn_obra_licenca_listar); o detalhe e o cadastro ficam na Regularização da obra. */}
               <div data-testid="ficha-regularizacao" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 12 }}>
