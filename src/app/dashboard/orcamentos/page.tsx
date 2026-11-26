@@ -605,6 +605,42 @@ export default function OrcamentosPage(){
       return arr.map((it,i)=>({...it,ordem:i+1}));
     });
   };
+  // Arrastar (CEO 26/11): move o item de `from` para `to` SÓ dentro da mesma seção (principal × omisso),
+  // igual aos botões ▲/▼; regrava ordem. Pointer events (mouse + toque), pegando no "pega" (⠿).
+  const reordenarArrastar=(from:number,to:number)=>{
+    setItens(prev=>{
+      if(from===to||from<0||to<0||from>=prev.length||to>=prev.length)return prev;
+      if((prev[from].tipo_item==='despesa')!==(prev[to].tipo_item==='despesa'))return prev; // não cruza seção
+      const arr=[...prev];
+      const [m]=arr.splice(from,1);
+      arr.splice(to,0,m);
+      return arr.map((it,i)=>({...it,ordem:i+1}));
+    });
+  };
+  const [arrasto,setArrasto]=useState<{from:number;over:number}|null>(null);
+  const arrastoRef=useRef<{from:number;over:number}|null>(null);
+  const iniciarArrasto=(e:React.PointerEvent,idx:number)=>{
+    e.preventDefault();
+    try{(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);}catch{/* sem suporte */}
+    arrastoRef.current={from:idx,over:idx};
+    setArrasto({from:idx,over:idx});
+    const mover=(ev:PointerEvent)=>{
+      const alvo=(document.elementFromPoint(ev.clientX,ev.clientY) as HTMLElement|null)?.closest('[data-item-idx]') as HTMLElement|null;
+      if(!alvo)return;
+      const over=Number(alvo.getAttribute('data-item-idx'));
+      if(Number.isNaN(over))return;
+      const a=arrastoRef.current; if(!a||a.over===over)return;
+      arrastoRef.current={from:a.from,over}; setArrasto({from:a.from,over});
+    };
+    const soltar=()=>{
+      document.removeEventListener('pointermove',mover);
+      document.removeEventListener('pointerup',soltar);
+      const a=arrastoRef.current; arrastoRef.current=null; setArrasto(null);
+      if(a&&a.over!==a.from)reordenarArrastar(a.from,a.over);
+    };
+    document.addEventListener('pointermove',mover);
+    document.addEventListener('pointerup',soltar);
+  };
   
   const atualizarItem=(idx:number,campo:keyof ItemOrc,valor:any)=>{
     const novosItens=[...itens];
@@ -1180,8 +1216,10 @@ export default function OrcamentosPage(){
                   <button onClick={addItemDespesa} data-testid="orc-add-despesa" style={{fontSize:10,padding:"3px 10px",borderRadius:6,background:"#B4530915",color:"#B45309",border:"1px solid #B4530940",cursor:"pointer",fontWeight:600}}>+ adicionar omisso</button>
                 </div>
               )}
-              <div style={{display:"grid",gridTemplateColumns:"54px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",padding:"4px 0",borderBottom:`0.5px solid ${BD}`,position:"relative"}}>
+              <div data-item-idx={idx} data-item-grupo={it.tipo_item==='despesa'?'d':'p'} style={{display:"grid",gridTemplateColumns:"54px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",padding:"4px 0",borderBottom:`0.5px solid ${BD}`,position:"relative",opacity:arrasto?.from===idx?0.4:1,borderTop:(arrasto&&arrasto.over===idx&&arrasto.from!==idx)?`2px solid ${GO}`:undefined,background:(arrasto&&arrasto.over===idx&&arrasto.from!==idx)?GO+"0F":undefined}}>
                 <div style={{fontSize:10,color:TXD,textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                  {/* "pega" de arrastar (CEO 26/11): pointer events = mouse + toque; touchAction:none evita brigar com o scroll */}
+                  <button onPointerDown={(e)=>iniciarArrasto(e,idx)} title="Arrastar para reordenar" aria-label="Arrastar para reordenar" style={{background:"none",border:"none",cursor:arrasto?.from===idx?"grabbing":"grab",fontSize:12,color:TXD,lineHeight:1,padding:0,touchAction:"none"}}>⠿</button>
                   <div style={{display:"flex",gap:3}}>
                     <button onClick={()=>moverItem(idx,-1)} title="Subir" aria-label="Subir item" style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:TXD,lineHeight:1,padding:0}}>▲</button>
                     <button onClick={()=>moverItem(idx,1)} title="Descer" aria-label="Descer item" style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:TXD,lineHeight:1,padding:0}}>▼</button>
