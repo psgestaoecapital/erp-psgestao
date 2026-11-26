@@ -146,3 +146,97 @@ END $function$;
 -- ci-sem-guarda: fn_demo_seed_industria_nr36 — seed SÓ-DEMO, empresa fixa b0700000-…-005 + guarda is_demo (RD-69); não é ação de usuário.
 REVOKE ALL ON FUNCTION public.fn_demo_seed_industria_nr36(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_demo_seed_industria_nr36(uuid) TO authenticated, service_role;
+
+-- ── CAUSA 2 do @pos vermelho (tarefa do Eng. Chefe d831f6b4) ──────────────────────────────────────────────────
+-- O passo (1) do seed NR-36 chama fn_demo_seed_industria_ponto, que fazia DELETE FÍSICO em ind_ponto_marcacao E
+-- ind_ponto_dia para ser idempotente — mas AMBAS as tabelas têm o trigger RD-30 (trg_bloqueia_delete_fisico), que
+-- recusa delete físico → o fn_demo_reset abortava do mesmo jeito. Correção (sem apagar, como o Eng. Chefe pediu):
+--   • ind_ponto_dia: o INSERT já tem ON CONFLICT (company_id,cpf,data) DO UPDATE → idempotente; o DELETE é removido.
+--   • ind_ponto_marcacao: não tem soft-delete e a unique é (company_id,point_id) (que o seed não popula), então a
+--     idempotência passa a ser REAPROVEITAR as marcações existentes — INSERT com WHERE NOT EXISTS por (cpf,dia).
+--     As 4 batidas têm datetime DETERMINÍSTICO (3 fixas + saída por hash estável de cpf+dia), então reaproveitar é
+--     equivalente a recriar. Núcleo de ponto intacto; só a função de DEMO fn_demo_seed_industria_ponto muda.
+-- Corpo idêntico ao vivo (pg_get_functiondef) exceto: remoção dos 2 DELETE e o WHERE NOT EXISTS na marcação.
+CREATE OR REPLACE FUNCTION public.fn_demo_seed_industria_ponto(p_company_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  c        constant uuid := 'b0700000-0000-4000-a000-000000000005';
+  v_shift  constant text := '07:30-11:30 12:30-16:30';
+  v_planta uuid;
+  v_ini    date;
+  v_fim    date;
+  v_dias   int := 0;
+  v_marc   int := 0;
+  v_ins    int;
+  r_col    record;
+  d        date;
+  v_extra  int;
+  v_saida  int;
+  v_worked int;
+BEGIN
+  IF p_company_id IS DISTINCT FROM c THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'so_empresa_demo_industria');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM companies WHERE id = c AND is_demo IS TRUE) THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'nao_e_demo');
+  END IF;
+
+  SELECT id INTO v_planta FROM industrial_plants WHERE company_id = c AND codigo_planta = 'DEMO-SST';
+
+  v_ini := (date_trunc('month', current_date) - interval '1 month')::date;
+  v_fim := current_date;
+
+  -- SEM DELETE FÍSICO (RD-30 bloqueia): idempotência por ON CONFLICT (ind_ponto_dia) e NOT EXISTS (marcação).
+  FOR r_col IN
+    SELECT cpf, nome, matricula, departamento FROM ind_ponto_colaborador WHERE company_id = c
+  LOOP
+    d := v_ini;
+    WHILE d <= v_fim LOOP
+      IF extract(isodow FROM d) < 6 THEN
+        v_extra  := ((hashtextextended(r_col.cpf || d::text, 0) % 61) + 61) % 61 - 10;
+        v_saida  := 16 * 60 + 30 + v_extra;
+        v_worked := (240 + (v_saida - (12 * 60 + 30))) * 60;
+
+        INSERT INTO ind_ponto_dia
+          (company_id, plant_id, cpf, registration_number, data, shift, worked_seconds, department,
+           total_pontos, tem_ajuste, sincronizado_em)
+        VALUES
+          (c, v_planta, r_col.cpf, COALESCE(r_col.matricula, 'D' || right(r_col.cpf, 4)), d, v_shift, v_worked,
+           r_col.departamento, 4, false, now())
+        ON CONFLICT (company_id, cpf, data) DO UPDATE
+          SET worked_seconds = EXCLUDED.worked_seconds, shift = EXCLUDED.shift, total_pontos = EXCLUDED.total_pontos,
+              department = EXCLUDED.department, registration_number = EXCLUDED.registration_number,
+              tem_ajuste = EXCLUDED.tem_ajuste, sincronizado_em = now();
+        v_dias := v_dias + 1;
+
+        INSERT INTO ind_ponto_marcacao
+          (company_id, plant_id, cpf, data, datetime, hora, method, origin, is_adjusted, has_audit_photo, sincronizado_em)
+        SELECT c, v_planta, r_col.cpf, d,
+               (d::timestamp + make_interval(mins => m)) AT TIME ZONE 'America/Sao_Paulo',
+               (make_interval(mins => m))::time,
+               'Manual', 'Lançamento manual', false, false, now()
+        FROM (VALUES (7 * 60 + 30), (11 * 60 + 30), (12 * 60 + 30), (v_saida)) AS t(m)
+        WHERE NOT EXISTS (
+          SELECT 1 FROM ind_ponto_marcacao x WHERE x.company_id = c AND x.cpf = r_col.cpf AND x.data = d
+        );
+        GET DIAGNOSTICS v_ins = ROW_COUNT;
+        v_marc := v_marc + v_ins;
+      END IF;
+      d := d + 1;
+    END LOOP;
+  END LOOP;
+
+  RETURN jsonb_build_object('ok', true, 'bloco', 'industria_ponto',
+    'janela',        jsonb_build_object('de', v_ini, 'ate', v_fim),
+    'colaboradores', (SELECT count(*) FROM ind_ponto_colaborador WHERE company_id = c),
+    'dias',          v_dias,
+    'marcacoes',     v_marc);
+END $function$;
+
+-- ci-sem-guarda: fn_demo_seed_industria_ponto — seed SÓ-DEMO, empresa fixa b0700000-…-005 + guarda is_demo (RD-69); não é ação de usuário.
+REVOKE ALL ON FUNCTION public.fn_demo_seed_industria_ponto(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_seed_industria_ponto(uuid) TO authenticated, service_role;
