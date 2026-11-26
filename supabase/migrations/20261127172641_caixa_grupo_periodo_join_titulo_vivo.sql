@@ -100,3 +100,7 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'ini', p_ini, 'fim', p_fim, 'por_empresa', v_empresas, 'consolidado', v_cons);
 END;
 $function$;
+
+-- Guarda (check_fn_guards): CREATE OR REPLACE reseta grants — refaz REVOKE anon + GRANT.
+REVOKE ALL ON FUNCTION public.fn_caixa_grupo_periodo(uuid[], date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_caixa_grupo_periodo(uuid[], date, date) TO authenticated, service_role;
