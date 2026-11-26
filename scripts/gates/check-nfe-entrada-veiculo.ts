@@ -50,7 +50,9 @@ ok(/CFOP/.test(pega(() => montarItemVeiculoEntrada({ ...base, perfil: { ...base.
 // a rota força prévia (sem transmitir) e o builder tem o ramo da entrada
 const rota = readFileSync('src/app/api/fiscal/nfe/emitir/route.ts', 'utf8')
 const builder = readFileSync('src/lib/fiscal/nfe-builder.ts', 'utf8')
-ok(/entradaVeiculoId/.test(rota) && /apenas PRÉVIA neste marco/.test(rota), 'rota: entrada só em prévia (recusa emissão real)')
+// #9787 marco 3: a entrada só transmite com a operação LIBERADA no perfil (emite_nfe_autorizada, padrão false);
+// sem a liberação continua só prévia.
+ok(/entradaVeiculoId/.test(rota) && /!body\.apenasPrevia && entradaVeic\.perfil\.operacao\.emiteNfeAutorizada !== true/.test(rota), 'rota: entrada só em prévia, salvo operação liberada (emite_nfe_autorizada)')
 ok(/input\.entradaVeiculo/.test(builder) && /montarItemVeiculoEntrada/.test(builder), 'builder: ramo entradaVeiculo monta pelo perfil')
 
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
