@@ -32,6 +32,10 @@ BEGIN
   RETURN NEW;
 END $$;
 
+-- Função de gatilho (só roda em contexto de trigger); fechada a não-logados por higiene do gate.
+REVOKE ALL ON FUNCTION public.fn_psgc_dre_guarda_corte() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_psgc_dre_guarda_corte() TO authenticated, service_role;
+
 DROP TRIGGER IF EXISTS trg_psgc_dre_guarda_corte ON public.psgc_dre;
 CREATE TRIGGER trg_psgc_dre_guarda_corte BEFORE INSERT OR UPDATE ON public.psgc_dre
   FOR EACH ROW EXECUTE FUNCTION public.fn_psgc_dre_guarda_corte();
