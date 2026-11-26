@@ -105,6 +105,6 @@ BEGIN
 END;
 $function$;
 
--- Somente usuário logado (a guarda de empresa + plano decide o acesso efetivo). REVOKE de anon via PUBLIC.
-REVOKE ALL ON FUNCTION public.fn_ge_razao_contas(uuid, date, date) FROM PUBLIC;
+-- Somente usuário logado (a guarda de empresa + plano decide o acesso efetivo). REVOKE anon explícito (gate check_fn_guards).
+REVOKE ALL ON FUNCTION public.fn_ge_razao_contas(uuid, date, date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_ge_razao_contas(uuid, date, date) TO authenticated, service_role;
