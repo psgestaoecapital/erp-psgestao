@@ -37,6 +37,10 @@ interface Servico {
   unidade: string | null;
   produtividade_unidade_dia: number | null;
   equipe_padrao: string | null;
+  produtividade_pessoa: number | null;
+  produtividade_base: "hora" | "dia" | null;
+  jornada_horas_dia: number | null;
+  equipe_pessoas: number | null;
   observacoes: string | null;
   ativo: boolean | null;
   is_publico: boolean | null;
@@ -502,6 +506,61 @@ export default function ServicoEditorPage({
                   className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
               </div>
+              {/* Mão de obra por pessoa (CEO 26/11): produção por pessoa × nº pessoas (o sistema multiplica) */}
+              <div data-ajuda="projetos.catalogo.servico.produtividade_pessoa">
+                <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
+                  Produção por pessoa
+                  <AjudaCampo chave="projetos.catalogo.servico.produtividade_pessoa" rota={ROTA_AJUDA} />
+                </label>
+                <CampoDecimal
+                  step="0.01"
+                  value={valorAtual("produtividade_pessoa") as number | null}
+                  onChange={(n) => handleEdit("produtividade_pessoa", n)}
+                  placeholder="3"
+                  className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-right font-mono text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
+                />
+              </div>
+              <div data-ajuda="projetos.catalogo.servico.produtividade_base">
+                <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
+                  Por hora ou dia
+                  <AjudaCampo chave="projetos.catalogo.servico.produtividade_base" rota={ROTA_AJUDA} />
+                </label>
+                <select
+                  value={(valorAtual("produtividade_base") as string) ?? "dia"}
+                  onChange={(e) => handleEdit("produtividade_base", e.target.value)}
+                  aria-label="Produção por pessoa é por hora ou por dia"
+                  className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
+                >
+                  <option value="dia">por dia</option>
+                  <option value="hora">por hora</option>
+                </select>
+              </div>
+              <div data-ajuda="projetos.catalogo.servico.equipe_pessoas">
+                <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
+                  Nº de pessoas
+                  <AjudaCampo chave="projetos.catalogo.servico.equipe_pessoas" rota={ROTA_AJUDA} />
+                </label>
+                <CampoDecimal
+                  step="0.5"
+                  value={valorAtual("equipe_pessoas") as number | null}
+                  onChange={(n) => handleEdit("equipe_pessoas", n)}
+                  placeholder="8"
+                  className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-right font-mono text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
+                />
+              </div>
+              <div data-ajuda="projetos.catalogo.servico.jornada_horas_dia">
+                <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
+                  Jornada (h/dia)
+                  <AjudaCampo chave="projetos.catalogo.servico.jornada_horas_dia" rota={ROTA_AJUDA} />
+                </label>
+                <CampoDecimal
+                  step="0.5"
+                  value={valorAtual("jornada_horas_dia") as number | null}
+                  onChange={(n) => handleEdit("jornada_horas_dia", n)}
+                  placeholder="8"
+                  className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-right font-mono text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
+                />
+              </div>
             </div>
 
             <div data-ajuda="projetos.catalogo.servico.descricao" className="mt-3">
@@ -541,6 +600,10 @@ export default function ServicoEditorPage({
               equipePadrao={servico.equipe_padrao}
               unidadeServico={servico.unidade}
               diasUteisMes={config?.dias_uteis_mes ?? 22}
+              produtividadePessoa={servico.produtividade_pessoa}
+              produtividadeBase={servico.produtividade_base}
+              equipePessoas={servico.equipe_pessoas}
+              jornadaHorasDia={servico.jornada_horas_dia}
             />
           </div>
         </div>
