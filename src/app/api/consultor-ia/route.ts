@@ -59,9 +59,16 @@ export async function POST(req: NextRequest) {
   // Teto por empresa (US$1/dia) E global (US$2/dia). Bloqueado → cai nos atalhos grátis.
   try {
     const [{ data: ge }, { data: gg }] = await Promise.all([
-      admin.rpc('fn_ia_empresa_pode_gastar', { p_company_id: companyId, p_feature: FEATURE, p_custo_estimado: CUSTO_ESTIMADO }),
+      // conserto 26/11: o teto POR EMPRESA confere o acesso (get_user_company_ids/is_admin) e precisa da sessão do
+      // USUÁRIO — chamado com a service_role, auth.uid() é nulo e a função devolvia "sem acesso" (pode=false), o que
+      // aparecia como "Esta empresa atingiu o limite diário" para TODO mundo. O teto global segue pela service_role.
+      getUsuario(u.token).rpc('fn_ia_empresa_pode_gastar', { p_company_id: companyId, p_feature: FEATURE, p_custo_estimado: CUSTO_ESTIMADO }),
       admin.rpc('fn_ia_global_pode_gastar', { p_feature: FEATURE, p_custo_estimado: CUSTO_ESTIMADO }),
     ])
+    // CEO 26/11: empresa de demonstração não gasta crédito de IA — mensagem própria (não é "limite atingido").
+    if ((ge as { motivo?: string } | null)?.motivo === 'empresa_demo') {
+      return NextResponse.json({ ok: true, bloqueado: true, mensagem: 'Na empresa de demonstração o assistente com IA fica desligado (sem custo). Use os atalhos abaixo (Raio-X) — eles funcionam normalmente.' })
+    }
     const okE = (ge as { pode?: boolean } | null)?.pode, okG = (gg as { pode?: boolean } | null)?.pode
     const teto = avaliarTeto(okE, okG)
     if (teto) return NextResponse.json({ ok: true, bloqueado: true, mensagem: teto.mensagem })
@@ -91,7 +98,7 @@ export async function POST(req: NextRequest) {
 
   const sb = getUsuario(u.token)
   // adaptador explícito: isola o executor do tipo exato do client do Supabase (só precisamos de rpc → { data, error }).
-  const executarTool = fazerExecutarTool({ rpc: (fn, params) => sb.rpc(fn, params ?? {}) }, companyId)
+  const executarTool = fazerExecutarTool({ rpc: (fn, params) => sb.rpc(fn, params ?? {}) }, companyId, perguntaId)
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -112,11 +119,14 @@ export async function POST(req: NextRequest) {
         const toolResults: ToolResult[] = r.toolResults
         const custo = r.custoUsd
         const inventados = r.inventados
+        const motivoFim = r.motivoFim
 
         // registra o custo REAL
         admin.rpc('fn_ia_empresa_registrar_gasto', { p_company_id: companyId, p_feature: FEATURE, p_custo_usd: Number(custo.toFixed(6)), p_chamadas: 1 }).then(() => {}, () => {})
-        // log LGPD da pergunta (só a pergunta + se respondeu; nunca o resultado) — preserva a auditoria do roteador anterior
-        admin.from('consultor_ia_pergunta_log').insert({ company_id: companyId, user_id: u.userId || null, pergunta: pergunta.slice(0, 500), tool_escolhida: 'agente', entendeu: !!resposta }).then(() => {}, () => {})
+        // log LGPD da pergunta (só a pergunta + se respondeu; nunca o resultado) — preserva a auditoria do roteador anterior.
+        // CEO 26/11, item 4: grava o MOTIVO DO FIM (texto|max_tokens|tempo|rodadas|fallback) em tool_escolhida; `entendeu`
+        // passa a medir se o modelo redigiu de fato — como a resposta nunca mais é vazia (item 1), o sinal é o motivo != fallback.
+        admin.from('consultor_ia_pergunta_log').insert({ company_id: companyId, user_id: u.userId || null, pergunta: pergunta.slice(0, 500), tool_escolhida: 'agente/' + motivoFim, entendeu: motivoFim !== 'fallback' }).then(() => {}, () => {})
 
         // erro do sistema detectado pelo agente → fila do Eng. Chefe (erp_contexto_projeto)
         if (/erro do (próprio )?sistema|problema do sistema|equipe PS foi avisad/i.test(resposta)) {

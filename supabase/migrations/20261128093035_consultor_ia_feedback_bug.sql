@@ -52,7 +52,7 @@ BEGIN
      AND 'consultor_ia_bug' = ANY(COALESCE(tags, ARRAY[]::text[])) LIMIT 1;
   IF v_id IS NOT NULL THEN RETURN jsonb_build_object('ok', true, 'id', v_id, 'dedup', true); END IF;
   INSERT INTO public.erp_contexto_projeto (projeto, categoria, prioridade, status, titulo, descricao, refs, tags, criado_por)
-  VALUES ('consultor_ia', 'descoberta', 'alta', 'aberto', v_tit, left(p_descricao, 8000),
+  VALUES ('consultor_ia', 'descoberta', 'alta', 'ativo', v_tit, left(p_descricao, 8000),
           COALESCE(p_refs,'{}'::jsonb) || jsonb_build_object('company_id', p_company_id),
           ARRAY['consultor_ia_bug'], auth.uid())
   RETURNING id INTO v_id;
@@ -86,7 +86,7 @@ ON CONFLICT (chave) DO UPDATE SET rota = EXCLUDED.rota, grupo = EXCLUDED.grupo, 
 
 -- RD-101: registra a mudança (Consultor IA passa a mandar dados minimizados ao modelo) no contexto do projeto.
 INSERT INTO public.erp_contexto_projeto (projeto, categoria, prioridade, status, titulo, descricao, tags, criado_por)
-SELECT 'consultor_ia', 'decisao', 'alta', 'aberto',
+SELECT 'consultor_ia', 'decisao', 'alta', 'ativo',
   'RD-101 muda: Consultor IA vira agente analista (dados minimizados vão ao modelo)',
   'CEO 25/11: o Consultor IA passa a consultar o banco da empresa como o Eng. Chefe (camada semântica + fn_consultor_sql, '
   || 'parser no Node). Só os dados necessários para a pergunta vão ao provedor de IA, que não os usa para treinar. '
