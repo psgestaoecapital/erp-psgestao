@@ -28,6 +28,8 @@ import { moedaMascara, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { buscarClientesErp, nomeErp, type ErpCliente } from '@/components/pm/ClienteBusca'
 import { parseNumBR } from '@/lib/num'
 import { baixarEspelhoNFePdf } from '@/lib/fiscal/espelhoPdf'
+import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
+import { INTERMEDIACAO_CODIGO_TRIBUTACAO_NACIONAL, INTERMEDIACAO_CODIGO_LC116, INTERMEDIACAO_DESCRICAO_PADRAO } from '@/lib/fiscal/govNfseNacional'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -79,6 +81,7 @@ function Inner() {
   const [venda, setVenda] = useState<Venda | null>(null)
   const [previaEnt, setPreviaEnt] = useState<{ loading: boolean; nota?: PreviaEntradaNota; avisos?: string[]; erro?: string } | null>(null)
   const [notas, setNotas] = useState<Nota[]>([])
+  const [nfseAberto, setNfseAberto] = useState(false)   // #NFS-e · modal de emissão da nota de serviço (intermediação)
   const [compl, setCompl] = useState<Compl | null>(null)
   const [comp, setComp] = useState<Composicao | null>(null)
   const [margem, setMargem] = useState(20)
@@ -482,6 +485,38 @@ function Inner() {
             {retBusy ? 'Emitindo…' : 'Devolver ao consignante (NF-e)'}
           </button>
         </Bloco>
+      )}
+
+      {/* NFS-e Nacional · item 2+4: nota de SERVIÇO de intermediação de financiamento (retorno do banco). Só quando a
+          venda teve financiamento com banco. Reusa o emissor nacional (NFSeEmitirGovModal → /api/fiscal/nfse/emitir);
+          código de tributação 10.02.01, tomador = banco (PJ), valor = retorno do banco. CST/ISS vêm da parametrização. */}
+      {venda && (venda.banco_nome || (venda.retorno_banco ?? 0) > 0) && (
+        <Bloco titulo="Nota de serviço (NFS-e) — intermediação">
+          <div style={{ fontSize: 12, color: C.espM, marginBottom: 8 }}>
+            Emite a <b>NFS-e de intermediação</b> do financiamento (serviço 10.02.01 — agenciamento/corretagem).
+            O tomador é o <b>banco</b> {venda.banco_nome ? <b>({venda.banco_nome})</b> : null} e o valor é o <b>retorno do banco</b>
+            {venda.retorno_banco != null ? <> ({brl(venda.retorno_banco)})</> : null}. A tributação (ISS/PIS/COFINS) vem da
+            parametrização fiscal; confira no modal antes de transmitir. Teste primeiro em homologação.
+            <AjudaCampo chave="revenda.veiculo.nfse_intermediacao" rota="/dashboard/revenda/veiculo" />
+          </div>
+          <button onClick={() => setNfseAberto(true)} style={{ padding: '8px 14px', border: `1px solid ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, cursor: 'pointer' }}>
+            Emitir NFS-e de intermediação
+          </button>
+        </Bloco>
+      )}
+      {v && (
+        <NFSeEmitirGovModal
+          companyId={v.company_id}
+          aberto={nfseAberto}
+          onFechar={() => setNfseAberto(false)}
+          onEmitida={() => { setNfseAberto(false); void carregar() }}
+          descricaoServico={`${INTERMEDIACAO_DESCRICAO_PADRAO}${[v.marca, v.modelo].filter(Boolean).length ? ` — ${[v.marca, v.modelo].filter(Boolean).join(' ')}` : ''}${v.placa ? ` · ${v.placa}` : ''}`}
+          codigoServicoMunicipio={INTERMEDIACAO_CODIGO_TRIBUTACAO_NACIONAL}
+          codigoLC116={INTERMEDIACAO_CODIGO_LC116}
+          tomadorTipo={venda?.banco_nome ? 'cnpj' : undefined}
+          tomadorNome={venda?.banco_nome ?? undefined}
+          valorServicos={venda?.retorno_banco ?? undefined}
+        />
       )}
 
       {previaEnt && (previaEnt.nota || previaEnt.erro) && (
