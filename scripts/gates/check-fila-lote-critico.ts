@@ -83,9 +83,11 @@ if (!temFerramentas()) {
   console.log('… cenários pulados: jq ou git ausente neste ambiente (as partes 1 e 2 continuam valendo)')
 } else {
   comFilaSimulada((rodar) => {
-    // crítica BATELÁVEL: revisao-eng-chefe + autorizada + migration, SQL estrutural (não cai no carve-out).
+    // crítica BATELÁVEL: revisao-eng-chefe + autorizada + migration. Conteúdo CRÍTICO por si (CREATE OR REPLACE VIEW muda
+    // leitura existente) e BATELÁVEL (não-fiscal) — continua crítica mesmo após o item A (CEO 25/11), que só rebaixa a
+    // migration ADITIVA de PR autorizada. (Antes era `create function`, que o item A passaria a tratar como aditiva.)
     const crit = (n: number) => ({ n, labels: ['revisao-eng-chefe'], autorizada: true, migration: true,
-      sqlMigration: `create function fn_nova_${n}() returns void language sql as $$ select 1 $$;` })
+      sqlMigration: `create or replace view public.v_lote_${n} as select ${n} as x;` })
     // crítica SOLO: conteúdo fiscal.
     const solo = (n: number) => ({ n, labels: ['revisao-eng-chefe'], autorizada: true, migration: true,
       sqlMigration: `insert into nfe_lote(id) values (${n});` })
