@@ -35,13 +35,15 @@ export default function PainelGestorPage() {
       const [j, h, eq] = await Promise.all([
         supabase.from("agency_jobs").select("id, numero, titulo, status, prioridade, cliente_id, campanha_id, responsavel_id, servico_id, tipo, data_inicio, data_prazo, data_entrega, created_at, updated_at, rodada_ajuste, horas_estimadas, horas_realizadas").eq("company_id", empresa).is("excluido_em", null).limit(5000),
         supabase.from("agency_timesheet").select("user_id, data, horas").eq("company_id", empresa).gte("data", desde).limit(50000),
-        supabase.rpc("fn_usuarios_da_empresa", { p_company_id: empresa }),
+        // Equipe da própria agência (agency_equipe), não todos os usuários da empresa (que inclui
+        // BPO/consultoria). user_id = login vinculado, usado para casar com o apontamento.
+        supabase.from("agency_equipe").select("id, user_id, nome").eq("company_id", empresa).eq("ativo", true).is("excluido_em", null).order("nome"),
       ]);
       if (!vivo) return;
       if (j.error) { console.error("painel-gestor: falha ao carregar jobs", j.error); setErro("Não foi possível carregar os jobs. Tente novamente."); setCarregando(false); return; }
       setJobs((j.data ?? []) as JobPainel[]);
       setHoras((h.data ?? []) as HoraDia[]);
-      setEquipe(((eq.data ?? []) as { id: string; full_name: string | null; email: string | null }[]).map((u) => ({ id: u.id, nome: u.full_name || u.email || "Usuário" })));
+      setEquipe(((eq.data ?? []) as { id: string; user_id: string | null; nome: string | null }[]).map((u) => ({ id: u.id, nome: u.nome || "Pessoa", userId: u.user_id })));
       setCarregando(false);
     })();
     return () => { vivo = false; };
@@ -51,7 +53,7 @@ export default function PainelGestorPage() {
   const cob = useMemo(() => { const w = janelaDias(dias, hoje); return cobertura(equipe, horas, w.de, w.ate); }, [equipe, horas, dias, hoje]);
   const sem = useMemo(() => jobsSemHoras(jobs, hoje), [jobs, hoje]);
   const alertas = useMemo(() => alertasEstimado(jobs, hoje), [jobs, hoje]);
-  const nome = (id: string | null) => equipe.find((p) => p.id === id)?.nome ?? "—";
+  const nome = (id: string | null) => equipe.find((p) => p.id === id || p.userId === id)?.nome ?? "—";
   const comApontamento = cob.filter((c) => !c.semApontar).length;
 
   // Filtro da lista "Jobs sem horas" (aud8: lista extensa sem filtro). O contador do título
