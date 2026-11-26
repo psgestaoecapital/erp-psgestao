@@ -55,8 +55,11 @@ async function main() {
     })
     m.restaurar()
     ok(r.rounds === 12 && r.limiteRodadas === true, `loop corta no teto de 12 rodadas (rounds=${r.rounds}, limiteRodadas=${r.limiteRodadas})`)
-    ok(r.tokens.output === 12 * 50 && r.custoUsd > 0, `custo medido pelos tokens REAIS da API (output=${r.tokens.output}, custo=${r.custoUsd.toFixed(5)})`)
+    // 12 rodadas de ferramenta (50 cada) + 1 chamada final SEM ferramentas (nunca-vazio) = 13×50 de saída.
+    ok(r.tokens.output === 13 * 50 && r.custoUsd > 0, `custo medido pelos tokens REAIS da API, incl. a chamada final (output=${r.tokens.output}, custo=${r.custoUsd.toFixed(5)})`)
     ok(passos.length === 12, `5) streaming: um passo em linguagem do usuário por rodada (passos=${passos.length})`)
+    // P0 cliente piloto 26/11: mesmo cortando no teto, NUNCA devolve vazio (chamada final + resposta mínima).
+    ok(r.resposta.trim().length > 0 && r.motivoFim === 'minima', `nunca termina vazio no corte (resposta não-vazia, motivoFim=${r.motivoFim})`)
   }
 
   // ── loop normal: tool_use → tool_result → texto final ─────────────────────────────────────────────────────────
@@ -111,7 +114,7 @@ async function main() {
     let passada = 0
     const rodarMock = async (p: { pergunta: string; maxRounds?: number }): Promise<ResultadoAgente> => {
       passada++
-      const base = { toolResults: [{ nome: 'listagem', input: {}, saida: { dados: [{ total: 143.52 }] } }], custoUsd: 0.01, rounds: 1, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, limiteTempo: false, limiteRodadas: false }
+      const base = { toolResults: [{ nome: 'listagem', input: {}, saida: { dados: [{ total: 143.52 }] } }], custoUsd: 0.01, rounds: 1, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, limiteTempo: false, limiteRodadas: false, motivoFim: 'ok' as const }
       if (passada === 1) return { ...base, resposta: 'A empresa tem R$ 999,00 a receber.' } // 999,00 não existe nos dados
       return { ...base, resposta: 'A empresa tem R$ 143,52 a receber.' }                     // revisão: usa só o dado
     }
@@ -124,7 +127,7 @@ async function main() {
     // valor inventado que PERSISTE mesmo após refazer → entra em `inventados` (tela mostra "confira estes valores")
     const rodarTeimoso = async (): Promise<ResultadoAgente> => ({
       resposta: 'O saldo é R$ 777,00.', toolResults: [{ nome: 'raio_x', input: {}, saida: { dados: [{ x: 1 }] } }],
-      custoUsd: 0.01, rounds: 1, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, limiteTempo: false, limiteRodadas: false,
+      custoUsd: 0.01, rounds: 1, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, limiteTempo: false, limiteRodadas: false, motivoFim: 'ok' as const,
     })
     const r2 = await analisarComTrava({ pergunta: 'q', historico: [], rodar: rodarTeimoso })
     ok(r2.refez === true && r2.inventados.includes('777.00'), 'número que persiste após refazer é devolvido como "a conferir"')

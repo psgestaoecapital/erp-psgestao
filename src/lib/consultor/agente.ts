@@ -23,6 +23,8 @@ export type ResultadoAgente = {
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }
   limiteTempo: boolean
   limiteRodadas: boolean
+  // motivo do fim do raciocínio — para o log e para diagnosticar "resposta vazia" (P0 cliente piloto 26/11)
+  motivoFim: 'ok' | 'max_tokens' | 'tempo' | 'rodadas' | 'erro' | 'minima'
 }
 
 // ── ferramentas expostas ao modelo ───────────────────────────────────────────
@@ -123,6 +125,9 @@ export async function rodarAgente(opts: {
 }): Promise<ResultadoAgente> {
   const maxRounds = opts.maxRounds ?? 12
   const prazoMs = opts.prazoMs ?? 90_000
+  // P0 cliente piloto 26/11: 1500 cortava a redação no meio de um tool_use (stop_reason=max_tokens) e a resposta saía
+  // vazia ("Não consegui formular uma resposta"). 4000 dá folga para a resposta final.
+  const MAX_TOKENS = 4000
   const t0 = Date.now()
 
   const system: SystemBlock[] = [
@@ -154,7 +159,7 @@ export async function rodarAgente(opts: {
         'x-api-key': opts.apiKey,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({ model: opts.modelo, max_tokens: 1500, system, tools: FERRAMENTAS, messages }),
+      body: JSON.stringify({ model: opts.modelo, max_tokens: MAX_TOKENS, system, tools: FERRAMENTAS, messages }),
     })
     if (!res.ok) {
       const txt = await res.text().catch(() => '')
@@ -192,9 +197,71 @@ export async function rodarAgente(opts: {
     if (i === maxRounds - 1) limiteRodadas = true
   }
 
+  // motivo do fim (para log/diagnóstico). 'ok' = o modelo encerrou com texto por conta própria.
+  let motivoFim: ResultadoAgente['motivoFim'] = resposta.trim() ? 'ok' : limiteTempo ? 'tempo' : limiteRodadas ? 'rodadas' : 'max_tokens'
+
+  // NUNCA terminar vazio (P0 cliente piloto 26/11): se o loop acabou sem texto (max_tokens no meio de um tool_use,
+  // prazo, rodadas ou erro de ferramenta), faz UMA chamada final SEM ferramentas pedindo a resposta com o que já foi
+  // consultado. Não conta como "rodada" de raciocínio (rounds fica no laço de ferramentas), mas o custo é somado.
+  if (!resposta.trim()) {
+    const motivo = limiteTempo ? 'o tempo da consulta acabou' : limiteRodadas ? 'o limite de consultas foi atingido' : 'a resposta anterior foi cortada'
+    messages.push({ role: 'user', content:
+      `Responda agora ao cliente, em português claro, usando SOMENTE os dados que você já consultou acima (${motivo}). ` +
+      `Não peça novas consultas. Dê a resposta direta e o porquê, com os valores e as datas que apareceram. ` +
+      `Se os dados não bastarem para concluir, diga de forma objetiva o que foi encontrado e qual o próximo passo.` })
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': opts.apiKey, 'anthropic-version': '2023-06-01' },
+        // SEM tools: o modelo é obrigado a redigir texto com o que já tem.
+        body: JSON.stringify({ model: opts.modelo, max_tokens: MAX_TOKENS, system, messages }),
+      })
+      if (res.ok) {
+        const resp = (await res.json()) as { content: AnthropicBlock[]; usage?: Record<string, number> }
+        const u = resp.usage ?? {}
+        tokens.input += u.input_tokens ?? 0
+        tokens.output += u.output_tokens ?? 0
+        tokens.cacheRead += u.cache_read_input_tokens ?? 0
+        tokens.cacheWrite += u.cache_creation_input_tokens ?? 0
+        const blocos = Array.isArray(resp.content) ? resp.content : []
+        resposta = blocos.filter((b): b is { type: 'text'; text: string } => b.type === 'text').map((b) => b.text).join('\n').trim()
+      }
+    } catch { /* cai na resposta mínima determinística abaixo */ }
+  }
+
+  // Último recurso: nunca devolver vazio. Monta uma resposta mínima a partir do que as ferramentas trouxeram.
+  if (!resposta.trim()) {
+    resposta = montarRespostaMinima(toolResults)
+    motivoFim = 'minima'
+  }
+
   return {
-    resposta, toolResults, rounds, tokens, limiteTempo, limiteRodadas,
+    resposta, toolResults, rounds, tokens, limiteTempo, limiteRodadas, motivoFim,
     custoUsd: custoUsd(opts.modelo, tokens),
+  }
+}
+
+// Resposta mínima determinística (sem IA) quando até a chamada final falhou — honesta, nunca vazia.
+function montarRespostaMinima(trs: ToolResult[]): string {
+  const comDados = trs.filter((t) => t.saida != null && !(t.saida as { erro?: unknown }).erro)
+  if (comDados.length === 0) {
+    return 'Consultei seus dados, mas não consegui concluir a resposta agora. Tente perguntar de novo em instantes — ou use os atalhos abaixo, que não têm custo.'
+  }
+  const nomes = Array.from(new Set(comDados.map((t) => rotuloFerramenta(t.nome)))).join(', ')
+  return `Consultei ${nomes} e encontrei dados relevantes, mas não consegui redigir a explicação completa desta vez. ` +
+    `Abra "Ver os dados" para conferir os números e, se precisar, pergunte de novo em instantes.`
+}
+
+function rotuloFerramenta(nome: string): string {
+  switch (nome) {
+    case 'consultar_dados': return 'seus lançamentos'
+    case 'situacao_parceiro': return 'a situação do cliente/fornecedor'
+    case 'raio_x': return 'o raio-X financeiro'
+    case 'divergencia_saldo': return 'a divergência de saldo com o banco'
+    case 'lancamentos_detalhe': return 'o detalhe dos lançamentos'
+    case 'saldo_contas': return 'o saldo das contas'
+    case 'listagem': return 'a listagem de contas'
+    default: return 'seus dados'
   }
 }
 
