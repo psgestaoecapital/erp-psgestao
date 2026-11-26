@@ -277,13 +277,23 @@ export default function ServicoEditorPage({
       await carregar({ soft: true });
     } catch (e: any) {
       // Nunca expor mensagem crua do banco (RD-51): traduzir para linguagem do usuário.
-      const raw = String(e?.message ?? "");
+      // Lê message + details (o nome da constraint costuma vir em details) para identificar o motivo real.
+      const raw = `${String(e?.message ?? "")} ${String(e?.details ?? "")}`;
+      const code = String(e?.code ?? "");
+      // Código duplicado por empresa (índice único projetos_servicos_codigo_unico). Caminho do chamado #11470:
+      // duplicar serviço gera código "-COPIA"; ao editar o código para um já existente, o UPDATE cai em 23505 e
+      // antes mostrava só "Não foi possível salvar", sem dizer o porquê (RD-98: erro em linguagem do usuário).
+      const codigoDuplicado =
+        /projetos_servicos_codigo_unico/i.test(raw) ||
+        (code === "23505" && /duplicate key|já existe|chave duplicada/i.test(raw));
       setErro(
-        /unidade/i.test(raw)
-          ? "Informe a unidade de medida do serviço (m², m, un)."
-          : /violates not-null|null value in column/i.test(raw)
-            ? "Preencha os campos obrigatórios: código, nome e unidade."
-            : "Não foi possível salvar. Tente novamente.",
+        codigoDuplicado
+          ? "Já existe um serviço com esse código nesta empresa. Troque o código e salve de novo."
+          : /unidade/i.test(raw)
+            ? "Informe a unidade de medida do serviço (m², m, un)."
+            : /violates not-null|null value in column/i.test(raw)
+              ? "Preencha os campos obrigatórios: código, nome e unidade."
+              : "Não foi possível salvar. Tente novamente.",
       );
     } finally {
       setSalvandoMeta(false);
