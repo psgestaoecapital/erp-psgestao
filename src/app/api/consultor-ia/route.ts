@@ -171,6 +171,16 @@ export async function POST(req: NextRequest) {
 
         if (!textoFinal) textoFinal = 'Não consegui montar a resposta agora. Tente reformular a pergunta ou use um atalho abaixo.'
 
+        // Erro do SISTEMA detectado pelo agente → registra em erp_contexto_projeto p/ a equipe PS (RD-38: evidência).
+        if (/erro do sistema|equipe PS foi avisad/i.test(textoFinal)) {
+          admin.from('erp_contexto_projeto').insert({
+            projeto: 'erp', categoria: 'descoberta', prioridade: 'media', status: 'aberto',
+            titulo: 'Consultor IA: possível erro do sistema relatado ao usuário',
+            descricao: `Empresa ${companyId}. Pergunta: "${pergunta.slice(0, 300)}". O agente indicou erro do sistema. Trecho: ${textoFinal.slice(0, 600)}`,
+            criado_por: 'consultor_ia', tags: ['consultor_ia_bug'],
+          }).then(() => {}, () => {})
+        }
+
         // Custo REAL pelos tokens → registra o gasto da empresa (await: serverless pode morrer antes de gravar).
         const custo = custoUsd(modelo, uso)
         try { await admin.rpc('fn_ia_empresa_registrar_gasto', { p_company_id: companyId, p_feature: FEATURE, p_custo_usd: custo, p_chamadas: 1 }) } catch { /* não bloqueia a resposta */ }

@@ -71,8 +71,9 @@ export default function ConsultorIAPage() {
   const { companyId } = useEmpresaSelecionada();
   const empresa = companyId ?? "";
   const empresaRef = useRef(empresa);
-  const sessaoRef = useRef<string>("");
-  if (!sessaoRef.current) sessaoRef.current = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now());
+  // id de sessão gerado UMA vez (initializer do useState — puro para a render; o ref só expõe o valor).
+  const [sessaoId] = useState<string>(() => (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `s-${Math.random().toString(36).slice(2)}`);
+  const sessaoRef = useRef<string>(sessaoId);
   const [empresaInfo, setEmpresaInfo] = useState<{ nome: string; cnpj: string } | null>(null);
   const [pergunta, setPergunta] = useState("");
   const [nomeParceiro, setNomeParceiro] = useState("");
