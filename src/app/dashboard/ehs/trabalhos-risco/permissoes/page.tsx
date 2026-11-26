@@ -122,8 +122,8 @@ export default function PermissoesTrabalhoPage() {
         .order('criado_em', { ascending: false })
       if (error) throw error
       setLista((data || []) as PT[])
-    } catch (e: any) {
-      setErro(e?.message || 'Falha ao carregar as permissões de trabalho')
+    } catch {
+      setErro('Não foi possível carregar as permissões de trabalho. Tente novamente em instantes.')
     } finally {
       setLoading(false)
     }
@@ -145,14 +145,13 @@ export default function PermissoesTrabalhoPage() {
     if (motivo === null) return
     if (!motivo.trim()) { alert('Informe o motivo para desativar.'); return }
     try {
-      const { error } = await supabase
-        .from('ehs_permissao_trabalho')
-        .update({ ativo: false, observacoes: ((p.observacoes ? p.observacoes + ' ' : '') + `[desativada: ${motivo.trim()}]`).slice(0, 2000), atualizado_em: new Date().toISOString() })
-        .eq('id', p.id)
+      // RD-98 p3/p4: soft-delete rastreável via RPC com guarda (nunca escrita direta na tabela)
+      const { data, error } = await supabase.rpc('fn_ehs_pt_desativar', { p_id: p.id, p_motivo: motivo.trim() })
       if (error) throw error
+      if (data && data.ok === false) { alert(msgErroPt(data.erro)); return }
       carregar()
-    } catch (e: any) {
-      alert(e?.message || 'Falha ao desativar')
+    } catch {
+      alert('Não foi possível desativar a permissão agora. Tente novamente em instantes.')
     }
   }
 
@@ -316,41 +315,33 @@ function PTFormModal({ companyId, pt, onClose, onSaved }: { companyId: string; p
     setSalvando(true)
     setErro(null)
     try {
-      const campos = {
-        numero: numero.trim() || null,
-        tipo,
-        titulo: titulo.trim(),
-        descricao: descricao.trim() || null,
-        local: local.trim() || null,
-        setor: setor.trim() || null,
-        data_inicio: dataInicio ? new Date(dataInicio).toISOString() : null,
-        data_fim: dataFim ? new Date(dataFim).toISOString() : null,
-        responsavel_emissao: responsavel.trim() || null,
-        executantes: executantes.trim() || null,
-        status,
-        observacoes: observacoes.trim() || null,
-      }
-      let ptId = pt?.id
-      if (ptId) {
-        const { error } = await supabase.from('ehs_permissao_trabalho')
-          .update({ ...campos, atualizado_em: new Date().toISOString() }).eq('id', ptId)
-        if (error) throw error
-        const { error: delErr } = await supabase.from('ehs_pt_medida').delete().eq('pt_id', ptId)
-        if (delErr) throw delErr
-      } else {
-        const { data, error } = await supabase.from('ehs_permissao_trabalho')
-          .insert({ company_id: companyId, ...campos }).select('id').single()
-        if (error) throw error
-        ptId = data!.id
-      }
-      if (linhas.length > 0) {
-        const payload = linhas.map((m, i) => ({ company_id: companyId, pt_id: ptId, ordem: i + 1, descricao: m.descricao, atendido: m.atendido }))
-        const { error: insErr } = await supabase.from('ehs_pt_medida').insert(payload)
-        if (insErr) throw insErr
-      }
+      // RD-98 p3/p4: criação/edição + medidas via RPC com guarda. Medida removida vira soft-delete
+      // rastreável dentro da RPC (nunca DELETE físico de ehs_pt_medida).
+      const p_medidas = linhas.map((m, i) => ({
+        id: m.id ?? null, descricao: m.descricao, atendido: m.atendido, ordem: i + 1,
+      }))
+      const { data, error } = await supabase.rpc('fn_ehs_pt_salvar', {
+        p_company_id: companyId,
+        p_id: pt?.id ?? null,
+        p_tipo: tipo,
+        p_titulo: titulo.trim(),
+        p_numero: numero.trim() || null,
+        p_descricao: descricao.trim() || null,
+        p_local: local.trim() || null,
+        p_setor: setor.trim() || null,
+        p_data_inicio: dataInicio ? new Date(dataInicio).toISOString() : null,
+        p_data_fim: dataFim ? new Date(dataFim).toISOString() : null,
+        p_responsavel_emissao: responsavel.trim() || null,
+        p_executantes: executantes.trim() || null,
+        p_status: status,
+        p_observacoes: observacoes.trim() || null,
+        p_medidas,
+      })
+      if (error) throw error
+      if (data && data.ok === false) { setErro(msgErroPt(data.erro)); setSalvando(false); return }
       onSaved()
-    } catch (e: any) {
-      setErro(e?.message || 'Falha ao salvar a permissão')
+    } catch {
+      setErro('Não foi possível salvar a permissão agora. Tente novamente em instantes.')
       setSalvando(false)
     }
   }
@@ -464,6 +455,21 @@ function PTFormModal({ companyId, pt, onClose, onSaved }: { companyId: string; p
       </div>
     </div>
   )
+}
+
+// Mensagens em linguagem do usuário para os códigos de erro das RPCs (RD-98 critério e: nunca erro cru do banco)
+function msgErroPt(code?: string): string {
+  switch (code) {
+    case 'sem_acesso': return 'Você não tem acesso a esta empresa.'
+    case 'titulo_obrigatorio': return 'Informe a tarefa (título) da permissão.'
+    case 'tipo_invalido': return 'Selecione um tipo de trabalho válido.'
+    case 'status_invalido': return 'Selecione uma situação válida.'
+    case 'periodo_invalido': return 'O fim da validade não pode ser antes do início.'
+    case 'motivo_obrigatorio': return 'Informe o motivo para desativar.'
+    case 'pt_nao_encontrada': return 'Esta permissão de trabalho não foi encontrada. Atualize a lista e tente de novo.'
+    case 'empresa_divergente': return 'Esta permissão pertence a outra empresa.'
+    default: return 'Não foi possível concluir a operação. Tente novamente em instantes.'
+  }
 }
 
 const thLabel: React.CSSProperties = { display: 'inline-flex', alignItems: 'center' }
