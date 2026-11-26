@@ -123,7 +123,7 @@ export default function PermissoesTrabalhoPage() {
       if (error) throw error
       setLista((data || []) as PT[])
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao carregar as permissões de trabalho')
+      setErro(mensagemErro(e, 'Não foi possível carregar as permissões de trabalho.'))
     } finally {
       setLoading(false)
     }
@@ -145,14 +145,13 @@ export default function PermissoesTrabalhoPage() {
     if (motivo === null) return
     if (!motivo.trim()) { alert('Informe o motivo para desativar.'); return }
     try {
-      const { error } = await supabase
-        .from('ehs_permissao_trabalho')
-        .update({ ativo: false, observacoes: ((p.observacoes ? p.observacoes + ' ' : '') + `[desativada: ${motivo.trim()}]`).slice(0, 2000), atualizado_em: new Date().toISOString() })
-        .eq('id', p.id)
+      // RD-98 p3: escrita via RPC com guarda por empresa + audit (nunca direto na tabela).
+      const { data, error } = await supabase.rpc('fn_ehs_pt_desativar', { p_id: p.id, p_motivo: motivo.trim() })
       if (error) throw error
+      if (data && (data as any).ok === false) { alert((data as any).erro || 'Não foi possível desativar a permissão.'); return }
       carregar()
     } catch (e: any) {
-      alert(e?.message || 'Falha ao desativar')
+      alert(mensagemErro(e, 'Não foi possível desativar a permissão.'))
     }
   }
 
@@ -330,27 +329,29 @@ function PTFormModal({ companyId, pt, onClose, onSaved }: { companyId: string; p
         status,
         observacoes: observacoes.trim() || null,
       }
-      let ptId = pt?.id
-      if (ptId) {
-        const { error } = await supabase.from('ehs_permissao_trabalho')
-          .update({ ...campos, atualizado_em: new Date().toISOString() }).eq('id', ptId)
-        if (error) throw error
-        const { error: delErr } = await supabase.from('ehs_pt_medida').delete().eq('pt_id', ptId)
-        if (delErr) throw delErr
-      } else {
-        const { data, error } = await supabase.from('ehs_permissao_trabalho')
-          .insert({ company_id: companyId, ...campos }).select('id').single()
-        if (error) throw error
-        ptId = data!.id
-      }
-      if (linhas.length > 0) {
-        const payload = linhas.map((m, i) => ({ company_id: companyId, pt_id: ptId, ordem: i + 1, descricao: m.descricao, atendido: m.atendido }))
-        const { error: insErr } = await supabase.from('ehs_pt_medida').insert(payload)
-        if (insErr) throw insErr
+      // RD-98 p3/p4: criar/editar PT + medidas via RPC com guarda; as medidas removidas viram
+      // SOFT-DELETE (ativo=false) dentro da função — nunca DELETE físico pelo cliente.
+      const medidasPayload = linhas.map((m, i) => ({
+        id: m.id ?? null,
+        descricao: m.descricao,
+        atendido: !!m.atendido,
+        ordem: i + 1,
+      }))
+      const { data, error } = await supabase.rpc('fn_ehs_pt_salvar', {
+        p_company_id: companyId,
+        p_id: pt?.id ?? null,
+        p_dados: campos,
+        p_medidas: medidasPayload,
+      })
+      if (error) throw error
+      if (data && (data as any).ok === false) {
+        setErro((data as any).erro || 'Não foi possível salvar a permissão.')
+        setSalvando(false)
+        return
       }
       onSaved()
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao salvar a permissão')
+      setErro(mensagemErro(e, 'Não foi possível salvar a permissão.'))
       setSalvando(false)
     }
   }
@@ -464,6 +465,19 @@ function PTFormModal({ companyId, pt, onClose, onSaved }: { companyId: string; p
       </div>
     </div>
   )
+}
+
+// Erro em linguagem do usuário (RD-98 critério e) — nunca o erro cru do banco.
+function mensagemErro(e: any, fallback: string): string {
+  const raw = (e?.message ?? '').toString()
+  const mapa: Array<[string, string]> = [
+    ['titulo_obrigatorio', 'Informe a tarefa (título) da permissão.'],
+    ['periodo_invalido', 'O fim da validade não pode ser antes do início.'],
+    ['pt_invalida', 'Permissão de trabalho não encontrada.'],
+    ['sem_acesso', 'Você não tem acesso a esta empresa.'],
+  ]
+  for (const [chave, texto] of mapa) if (raw.includes(chave)) return texto
+  return fallback
 }
 
 const thLabel: React.CSSProperties = { display: 'inline-flex', alignItems: 'center' }
