@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { ParaTratarHoje } from "@/components/financeiro/ParaTratarHoje";
+import Link from "next/link";
 
 const ROTA = "/dashboard/financeiro/caixa-grupo";
 const BG = "var(--ps-bg,#FAF7F2)", BG2 = "var(--ps-bg2,#FFFFFF)", BG3 = "var(--ps-bg3,#F0ECE3)";
@@ -60,6 +61,9 @@ type PeriodoVals = { recebido_bruto: number; pago_bruto: number; a_receber_abert
 type PeriodoEmpresa = PeriodoVals & { company_id: string; nome: string };
 type RespPeriodo = { ok: boolean; ini: string; fim: string; por_empresa: PeriodoEmpresa[]; consolidado: PeriodoVals };
 type PeriodoKey = "hoje" | "d7" | "semana" | "mes" | "custom";
+// Raio-X financeiro (Fase 1) — fn_fin_inconsistencias: diagnóstico SQL barato (sem LLM), escopado à empresa do usuário.
+type Achado = { tipo: string; severidade: "alta" | "media" | "baixa"; empresa?: string; conta?: string; descricao: string; valor?: number; data?: string; ids?: string[]; onboarding?: boolean; como_resolver?: string };
+type RaioX = { ok: boolean; achados: Achado[]; n: number };
 
 export default function CaixaGrupoPage() {
   const { companyIds, selInfo, companies } = useCompanyIds();
@@ -82,6 +86,7 @@ export default function CaixaGrupoPage() {
   const [data, setData] = useState<string>(hojeISO());
   const [resp, setResp] = useState<Resp | null>(null);
   const [respPer, setRespPer] = useState<RespPeriodo | null>(null);
+  const [raiox, setRaiox] = useState<RaioX | null>(null);
   const [periodo, setPeriodo] = useState<PeriodoKey>("mes");
   const [customIni, setCustomIni] = useState<string>(() => primeiroDoMes(hojeISO()));
   const [loading, setLoading] = useState(true);
@@ -106,13 +111,15 @@ export default function CaixaGrupoPage() {
     setLoading(true); setErro(null);
     const ids = companyIdsKey.split(",");
     // saldo na data final (fn_caixa_grupo_dia) + fluxo bruto do período (fn_caixa_grupo_periodo) em paralelo.
-    const [diaRes, perRes] = await Promise.all([
+    const [diaRes, perRes, rxRes] = await Promise.all([
       supabase.rpc("fn_caixa_grupo_dia", { p_company_ids: ids, p_data: fim }),
       supabase.rpc("fn_caixa_grupo_periodo", { p_company_ids: ids, p_ini: ini, p_fim: fim }),
+      supabase.rpc("fn_fin_inconsistencias", { p_company_ids: ids, p_ini: ini, p_fim: fim }), // raio-x (barato, sem LLM)
     ]);
-    if (diaRes.error) { setErro("Não foi possível carregar o caixa do grupo. Tente de novo."); setResp(null); setRespPer(null); setLoading(false); return; }
+    if (diaRes.error) { setErro("Não foi possível carregar o caixa do grupo. Tente de novo."); setResp(null); setRespPer(null); setRaiox(null); setLoading(false); return; }
     setResp(diaRes.data as Resp);
     setRespPer(perRes.error ? null : (perRes.data as RespPeriodo));
+    setRaiox(rxRes.error ? null : (rxRes.data as RaioX));
     setLoading(false);
   }, [companyIdsKey, ini, fim]);
 
@@ -206,13 +213,23 @@ export default function CaixaGrupoPage() {
       {/* Para tratar hoje — o que o financeiro precisa resolver no dia (CEO 12/11) */}
       <ParaTratarHoje companyIds={effectiveIds} data={data} multiEmpresa={multi} />
 
-      {/* Resumo do dia */}
-      {resp?.consolidado && (
-        <div style={{ background: `linear-gradient(90deg, ${GO}14, transparent)`, border: `1px solid ${GO}40`, borderRadius: 12, padding: "14px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span title={resp.resumo} style={{ fontSize: 15, fontWeight: 600, color: TX }}>{montarResumoCompacto(resp.consolidado, resp.atrasados_n)}</span>
-          <AjudaCampo chave="financeiro.caixa_grupo.resumo" rota={ROTA} />
-        </div>
-      )}
+      {/* Resumo do período — "Entrou/saiu" = títulos LIQUIDADOS no intervalo (recebido/pago bruto do período,
+          fn_caixa_grupo_periodo), não só o movimento da data final. Antes usava o consolidado do DIA (fim), que
+          mostrava "Entrou R$ 0,00, saiu R$ 0,00" quando nada era liquidado exatamente na data final, mesmo com
+          movimento no mês (bug go-live 25/11). "Caixa do grupo" segue sendo o saldo na data final (posição). */}
+      {resp?.consolidado && (() => {
+        const entradasPer = Number(respPer?.consolidado?.recebido_bruto ?? resp.consolidado.entradas) || 0;
+        const saidasPer = Number(respPer?.consolidado?.pago_bruto ?? resp.consolidado.saidas) || 0;
+        const consResumo = { ...resp.consolidado, entradas: entradasPer, saidas: saidasPer };
+        const tituloExato = `Entrou ${brl(entradasPer)}, saiu ${brl(saidasPer)}, caixa do grupo ${brl(resp.consolidado.saldo_final)}` +
+          (resp.atrasados_n > 0 ? `, ${resp.atrasados_n} título(s) atrasado(s).` : ", nenhum título atrasado.");
+        return (
+          <div style={{ background: `linear-gradient(90deg, ${GO}14, transparent)`, border: `1px solid ${GO}40`, borderRadius: 12, padding: "14px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span title={tituloExato} style={{ fontSize: 15, fontWeight: 600, color: TX }}>{montarResumoCompacto(consResumo, resp.atrasados_n)}</span>
+            <AjudaCampo chave="financeiro.caixa_grupo.resumo" rota={ROTA} />
+          </div>
+        );
+      })()}
 
       {loading ? (
         <div style={{ padding: 50, textAlign: "center", color: TXD }}>Carregando o caixa do grupo…</div>
@@ -222,6 +239,50 @@ export default function CaixaGrupoPage() {
         </div>
       ) : (
         <>
+          {/* Raio-X financeiro (Fase 1): diagnóstico barato (SQL, sem LLM) das inconsistências do período. */}
+          {raiox && (() => {
+            const corSev = (s: string) => (s === "alta" ? VERM : s === "media" ? GO : TXD);
+            const ajudaTipo = (t: string) => t === "saldo_divergente" ? "financeiro.raiox.saldo_divergente"
+              : t.startsWith("baixa_sem_conta") ? "financeiro.raiox.baixa_sem_conta"
+              : t.endsWith("vencido_antigo") ? "financeiro.raiox.vencido_antigo" : "financeiro.raiox.bloco";
+            return (
+              <div data-testid="raiox" style={{ background: BG2, border: `1px solid ${raiox.n > 0 ? GO : BD}`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
+                <div style={{ display: "inline-flex", alignItems: "center", fontSize: 13, fontWeight: 700, color: TX }}>
+                  Raio-X financeiro{raiox.n > 0 ? ` — ${raiox.n} inconsistência${raiox.n > 1 ? "s" : ""}` : ""}<AjudaCampo chave="financeiro.raiox.bloco" rota={ROTA} />
+                </div>
+                {raiox.n === 0 ? (
+                  <div style={{ fontSize: 13, color: VERDE, marginTop: 6 }}>✓ Nada divergente no período.</div>
+                ) : (
+                  <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                    {[...raiox.achados].sort((a, b) => ({ alta: 0, media: 1, baixa: 2 }[a.severidade] - { alta: 0, media: 1, baixa: 2 }[b.severidade])).map((a, i) => (
+                      <div key={i} style={{ borderLeft: `3px solid ${corSev(a.severidade)}`, background: BG, borderRadius: 8, padding: "8px 12px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: corSev(a.severidade) }}>{a.severidade}</span>
+                          {(a.conta || a.empresa) && <b style={{ fontSize: 13, color: TX }}>{a.conta || a.empresa}</b>}
+                          <span style={{ fontSize: 13, color: TX }}>{a.descricao}</span>
+                          {a.valor != null && <span style={{ fontSize: 13, fontWeight: 700, color: corSev(a.severidade), fontVariantNumeric: "tabular-nums" }}>{brl(a.valor)}</span>}
+                          {a.onboarding && <span style={{ fontSize: 10, color: TXD }}>(saldo inicial lançado no período)</span>}
+                          <AjudaCampo chave={ajudaTipo(a.tipo)} rota={ROTA} />
+                        </div>
+                        {a.como_resolver && <div style={{ fontSize: 11.5, color: TXM, marginTop: 3 }}>{a.como_resolver}{a.tipo !== "saldo_divergente" && a.ids && a.ids.length ? ` · ${a.ids.length} lançamento(s)` : ""}</div>}
+                        {/* Item #5 go-live (CEO 25/11): saldo divergente → botão direto à conciliação DAQUELA conta,
+                            com a diferença (a.valor) explicada. O conta_id vem em a.ids[0] (fn_fin_inconsistencias). */}
+                        {a.tipo === "saldo_divergente" && a.ids && a.ids.length > 0 && (
+                          <Link
+                            href={`/dashboard/financeiro/conciliacao/inbox?conta=${encodeURIComponent(a.ids[0])}${a.valor != null ? `&dif=${encodeURIComponent(String(a.valor))}` : ""}`}
+                            data-testid="raiox-conciliar-conta"
+                            style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 6, fontSize: 12, fontWeight: 700, color: GO, textDecoration: "none" }}
+                          >
+                            Conciliar esta conta →
+                          </Link>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {/* Dois blocos (RD-96): Fluxo do período (acumulado no intervalo) × Posição em aberto (saldo na data final). */}
           {cons && (() => {
             const vR = resp?.vence?.receber, vP = resp?.vence?.pagar;
