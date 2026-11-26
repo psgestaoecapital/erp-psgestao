@@ -610,6 +610,19 @@ export default function ServicoEditorPage({
               produtividadeBase={servico.produtividade_base}
               equipePessoas={servico.equipe_pessoas}
               jornadaHorasDia={servico.jornada_horas_dia}
+              onProdutividadeServico={async (v) => {
+                // CEO 26/11: o card grava os valores no serviço (fonte única) → ao reabrir, pré-preenche;
+                // e o formulário do serviço reflete os mesmos valores.
+                if (!servico) return;
+                const supabase = supabaseBrowser();
+                await supabase.from("projetos_servicos").update({
+                  produtividade_pessoa: v.produtividade_pessoa,
+                  produtividade_base: v.produtividade_base,
+                  equipe_pessoas: v.equipe_pessoas,
+                  jornada_horas_dia: v.jornada_horas_dia,
+                }).eq("id", servico.id);
+                await carregar({ soft: true });
+              }}
             />
           </div>
         </div>
