@@ -81,7 +81,7 @@ async function main() {
   {
     const FORCADO = '11111111-1111-4111-8111-111111111111'
     const capturado: Array<{ fn: string; params: Record<string, unknown> }> = []
-    const sbFalso: SbLike = { rpc: async (fn, params) => { capturado.push({ fn, params }); return { data: { ok: true }, error: null } } }
+    const sbFalso: SbLike = { rpc: async (fn, params) => { capturado.push({ fn, params: params ?? {} }); return { data: { ok: true }, error: null } } }
     const exec = fazerExecutarTool(sbFalso, FORCADO)
     // o modelo TENTA injetar outra empresa no input — tem de ser ignorado
     await exec('situacao_parceiro', { termo: 'Fulano', company_id: 'HACKER', p_company_id: 'HACKER', empresa: 'HACKER' })
