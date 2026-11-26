@@ -55,3 +55,8 @@ BEGIN
      'compliance_maquina', p_id::text, 'ehs_maquina_inativar',
      v_antes, jsonb_build_object('ativo', false));
 END $function$;
+
+-- Guarda estrutural (check_fn_guards · revoke_anon): SECURITY DEFINER não é rota pública.
+-- Reproduz a ACL viva (authenticated + service_role; sem anon/PUBLIC).
+REVOKE ALL ON FUNCTION public.fn_ehs_maquina_inativar(uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ehs_maquina_inativar(uuid, uuid) TO authenticated, service_role;
