@@ -76,6 +76,16 @@ export default function PropostasHubPage() {
   const [filtroNumero, setFiltroNumero] = useState('')
   const [buscaNum, setBuscaNum] = useState('')
   const [ordenar, setOrdenar] = useState('data_desc')
+
+  // Entrada vinda de um indicador do Painel do Hub (§310 "todo indicador abre a lista FILTRADA"):
+  // ?status=<situação> já abre esta lista na situação clicada. Aceita um status visível conhecido ou
+  // o valor especial 'pendente' (= rascunho OU enviado), que é exatamente o que o KPI "Propostas
+  // pendentes" do painel conta. Lido uma vez, no cliente (sem useSearchParams → sem fronteira Suspense),
+  // seguindo o mesmo padrão da lista de Obras.
+  useEffect(() => {
+    const s = new URLSearchParams(window.location.search).get('status') ?? ''
+    if (s === 'pendente' || s in STATUS) setFiltro(s)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const [editId, setEditId] = useState<string | null>(null)
   const [editNum, setEditNum] = useState('')
   const [salvandoNum, setSalvandoNum] = useState(false)
@@ -236,7 +246,12 @@ export default function PropostasHubPage() {
 
   const vis = useMemo(() => {
     const b = busca.trim().toLowerCase()
-    const fs = linhas.filter(l => (filtro === 'todos' || vstatus(l) === filtro)
+    const fs = linhas.filter(l => (filtro === 'todos'
+        // 'pendente' = rascunho OU enviado (status cru), idêntico à conta do KPI "Propostas pendentes"
+        // do painel do Hub; usa o status cru porque "Em elaboração" é só a visão de um rascunho atribuído.
+        ? true
+        : filtro === 'pendente' ? (l.status === 'rascunho' || l.status === 'enviado')
+        : vstatus(l) === filtro)
       && (!soMeus || (!!meuId && l.orcamentista_id === meuId))
       && (!b || (l.numero ?? '').toLowerCase().includes(b) || (l.cliente_nome ?? '').toLowerCase().includes(b) || (l.orcamentista_nome ?? '').toLowerCase().includes(b)))
     // Padrão (data_desc) mantém a ordem do servidor (data_emissao + created_at); as demais ordenam o conjunto carregado.
@@ -393,6 +408,7 @@ export default function PropostasHubPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <select value={filtro} onChange={e => { setFiltro(e.target.value); setMostrar(POR_PAGINA) }} style={{ padding: '8px 12px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }}>
                 <option value="todos">Todos os status</option>
+                <option value="pendente">Pendentes (rascunho ou enviado)</option>
                 {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
               <AjudaCampo chave="projetos.propostas.status" />

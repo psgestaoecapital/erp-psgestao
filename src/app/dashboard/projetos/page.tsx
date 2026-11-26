@@ -268,7 +268,7 @@ export default function PainelProjetos() {
             valor={!resumo ? "…" : resumo.margem_prevista_pct === null ? "—" : `${fmtPct(resumo.margem_prevista_pct)}`}
             href="/dashboard/projetos/obras/resultado?area=hub"
           />
-          <KpiPrincipal label="Propostas pendentes" chave="projetos.painel.kpi.propostas_pendentes" valor={resumo ? String(resumo.propostas_pendentes) : "…"} href="/dashboard/projetos/propostas" />
+          <KpiPrincipal label="Propostas pendentes" chave="projetos.painel.kpi.propostas_pendentes" valor={resumo ? String(resumo.propostas_pendentes) : "…"} href="/dashboard/projetos/propostas?status=pendente" />
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
