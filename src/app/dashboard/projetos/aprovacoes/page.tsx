@@ -33,6 +33,7 @@ type Pendente = {
   etapa: string
   ordem: number
   prazo_em: string | null
+  responsavel_user_id: string | null
   obra_id: string | null
   obra_nome: string | null
   medicao_numero: number | null
@@ -46,6 +47,7 @@ const dataBR = (s: string | null) =>
 
 export default function MinhasAprovacoesPage() {
   const [pendentes, setPendentes] = useState<Pendente[]>([])
+  const [meuId, setMeuId] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
@@ -53,7 +55,11 @@ export default function MinhasAprovacoesPage() {
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro(null)
-    const { data, error } = await supabase.rpc('fn_obra_medicao_etapa_minhas_pendentes')
+    const [{ data: userData }, { data, error }] = await Promise.all([
+      supabase.auth.getUser(),
+      supabase.rpc('fn_obra_medicao_etapa_minhas_pendentes'),
+    ])
+    setMeuId(userData?.user?.id ?? null)
     setCarregando(false)
     if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar as suas aprovações.')); return }
     const r = data as { ok?: boolean; erro?: string; pendentes?: Pendente[] } | null
@@ -62,15 +68,24 @@ export default function MinhasAprovacoesPage() {
   }, [])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
+  // "Minhas aprovações" = só as etapas sob a SUA responsabilidade (responsavel_user_id = você).
+  // A RPC devolve todas as pendentes da empresa; aqui filtramos para o título/KPI "aguardando você"
+  // baterem com a realidade e o usuário não abrir um cartão que não é dele (beco sem saída de alçada).
+  // O backend (fn_obra_medicao_etapa_decidir) segue sendo a autoridade de alçada; isto é só exibição.
+  const minhas = useMemo(
+    () => (meuId ? pendentes.filter((p) => p.responsavel_user_id === meuId) : pendentes),
+    [pendentes, meuId],
+  )
+
   const lista = useMemo(() => {
     const q = busca.trim().toLowerCase()
-    if (!q) return pendentes
-    return pendentes.filter((p) =>
+    if (!q) return minhas
+    return minhas.filter((p) =>
       (p.obra_nome ?? '').toLowerCase().includes(q) ||
       String(p.medicao_numero ?? '').includes(q) ||
       (ROTULO[p.etapa] ?? p.etapa).toLowerCase().includes(q),
     )
-  }, [pendentes, busca])
+  }, [minhas, busca])
 
   return (
     <div style={{ minHeight: '100%', background: BG, padding: '16px', boxSizing: 'border-box' }}>
@@ -88,7 +103,7 @@ export default function MinhasAprovacoesPage() {
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 12 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10 }} data-testid="aprovacoes-kpi">
-            <span style={{ fontSize: 22, fontWeight: 800, color: GOLD, lineHeight: 1 }}>{pendentes.length}</span>
+            <span style={{ fontSize: 22, fontWeight: 800, color: GOLD, lineHeight: 1 }}>{minhas.length}</span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: MUT, fontWeight: 600 }}>
               aguardando você <AjudaCampo chave="projetos.aprovacoes.pendentes" rota={ROTA} />
             </span>
@@ -116,10 +131,10 @@ export default function MinhasAprovacoesPage() {
         ) : lista.length === 0 ? (
           <div data-testid="aprovacoes-vazio" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 20, textAlign: 'center' }}>
             <p style={{ fontSize: 15, fontWeight: 700, color: ESP, margin: '0 0 6px' }}>
-              {pendentes.length === 0 ? 'Nada aguardando a sua aprovação' : 'Nada encontrado para a busca'}
+              {minhas.length === 0 ? 'Nada aguardando a sua aprovação' : 'Nada encontrado para a busca'}
             </p>
             <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px', maxWidth: 480, marginInline: 'auto' }}>
-              {pendentes.length === 0
+              {minhas.length === 0
                 ? 'Quando uma medição chegar a uma etapa sob a sua responsabilidade, ela aparece aqui para você aprovar ou devolver.'
                 : 'Ajuste o texto da busca para ver as medições que estão com você.'}
             </p>
