@@ -909,7 +909,7 @@ for n in $fila; do
   fi
   # conflito: a lista não traz o mergeable; aparece no update-branch (PR atrás da main) ou na recusa do merge
 
-  com_migration=0; so_docs=0; n_critica=0
+  com_migration=0; so_docs=0; n_critica=0; autoriz_cache=''   # autoriz_cache (A, CEO 25/11): autorização calculada uma vez, reusada na via revisada (c)
   # VIA EXPRESSA DO HUB (CEO 23/10): label 'hub' = via rápida + lote aditivo, sem revisor nem serialização de crítica
   # ("sem trava nenhuma; reauditamos depois"). Só as travas estruturais ficam (deploy_travado, gates, build, independência).
   n_hub=0; jq -e '.labels | map(.name) | index("hub")' <<< "$pj" > /dev/null 2>&1 && n_hub=1
@@ -939,6 +939,25 @@ for n in $fila; do
       if [ -s "$TMPF/mig/$n.sql" ] && [ "$(npx --yes tsx "$(dirname "${BASH_SOURCE[0]}")/migracao-catalogo.ts" "$TMPF/mig/$n.sql" 2> /dev/null | jq -r '.catalogo // false' 2> /dev/null)" = true ]; then
         n_critica=0
         log "#$n: etiqueta $SENSIVEL (tela), mas a migration só grava catálogo de ajuda/metadado — ADITIVA p/ serialização do @pos (segue via revisada p/ a tela)"
+      fi
+    fi
+    # (A, CEO 25/11) "precisa de revisão" ≠ "migration crítica": a etiqueta $SENSIVEL vem de TELA/cálculo/área crítica, mas
+    # a SERIALIZAÇÃO do @pos só precisa acontecer quando a MIGRATION é crítica. Para PR com MERGE AUTORIZADO VÁLIDO
+    # (o revisor já olhou), a serialização é decidida pelo CONTEÚDO da migration (migracao-criticidade.ts → migracaoCritica,
+    # a MESMA regra da etiqueta, + rede do dinheiro): migration ADITIVA (CREATE novo, CREATE OR REPLACE de função sem tocar
+    # tabela crítica, GRANT/REVOKE, índice, FK, catálogo) batela como aditiva (gate = deploy verde, não espera o @pos);
+    # DML/ALTER/DROP em objeto existente, RLS/policy existente, CREATE OR REPLACE VIEW, movimento de dinheiro → continua
+    # crítica. VIÉS DE SEGURANÇA: sem autorização, SQL ilegível/sem conteúdo, ou saída não-"false" → fica crítica. A
+    # autorização é cacheada (autoriz_cache) e reusada na via revisada (c) — sem 2ª chamada à API/git.
+    if [ "$n_critica" = 1 ]; then
+      [ -s "$TMPF/mig/$n.sql" ] || baixar_sql_migrations "$n" "$sha" || true
+      autoriz_cache=$(autorizacao "$n")
+      # conserto-main é SEMPRE crítico e SOLO (tratado pela etiqueta no bloco de SOLO abaixo): NUNCA rebaixa, mesmo autorizado.
+      if [ "$autoriz_cache" = ok ] && [ -s "$TMPF/mig/$n.sql" ] \
+         && ! jq -e '.labels | map(.name) | index("conserto-main")' <<< "$pj" > /dev/null 2>&1 \
+         && [ "$(npx --yes tsx "$(dirname "${BASH_SOURCE[0]}")/migracao-criticidade.ts" "$TMPF/mig/$n.sql" 2> /dev/null | jq -r 'if .critica == false then "nao" else "sim" end' 2> /dev/null)" = nao ]; then
+        n_critica=0
+        log "#$n: autorizada e migration ADITIVA pelo conteúdo (migracaoCritica) — batela como aditiva, não serializa o @pos (segue via revisada p/ a tela)"
       fi
     fi
     # CARVE-OUT do LOTE DE CRÍTICAS (CEO 01/11): migration crítica de categoria PERIGOSA (NR-36, fiscal, financeiro de
@@ -1024,7 +1043,7 @@ for n in $fila; do
 
   # (c) sensível → autorização pelo conteúdo
   if [ "$via" = revisada ]; then
-    a=$(autorizacao "$n")
+    a=${autoriz_cache:-$(autorizacao "$n")}   # (A) reusa a autorização já calculada no bloco de criticidade (sem 2ª chamada)
     [ "$a" = ok ] || { tirar_da_fila "$n" "${a#vermelho:}" "$sha"; continue; }
     log "#$n: autorização do gilberto-revisor confere com o conteúdo (patch-id)"
   fi
