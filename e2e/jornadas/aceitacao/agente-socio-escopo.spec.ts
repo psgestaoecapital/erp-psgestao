@@ -8,7 +8,11 @@ const RUN = `${process.env.GITHUB_RUN_ID ?? 'local'}-${Date.now().toString(36)}`
 type Resp = { ok?: boolean; erro?: string; dono?: string }
 type Chamado = { id: string }
 
-test.describe('Escopo de agente de sócio e OK do sócio', () => {
+// APOSENTADO (CEO 25/11/2026 21:13): os Codes dos sócios (rodrigo-code, jordana-code) não existem mais;
+// escopo/dono/rotina deles desativados no banco e os chamados devolvidos à fila geral dos devs ativos
+// (erp_contexto_projeto "Codes mortos fora da fila de chamados"). Este spec prova o roteamento por
+// escopo de sócio, que deixou de existir — fica como histórico, sem rodar.
+test.describe.skip('Escopo de agente de sócio e OK do sócio', () => {
   const criadas: string[] = []
   let rodrigo = ''
   // socio_user_id de TODOS os escopos ativos (não só rodrigo): desde a #4004 (CEO 06/11
