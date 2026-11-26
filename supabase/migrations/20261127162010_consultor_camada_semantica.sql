@@ -20,8 +20,14 @@ REVOKE ALL ON SCHEMA consultor FROM PUBLIC;
 DO $$ BEGIN
   CREATE ROLE consultor_leitor WITH NOLOGIN NOINHERIT NOCREATEDB NOCREATEROLE NOSUPERUSER;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
--- garante o mínimo mesmo se o papel já existia
-ALTER ROLE consultor_leitor WITH NOLOGIN NOINHERIT NOCREATEDB NOCREATEROLE NOSUPERUSER;
+-- NB: NÃO fazer ALTER ROLE ... NOSUPERUSER aqui — o papel do deploy (postgres, não-superusuário em Supabase
+-- gerenciado) não pode mexer no atributo SUPERUSER de nenhum papel (SQLSTATE 42501), e CREATE ROLE já nasce
+-- NOSUPERUSER. Isso quebrava o deploy-migrations (run #4782).
+-- Permite ao papel do deploy ASSUMIR consultor_leitor (necessário para o "ALTER FUNCTION ... OWNER TO
+-- consultor_leitor" lá embaixo: trocar o dono exige poder SET ROLE o novo dono). postgres tem ADMIN no papel que criou.
+DO $$ BEGIN
+  EXECUTE format('GRANT consultor_leitor TO %I', current_user);
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
 GRANT USAGE ON SCHEMA consultor TO consultor_leitor;
 -- USAGE em auth só para resolver auth.uid() (função já é PUBLIC EXECUTE); não dá acesso a nenhuma tabela de auth.
 GRANT USAGE ON SCHEMA auth TO consultor_leitor;
@@ -245,7 +251,7 @@ GRANT SELECT ON consultor.titulos, consultor.baixas, consultor.boletos, consulto
 -- empresa, roda com timeout curto, embrulha em jsonb_agg com LIMIT 200 e registra no log.
 CREATE OR REPLACE FUNCTION public.fn_consultor_sql(p_company_id uuid, p_sql text, p_pergunta_id uuid DEFAULT NULL)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = consultor, pg_catalog AS $$
-DECLARE v_res jsonb; v_rows int; v_ini timestamptz := clock_timestamp(); v_ms int;
+DECLARE v_res jsonb; v_rows int; v_ini timestamptz := clock_timestamp(); v_ms int; v_sql text;
 BEGIN
   IF auth.uid() IS NULL AND coalesce(current_setting('request.jwt.claims', true),'') <> '' THEN
     RAISE EXCEPTION 'consultor: sessão sem usuário' USING errcode = '42501';
@@ -255,6 +261,19 @@ BEGIN
   END IF;
   IF p_sql IS NULL OR btrim(p_sql) = '' THEN RETURN '[]'::jsonb; END IF;
 
+  -- GUARDA DE INJEÇÃO no BANCO (auditoria #6221 · 2ª linha, além do parser do Node): o EXECUTE de plpgsql aceita
+  -- MÚLTIPLOS comandos — um p_sql como "x ) AS _q ) AS t; <comando>; SELECT ... ( y" roda o 2º comando. Como a RPC é
+  -- chamável por qualquer authenticated direto no PostgREST (sem o parser do Node) e roda como consultor_leitor (dono),
+  -- barramos no banco: recusa ';' (menos um único final, removido), '--' e '/*'; exige começar com SELECT/WITH.
+  v_sql := btrim(p_sql);
+  IF right(v_sql, 1) = ';' THEN v_sql := btrim(left(v_sql, length(v_sql) - 1)); END IF;
+  IF strpos(v_sql, ';') > 0 OR strpos(v_sql, '--') > 0 OR strpos(v_sql, '/*') > 0 THEN
+    RAISE EXCEPTION 'consultor: consulta inválida (um único SELECT, sem ";" ou comentários)' USING errcode = '42501';
+  END IF;
+  IF v_sql !~* '^(select|with)\s' THEN
+    RAISE EXCEPTION 'consultor: só SELECT/WITH' USING errcode = '42501';
+  END IF;
+
   PERFORM consultor.fn_bind(p_company_id);        -- amarra empresa × txid
   -- Teto de tempo: o cap EFETIVO é o statement_timeout do papel chamador, armado no início do comando de TOPO
   -- (PostgREST roda como authenticated = 8s, anon = 3s; anon nem tem EXECUTE aqui). Um SET aqui dentro NÃO re-arma o
@@ -263,7 +282,7 @@ BEGIN
   -- intenção/segunda linha (vale para eventuais comandos futuros na mesma transação).
   SET LOCAL statement_timeout = '5s';
   BEGIN
-    EXECUTE format('SELECT coalesce(jsonb_agg(t), ''[]''::jsonb) FROM ( SELECT * FROM ( %s ) AS _q LIMIT 200 ) AS t', p_sql)
+    EXECUTE format('SELECT coalesce(jsonb_agg(t), ''[]''::jsonb) FROM ( SELECT * FROM ( %s ) AS _q LIMIT 200 ) AS t', v_sql)
       INTO v_res;
   EXCEPTION WHEN OTHERS THEN
     v_ms := (extract(epoch FROM (clock_timestamp() - v_ini)) * 1000)::int;
@@ -275,7 +294,15 @@ BEGIN
   PERFORM consultor.fn_log(p_sql, v_rows, v_ms, NULL, p_pergunta_id);
   RETURN jsonb_build_object('linhas', v_rows, 'truncado', (v_rows >= 200), 'ms', v_ms, 'dados', COALESCE(v_res, '[]'::jsonb));
 END; $$;
+-- DONO = consultor_leitor: o corpo todo (inclusive o SELECT do modelo) roda no papel mínimo (SECURITY DEFINER), sem
+-- acesso a public. SET LOCAL ROLE não serve (é proibido dentro de SECURITY DEFINER), por isso a confinação é pela POSSE.
+-- O ALTER ... OWNER exige: (1) o papel do deploy poder SET ROLE o novo dono — garantido pelo GRANT consultor_leitor TO
+-- current_user lá em cima; e (2) o novo dono ter CREATE no schema da função (public). O consultor_leitor NÃO pode ter
+-- CREATE em public de forma permanente (segurança), então damos CREATE só para a troca e revogamos em seguida — a POSSE
+-- fica; o papel segue sem CREATE e sem acesso a public. (Foi o passo 2 que faltava e quebrava o deploy-migrations.)
+GRANT CREATE ON SCHEMA public TO consultor_leitor;
 ALTER FUNCTION public.fn_consultor_sql(uuid, text, uuid) OWNER TO consultor_leitor;
+REVOKE CREATE ON SCHEMA public FROM consultor_leitor;
 REVOKE ALL ON FUNCTION public.fn_consultor_sql(uuid, text, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_consultor_sql(uuid, text, uuid) TO authenticated, service_role;
 -- fn_consultor_sql roda COMO consultor_leitor (definer): precisa validar acesso pelas funções de empresa (não têm
