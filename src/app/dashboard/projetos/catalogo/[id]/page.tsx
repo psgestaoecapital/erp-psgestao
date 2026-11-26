@@ -16,6 +16,7 @@ import {
   Package,
   HardHat,
   Wrench,
+  Settings2,
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { BomEditor, type BomLinha } from "@/components/projetos/BomEditor";
@@ -51,6 +52,7 @@ interface ConfigBdi {
   bdi_total_pct: number | null;
   bdi_lucro_pct: number | null;
   margem_minima_pct: number | null;
+  dias_uteis_mes?: number | null;
 }
 
 // Shape REAL devolvido por fn_projetos_servico_completo.preview (medido via MCP):
@@ -276,13 +278,23 @@ export default function ServicoEditorPage({
       await carregar({ soft: true });
     } catch (e: any) {
       // Nunca expor mensagem crua do banco (RD-51): traduzir para linguagem do usuário.
-      const raw = String(e?.message ?? "");
+      // Lê message + details (o nome da constraint costuma vir em details) para identificar o motivo real.
+      const raw = `${String(e?.message ?? "")} ${String(e?.details ?? "")}`;
+      const code = String(e?.code ?? "");
+      // Código duplicado por empresa (índice único projetos_servicos_codigo_unico). Caminho do chamado #11470:
+      // duplicar serviço gera código "-COPIA"; ao editar o código para um já existente, o UPDATE cai em 23505 e
+      // antes mostrava só "Não foi possível salvar", sem dizer o porquê (RD-98: erro em linguagem do usuário).
+      const codigoDuplicado =
+        /projetos_servicos_codigo_unico/i.test(raw) ||
+        (code === "23505" && /duplicate key|já existe|chave duplicada/i.test(raw));
       setErro(
-        /unidade/i.test(raw)
-          ? "Informe a unidade de medida do serviço (m², m, un)."
-          : /violates not-null|null value in column/i.test(raw)
-            ? "Preencha os campos obrigatórios: código, nome e unidade."
-            : "Não foi possível salvar. Tente novamente.",
+        codigoDuplicado
+          ? "Já existe um serviço com esse código nesta empresa. Troque o código e salve de novo."
+          : /unidade/i.test(raw)
+            ? "Informe a unidade de medida do serviço (m², m, un)."
+            : /violates not-null|null value in column/i.test(raw)
+              ? "Preencha os campos obrigatórios: código, nome e unidade."
+              : "Não foi possível salvar. Tente novamente.",
       );
     } finally {
       setSalvandoMeta(false);
@@ -518,6 +530,10 @@ export default function ServicoEditorPage({
               companyId={servico.company_id}
               bom={bom}
               onChange={() => { carregar({ soft: true }); setCpuReload((n) => n + 1); }}
+              produtividade={servico.produtividade_unidade_dia}
+              equipePadrao={servico.equipe_padrao}
+              unidadeServico={servico.unidade}
+              diasUteisMes={config?.dias_uteis_mes ?? 22}
             />
           </div>
         </div>
@@ -600,6 +616,15 @@ export default function ServicoEditorPage({
                   </span>
                   <span className="font-mono">{pct(bdiPct)}</span>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => router.push("/dashboard/projetos/configuracoes?aba=precificacao")}
+                  className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-[#C8941A] hover:text-[#9c7214] hover:underline"
+                  title="Onde o BDI é definido: Projetos · Configurações · Precificação"
+                >
+                  <Settings2 className="h-3.5 w-3.5" />
+                  Configurar BDI (Precificação)
+                </button>
               </div>
               <div className="mt-3 border-t border-[#C8941A]/20 pt-3">
                 <div className="flex items-baseline justify-between">

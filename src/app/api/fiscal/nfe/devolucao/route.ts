@@ -5,6 +5,7 @@ import { createFiscalService } from '@/lib/fiscal/service'
 import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-builder'
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
+import { notaEspelhoDeNFeReq } from '@/lib/fiscal/espelhoNota'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { montarObsDevolucaoCompra } from '@/lib/fiscal/obsDevolucao'
 import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
@@ -29,6 +30,12 @@ interface DevolucaoBody {
   outrasDespesas?: number
   desconto?: number
   modalidadeFrete?: number
+  // #5722 · grupo de transporte (opcional): transportador, veículo e volumes. Sem preencher = como hoje.
+  transporte?: {
+    transportador?: { nome?: string; cnpj?: string; cpf?: string; inscricaoEstadual?: string; endereco?: string; municipio?: string; uf?: string }
+    veiculo?: { placa?: string; uf?: string; rntc?: string }
+    volumes?: Array<{ quantidade?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; marca?: string; numero?: string }>
+  }
   // #9724 (decisão B) · apenasPrevia=true só monta a nota e devolve o resumo p/ o espelho em PDF — não emite, não grava.
   apenasPrevia?: boolean
 }
@@ -139,6 +146,45 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     // recebida; sem ela, número e série saem da própria chave (posições fixas do leiaute da NF-e).
     const obsDevolucao = await montarObsDevolucaoCompra(body.companyId, chaveCompra)
 
+    // #5722 · grupo de transporte (opcional): valida (CNPJ XOR CPF; nome+doc se houver transportador; placa se
+    // houver veículo; UF 2 letras) e sanitiza (só dígitos no doc; placa 7 caracteres). Sem transporte = como hoje.
+    let transporteBuilder: DevolucaoBody['transporte'] | undefined
+    if (body.transporte) {
+      const tr = body.transporte.transportador
+      const veic = body.transporte.veiculo
+      const docCnpj = (tr?.cnpj ?? '').replace(/\D/g, '')
+      const docCpf = (tr?.cpf ?? '').replace(/\D/g, '')
+      if (docCnpj && docCpf) {
+        return NextResponse.json({ ok: false, mensagem: 'Informe CNPJ OU CPF do transportador, nunca os dois.' }, { status: 400 })
+      }
+      const docT = docCnpj || docCpf
+      const temTransp = !!(tr && (tr.nome?.trim() || docT || tr.inscricaoEstadual?.trim() || tr.endereco?.trim() || tr.municipio?.trim() || tr.uf?.trim()))
+      if (temTransp) {
+        if (!tr?.nome?.trim()) return NextResponse.json({ ok: false, mensagem: 'Informe o nome/razão social do transportador.' }, { status: 400 })
+        if (docT.length !== 11 && docT.length !== 14) return NextResponse.json({ ok: false, mensagem: 'Informe um CNPJ (14 dígitos) ou CPF (11 dígitos) do transportador.' }, { status: 400 })
+      }
+      const placa = (veic?.placa ?? '').replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+      const temVeic = !!(veic && (veic.placa?.trim() || veic.uf?.trim() || veic.rntc?.trim()))
+      if (temVeic && placa.length !== 7) return NextResponse.json({ ok: false, mensagem: 'Placa do veículo deve ter 7 caracteres (sem hífen).' }, { status: 400 })
+      const ufT = (tr?.uf ?? '').trim().toUpperCase()
+      if (ufT && ufT.length !== 2) return NextResponse.json({ ok: false, mensagem: 'UF do transportador deve ter 2 letras.' }, { status: 400 })
+      const ufV = (veic?.uf ?? '').trim().toUpperCase()
+      if (ufV && ufV.length !== 2) return NextResponse.json({ ok: false, mensagem: 'UF da placa deve ter 2 letras.' }, { status: 400 })
+      const built: NonNullable<DevolucaoBody['transporte']> = {
+        ...(temTransp ? { transportador: {
+          nome: tr!.nome!.trim(),
+          ...(docT.length === 14 ? { cnpj: docT } : { cpf: docT }),
+          inscricaoEstadual: tr!.inscricaoEstadual?.trim() || undefined,
+          endereco: tr!.endereco?.trim() || undefined,
+          municipio: tr!.municipio?.trim() || undefined,
+          uf: ufT || undefined,
+        } } : {}),
+        ...(temVeic ? { veiculo: { placa, uf: ufV || undefined, rntc: veic!.rntc?.trim() || undefined } } : {}),
+        ...(Array.isArray(body.transporte.volumes) && body.transporte.volumes.length ? { volumes: body.transporte.volumes } : {}),
+      }
+      if (built.transportador || built.veiculo || built.volumes) transporteBuilder = built
+    }
+
     const nfeReq = await buildNFeRequest({
       companyId: body.companyId,
       manual: {
@@ -170,6 +216,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           frete: body.frete, seguro: body.seguro, outrasDespesas: body.outrasDespesas,
           desconto: body.desconto, modalidadeFrete: body.modalidadeFrete,
         },
+        ...(transporteBuilder ? { transporte: transporteBuilder } : {}),
       },
     })
 
@@ -177,37 +224,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     // /api/fiscal/nfe/remessa) para o operador baixar o PDF "PRÉVIA — SEM VALOR FISCAL". Puramente aditivo —
     // retorna ANTES de validar/emitir: não transmite, não consome numeração/série, não grava nada.
     if (body.apenasPrevia) {
-      const d = nfeReq.destinatario
-      const end = d.endereco
-      const nota = {
-        naturezaOperacao: nfeReq.naturezaOperacao,
-        serie: nfeReq.serie,
-        finalidade: nfeReq.finalidade,
-        consumidorFinal: nfeReq.consumidorFinal ?? null,
-        destinatario: {
-          razaoSocial: d.razaoSocial,
-          documento: d.cnpj || d.cpf || null,
-          tipoDocumento: d.cnpj ? 'CNPJ' : (d.cpf ? 'CPF' : null),
-          email: d.email ?? null,
-          endereco: end ? [end.logradouro, end.numero, end.bairro, end.cidade, end.uf, end.cep].filter(Boolean).join(', ') : null,
-        },
-        itens: nfeReq.itens.map((it) => ({
-          descricao: it.descricao,
-          ncm: it.ncm ?? null,
-          cfop: it.cfop ?? null,
-          cst: it.icms?.cst ?? null,
-          cBenef: it.icms?.cBenef ?? null,
-          chassi: it.veiculo?.chassi ?? null,
-          icmsBase: it.icms?.base ?? null,
-          icmsValor: it.icms?.valor ?? null,
-          ibsCbs: it.ibsCbs ? { base: it.ibsCbs.baseCalculo, cbs: it.ibsCbs.cbsValor, ibs: it.ibsCbs.ibsValorTotal } : null,
-          valorTotal: it.valorTotal,
-        })),
-        totais: {
-          produtos: nfeReq.itens.reduce((acc, i) => acc + i.valorTotal, 0),
-          ibsCbs: nfeReq.ibsCbsTotais ? { base: nfeReq.ibsCbsTotais.baseCalculo, cbs: nfeReq.ibsCbsTotais.cbsValor, ibs: nfeReq.ibsCbsTotais.ibsValor } : null,
-        },
-      }
+      const nota = await notaEspelhoDeNFeReq(nfeReq, body.companyId)
       return NextResponse.json({ ok: true, previa: { informacoesComplementares: nfeReq.observacoes ?? '', nota } })
     }
 
