@@ -177,7 +177,8 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
   // §334: planilha trouxe um único valor por item (sem separar material × mão de obra) — usado como custo do item.
   const [valorUnicoAviso, setValorUnicoAviso] = useState(false)
   // §334: qual aba da planilha foi usada, quando o arquivo tem mais de uma (a EAP pode não estar na 1ª aba).
-  const [abaImportada, setAbaImportada] = useState<{ nome: string; total: number } | null>(null)
+  // `ignoradas` = nomes das demais abas que NÃO entram na EAP ("Outros Custos"/"Análise"/… vão para a Viabilidade 316).
+  const [abaImportada, setAbaImportada] = useState<{ nome: string; total: number; ignoradas: string[] } | null>(null)
   // §334 conferência do total: soma importada (Σ qtd × (material + mão de obra)) × total declarado na planilha.
   const [totalImportado, setTotalImportado] = useState(0)
   const [totalPlanilha, setTotalPlanilha] = useState<number | null>(null)
@@ -288,7 +289,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       setUnidadesNormalizadas(normalizadas)
       setAgrupadoresEstrutura(agrupadores)
       setValorUnicoAviso(modoValorUnico)
-      setAbaImportada(wb.SheetNames.length > 1 ? { nome: abaUsada, total: wb.SheetNames.length } : null)
+      setAbaImportada(wb.SheetNames.length > 1 ? { nome: abaUsada, total: wb.SheetNames.length, ignoradas: wb.SheetNames.filter((n) => n !== abaUsada) } : null)
       // §334 conferência: soma importada = Σ qtd × (material + mão de obra) de todas as linhas lidas.
       const somaImportada = lin.reduce((acc, l) => acc + numBR(l.quantidade) * (numBR(l.custo_material_unit) + numBR(l.custo_mao_obra_unit)), 0)
       setTotalImportado(somaImportada)
@@ -393,6 +394,11 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
             <div style={{ ...CARD, display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ fontSize: 13, color: MUT }}>Arquivo: <strong style={{ color: ESP }}>{arquivoNome}</strong></span>
               {abaImportada && <span data-testid="eap-importar-aba" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: MUT }}>Aba: <strong style={{ color: ESP }}>{abaImportada.nome}</strong> <AjudaCampo chave="projetos.orcamento_eap.importar_aba" /></span>}
+              {abaImportada && abaImportada.ignoradas.length > 0 && (
+                <span data-testid="eap-importar-abas-ignoradas" style={{ flexBasis: '100%', fontSize: 12, color: MUT, lineHeight: 1.5 }}>
+                  Importei só a aba da EAP. {abaImportada.ignoradas.length === 1 ? 'A outra aba' : `As outras ${abaImportada.ignoradas.length} abas`} <strong style={{ color: ESP }}>{abaImportada.ignoradas.join(', ')}</strong> {abaImportada.ignoradas.length === 1 ? 'não entra' : 'não entram'} no orçamento por EAP — abas como “Outros Custos” e “Análise” pertencem ao estudo de <strong style={{ color: ESP }}>Viabilidade</strong> do empreendimento.
+                </span>
+              )}
               <span style={{ fontSize: 13, color: VERDE, fontWeight: 700 }}>{resumo.validos} válidas</span>
               <span style={{ fontSize: 13, color: resumo.com_erro ? VERM : MUT, fontWeight: 700 }}>{resumo.com_erro} com erro</span>
               {codigosNumericos.size > 0 && <span style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>{codigosNumericos.size} código(s) como número</span>}
