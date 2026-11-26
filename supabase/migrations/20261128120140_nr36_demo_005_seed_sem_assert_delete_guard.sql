@@ -20,6 +20,7 @@
 -- ============================================================================================
 -- (B) fn_demo_seed_industria_ponto — libera o DELETE FÍSICO só na janela DEMO (RD-30, caminho de manutenção)
 -- ============================================================================================
+-- ci-sem-guarda: fn_demo_seed_industria_ponto — seed de empresa DEMO; confere is_demo (aborta em empresa real) e escopa tudo à …005; dado 100% fictício (RD-69), roda pelo fn_demo_reset (service_role), nunca toca dado de cliente real.
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_industria_ponto(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
