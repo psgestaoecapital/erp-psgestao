@@ -7,6 +7,7 @@
 -- por desenho), então o seed NR-36 derrubava o reset INTEIRO da 005.
 -- Correção mínima: o bloco NR-36 roda isolado (subtransação). Se falhar, o reset do resto da 005 segue e o motivo vai
 -- no retorno ('nr36': {ok:false, erro}). Nenhuma guarda é afrouxada. O conserto do seed NR-36 em si fica com o autor.
+-- ci-sem-guarda: fn_demo_reset — reset de empresa DEMO; confere is_demo e aborta ('nao_e_demo') em empresa real; só repopula seeds de demonstração, nunca dado de cliente real.
 CREATE OR REPLACE FUNCTION public.fn_demo_reset(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
