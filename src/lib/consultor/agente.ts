@@ -15,6 +15,14 @@ type MsgParam = { role: 'user' | 'assistant'; content: string | unknown[] }
 export type Mensagem = { role: 'user' | 'assistant'; content: string }
 export type ToolResult = { nome: string; input: Record<string, unknown>; saida: unknown }
 
+// motivo pelo qual o laço terminou — vai ao log (consultor_ia_pergunta_log.tool_escolhida) p/ auditoria (CEO 26/11).
+//  texto      → o modelo encerrou com uma resposta em texto (fluxo normal)
+//  max_tokens → a rodada parou por tamanho (stop_reason max_tokens) mas ainda havia texto para mostrar
+//  tempo      → estourou o prazo (prazoMs)
+//  rodadas    → estourou o teto de rodadas (maxRounds) sem resposta
+//  fallback   → a resposta veio vazia e foi composta pela chamada final SEM ferramentas (ou pelo resumo mínimo)
+export type MotivoFim = 'texto' | 'max_tokens' | 'tempo' | 'rodadas' | 'fallback'
+
 export type ResultadoAgente = {
   resposta: string
   toolResults: ToolResult[]
@@ -23,6 +31,7 @@ export type ResultadoAgente = {
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }
   limiteTempo: boolean
   limiteRodadas: boolean
+  motivoFim: MotivoFim
 }
 
 // ── ferramentas expostas ao modelo ───────────────────────────────────────────
@@ -108,6 +117,19 @@ const SYSTEM_BASE = (nome: string, cnpj: string) => [
 
 export type ExecutarTool = (nome: string, input: Record<string, unknown>) => Promise<unknown>
 
+// teto de geração por rodada. CEO 26/11: era 1500 — uma resposta "resposta/porquê/o que fazer" com evidências estourava
+// e o stop_reason voltava 'max_tokens' no meio de um tool_use, deixando a resposta vazia. 4000 cobre a redação completa.
+const MAX_TOKENS = 4000
+
+export type RespostaApi = { content: AnthropicBlock[]; stop_reason: string; usage?: Record<string, number> }
+
+// mensagem de erro LEGÍVEL ao modelo (CEO 26/11, item 3): timeout do Postgres vira texto acionável, nunca o SQLSTATE cru.
+export function erroLegivel(msg: string): string {
+  const m = (msg || '').toLowerCase()
+  if (/statement timeout|canceling statement|too long|57014|tempo|timeout/.test(m)) return 'a consulta demorou demais; tente de outro jeito (menos linhas, um período menor ou outra ferramenta)'
+  return msg || 'não foi possível concluir esta consulta; tente de outro jeito'
+}
+
 export async function rodarAgente(opts: {
   apiKey: string
   modelo: string
@@ -120,6 +142,8 @@ export async function rodarAgente(opts: {
   onPasso?: (texto: string) => void
   maxRounds?: number
   prazoMs?: number
+  // injetável só no teste: substitui a chamada real à Messages API (o gate de CI não gasta crédito).
+  chamarApi?: (body: Record<string, unknown>) => Promise<RespostaApi>
 }): Promise<ResultadoAgente> {
   const maxRounds = opts.maxRounds ?? 12
   const prazoMs = opts.prazoMs ?? 90_000
@@ -136,66 +160,164 @@ export async function rodarAgente(opts: {
     { role: 'user' as const, content: opts.pergunta },
   ]
 
-  const toolResults: ToolResult[] = []
   const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
-  let resposta = ''
-  let rounds = 0
-  let limiteTempo = false
-  let limiteRodadas = false
-
-  for (let i = 0; i < maxRounds; i++) {
-    rounds = i + 1
-    if (Date.now() - t0 > prazoMs) { limiteTempo = true; break }
-
+  const acumularTokens = (u: Record<string, number> = {}) => {
+    tokens.input += u.input_tokens ?? 0
+    tokens.output += u.output_tokens ?? 0
+    tokens.cacheRead += u.cache_read_input_tokens ?? 0
+    tokens.cacheWrite += u.cache_creation_input_tokens ?? 0
+  }
+  const chamar = opts.chamarApi ?? (async (body: Record<string, unknown>) => {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': opts.apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({ model: opts.modelo, max_tokens: 1500, system, tools: FERRAMENTAS, messages }),
+      headers: { 'content-type': 'application/json', 'x-api-key': opts.apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify(body),
     })
     if (!res.ok) {
       const txt = await res.text().catch(() => '')
       throw new Error(`messages api ${res.status}: ${txt.slice(0, 300)}`)
     }
-    const resp = (await res.json()) as { content: AnthropicBlock[]; stop_reason: string; usage?: Record<string, number> }
-    const u = resp.usage ?? {}
-    tokens.input += u.input_tokens ?? 0
-    tokens.output += u.output_tokens ?? 0
-    tokens.cacheRead += u.cache_read_input_tokens ?? 0
-    tokens.cacheWrite += u.cache_creation_input_tokens ?? 0
+    return (await res.json()) as RespostaApi
+  })
+
+  const toolResults: ToolResult[] = []
+  let resposta = ''
+  let rounds = 0
+  let limiteTempo = false
+  let limiteRodadas = false
+  let fim: MotivoFim = 'texto'   // motivo do encerramento do laço (antes do guard do item 1)
+  let encerrou = false
+
+  for (let i = 0; i < maxRounds; i++) {
+    rounds = i + 1
+    if (Date.now() - t0 > prazoMs) { limiteTempo = true; fim = 'tempo'; encerrou = true; break }
+
+    const resp = await chamar({ model: opts.modelo, max_tokens: MAX_TOKENS, system, tools: FERRAMENTAS, messages })
+    acumularTokens(resp.usage)
 
     const blocos = Array.isArray(resp.content) ? resp.content : []
     const textos = blocos.filter((b): b is { type: 'text'; text: string } => b.type === 'text').map((b) => b.text)
     const usos = blocos.filter((b): b is { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> } => b.type === 'tool_use')
+    const textoRodada = textos.join('\n').trim()
 
-    if (resp.stop_reason !== 'tool_use' || usos.length === 0) {
-      resposta = textos.join('\n').trim()
-      break
+    // Só continua o laço quando o modelo DE FATO pediu ferramenta (stop_reason tool_use). CEO 26/11, item 2: um
+    // stop_reason 'max_tokens' — mesmo com tool_use incompleto no meio — encerra a rodada e cai no guard do item 1.
+    if (resp.stop_reason === 'tool_use' && usos.length > 0) {
+      messages.push({ role: 'assistant', content: blocos })
+      const resultsContent: Array<{ type: 'tool_result'; tool_use_id: string; content: string }> = []
+      for (const uso of usos) {
+        const input = (uso.input ?? {}) as Record<string, unknown>
+        opts.onPasso?.(passoAmigavel(uso.name, input))
+        let saida: unknown
+        // item 3: ferramenta que falha/estoura NÃO derruba o laço — vira {erro} legível e segue (o modelo tenta outro jeito).
+        try { saida = await opts.executarTool(uso.name, input) }
+        catch (e) { saida = { erro: erroLegivel(e instanceof Error ? e.message : String(e)) } }
+        toolResults.push({ nome: uso.name, input, saida })
+        resultsContent.push({ type: 'tool_result', tool_use_id: uso.id, content: JSON.stringify(saida).slice(0, 30_000) })
+      }
+      messages.push({ role: 'user', content: resultsContent })
+      if (i === maxRounds - 1) { limiteRodadas = true; fim = 'rodadas' }
+      continue
     }
 
-    // guarda o turno do assistente (texto + tool_use) e responde cada ferramenta
-    messages.push({ role: 'assistant', content: blocos })
-    const resultsContent: Array<{ type: 'tool_result'; tool_use_id: string; content: string }> = []
-    for (const uso of usos) {
-      const input = (uso.input ?? {}) as Record<string, unknown>
-      opts.onPasso?.(passoAmigavel(uso.name, input))
-      let saida: unknown
-      try { saida = await opts.executarTool(uso.name, input) }
-      catch (e) { saida = { erro: e instanceof Error ? e.message : String(e) } }
-      toolResults.push({ nome: uso.name, input, saida })
-      resultsContent.push({ type: 'tool_result', tool_use_id: uso.id, content: JSON.stringify(saida).slice(0, 30_000) })
-    }
-    messages.push({ role: 'user', content: resultsContent })
-    if (i === maxRounds - 1) limiteRodadas = true
+    // encerramento (end_turn, max_tokens sem tool_use válido, stop_sequence…): fica com o texto que veio nesta rodada.
+    resposta = textoRodada
+    fim = resp.stop_reason === 'max_tokens' ? 'max_tokens' : 'texto'
+    encerrou = true
+    break
+  }
+  if (!encerrou && !limiteTempo) { limiteRodadas = true; fim = 'rodadas' }
+
+  // ── item 1: NUNCA terminar vazio ────────────────────────────────────────────────────────────────────────────
+  let motivoFim: MotivoFim = fim
+  if (!resposta.trim()) {
+    // UMA chamada final SEM ferramentas, com o histórico + tudo o que já foi consultado, pedindo a redação agora.
+    opts.onPasso?.('Fechando a resposta com o que já foi consultado…')
+    const instrucao = 'Responda agora ao usuário com o que já foi consultado, no formato: resposta direta / por quê / o que fazer. '
+      + 'Use SOMENTE valores que apareceram nas consultas acima. Não peça mais nada: redija a melhor resposta possível com o que há.'
+    try {
+      const resp = await chamar({ model: opts.modelo, max_tokens: MAX_TOKENS, system, messages: anexarInstrucaoFinal(messages, instrucao) })
+      acumularTokens(resp.usage)
+      const txt = (Array.isArray(resp.content) ? resp.content : [])
+        .filter((b): b is { type: 'text'; text: string } => b.type === 'text').map((b) => b.text).join('\n').trim()
+      resposta = txt
+    } catch { /* se a chamada final falhar, cai no resumo mínimo abaixo */ }
+    // se AINDA vier vazio, monta uma resposta mínima a partir dos toolResults (divergência por conta + link).
+    if (!resposta.trim()) resposta = respostaMinima(toolResults)
+    motivoFim = 'fallback'
   }
 
   return {
-    resposta, toolResults, rounds, tokens, limiteTempo, limiteRodadas,
+    resposta, toolResults, rounds, tokens, limiteTempo, limiteRodadas, motivoFim,
     custoUsd: custoUsd(opts.modelo, tokens),
   }
+}
+
+// acrescenta a instrução final SEM criar dois turnos 'user' seguidos (a API exige alternância): se o último turno já é
+// do usuário (ex.: tool_result), anexa a instrução a ele; senão, abre um novo turno de usuário.
+function anexarInstrucaoFinal(messages: MsgParam[], instrucao: string): MsgParam[] {
+  const copia: MsgParam[] = messages.map((m) => ({ role: m.role, content: m.content }))
+  const ultimo = copia[copia.length - 1]
+  if (ultimo && ultimo.role === 'user') {
+    if (typeof ultimo.content === 'string') ultimo.content = ultimo.content + '\n\n' + instrucao
+    else if (Array.isArray(ultimo.content)) ultimo.content = [...ultimo.content, { type: 'text', text: instrucao }]
+    else copia.push({ role: 'user', content: instrucao })
+  } else {
+    copia.push({ role: 'user', content: instrucao })
+  }
+  return copia
+}
+
+// ── resumo mínimo (último recurso do item 1) ───────────────────────────────────────────────────────────────────
+// Com toolResults em mãos mas sem redação do modelo, monta uma resposta honesta: o que foi consultado e para onde ir.
+// Destaca a divergência por conta quando a ferramenta divergencia_saldo trouxe dados (caso Pdois: SICREDI/Caixa).
+export function respostaMinima(toolResults: ToolResult[]): string {
+  if (!toolResults.length) {
+    return 'Não consegui concluir a análise agora. Tente reformular a pergunta ou use o Raio-X (atalho grátis) aqui embaixo — ele não tem custo.'
+  }
+  const linhas: string[] = []
+  const brlN = (v: unknown) => (typeof v === 'number' || (typeof v === 'string' && v !== '' && !Number.isNaN(Number(v)))) ? brl(Number(v)) : null
+
+  // divergência de saldo: tenta render por conta (nomes de campo tolerantes a variações do backend)
+  const div = toolResults.find((t) => t.nome === 'divergencia_saldo')
+  const contas = div ? extrairLinhas(div.saida) : []
+  if (contas.length) {
+    linhas.push('Resposta direta: a conta não bate com o banco por diferenças ainda não conciliadas. Pelo que consultei:')
+    for (const c of contas.slice(0, 8)) {
+      const nome = (c.conta ?? c.nome ?? c.banco ?? c.descricao ?? 'conta') as string
+      const sis = brlN(c.saldo_sistema ?? c.sistema ?? c.saldo)
+      const bco = brlN(c.saldo_banco ?? c.banco_saldo ?? c.extrato)
+      const dif = brlN(c.diferenca ?? c.divergencia ?? c.diff)
+      const partes = [sis && `sistema ${sis}`, bco && `banco ${bco}`, dif && `diferença ${dif}`].filter(Boolean)
+      linhas.push(`• ${nome}${partes.length ? ': ' + partes.join(' × ') : ''}`)
+    }
+    linhas.push('O que fazer: abra a Conciliação bancária e concilie os lançamentos que estão sem par — é o que fecha a diferença.')
+    return linhas.join('\n')
+  }
+
+  // genérico: lista o que foi consultado
+  linhas.push('Reuni os dados abaixo, mas não consegui redigir a conclusão completa. Veja o que foi consultado:')
+  for (const t of toolResults.slice(-6)) {
+    const obj = typeof t.input.objetivo === 'string' && t.input.objetivo.trim() ? t.input.objetivo.trim() : passoAmigavel(t.nome, t.input)
+    const erro = (t.saida && typeof t.saida === 'object' && 'erro' in (t.saida as Record<string, unknown>)) ? String((t.saida as Record<string, unknown>).erro) : null
+    linhas.push(`• ${obj}${erro ? ` — ${erro}` : ''}`)
+  }
+  linhas.push('O que fazer: tente reformular a pergunta ou use um dos atalhos grátis aqui embaixo.')
+  return linhas.join('\n')
+}
+
+// extrai um array de linhas-objeto de uma saída de ferramenta, tolerando os formatos { dados: [...] } | [...] | {...}.
+function extrairLinhas(saida: unknown): Record<string, unknown>[] {
+  const raiz = (saida && typeof saida === 'object' && 'dados' in (saida as Record<string, unknown>))
+    ? (saida as { dados: unknown }).dados : saida
+  if (Array.isArray(raiz)) return raiz.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object')
+  if (raiz && typeof raiz === 'object') {
+    // formato { contas: [...] } ou similar
+    for (const v of Object.values(raiz as Record<string, unknown>)) {
+      if (Array.isArray(v) && v.every((x) => x && typeof x === 'object')) return v as Record<string, unknown>[]
+    }
+  }
+  return []
 }
 
 // ── teto de custo (CEO 25/11): dado o resultado das RPCs fn_ia_empresa/global_pode_gastar, decide o bloqueio ──────
@@ -223,12 +345,13 @@ export async function analisarComTrava(opts: {
   onPasso?: (texto: string) => void
 }): Promise<{
   resposta: string; toolResults: ToolResult[]; custoUsd: number; inventados: string[]
-  rounds: number; limiteTempo: boolean; limiteRodadas: boolean; refez: boolean
+  rounds: number; limiteTempo: boolean; limiteRodadas: boolean; refez: boolean; motivoFim: MotivoFim
 }> {
   const r = await opts.rodar({ pergunta: opts.pergunta, historico: opts.historico })
   let resposta = r.resposta
   let toolResults = r.toolResults
   let custoUsd = r.custoUsd
+  let motivoFim = r.motivoFim
   let inventados = numerosInventados(resposta, toolResults)
   let refez = false
 
@@ -242,14 +365,14 @@ export async function analisarComTrava(opts: {
         `Refaça as consultas necessárias e reescreva a resposta usando SOMENTE valores que vierem dos dados. Se não conseguir confirmar um valor, não o cite.`,
       maxRounds: 6,
     })
-    resposta = r2.resposta || resposta
+    if (r2.resposta) { resposta = r2.resposta; motivoFim = r2.motivoFim }
     toolResults = [...toolResults, ...r2.toolResults]
     custoUsd += r2.custoUsd
     inventados = numerosInventados(resposta, toolResults)
   }
 
   return {
-    resposta, toolResults, custoUsd, inventados, refez,
+    resposta, toolResults, custoUsd, inventados, refez, motivoFim,
     rounds: r.rounds, limiteTempo: r.limiteTempo, limiteRodadas: r.limiteRodadas,
   }
 }
