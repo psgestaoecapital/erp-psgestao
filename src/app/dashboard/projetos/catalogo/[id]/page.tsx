@@ -16,6 +16,7 @@ import {
   Package,
   HardHat,
   Wrench,
+  Settings2,
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { BomEditor, type BomLinha } from "@/components/projetos/BomEditor";
@@ -615,6 +616,15 @@ export default function ServicoEditorPage({
                   </span>
                   <span className="font-mono">{pct(bdiPct)}</span>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => router.push("/dashboard/projetos/configuracoes?aba=precificacao")}
+                  className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-[#C8941A] hover:text-[#9c7214] hover:underline"
+                  title="Onde o BDI é definido: Projetos · Configurações · Precificação"
+                >
+                  <Settings2 className="h-3.5 w-3.5" />
+                  Configurar BDI (Precificação)
+                </button>
               </div>
               <div className="mt-3 border-t border-[#C8941A]/20 pt-3">
                 <div className="flex items-baseline justify-between">
