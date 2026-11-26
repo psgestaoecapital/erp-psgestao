@@ -59,7 +59,10 @@ export async function POST(req: NextRequest) {
   // Teto por empresa (US$1/dia) E global (US$2/dia). Bloqueado → cai nos atalhos grátis.
   try {
     const [{ data: ge }, { data: gg }] = await Promise.all([
-      admin.rpc('fn_ia_empresa_pode_gastar', { p_company_id: companyId, p_feature: FEATURE, p_custo_estimado: CUSTO_ESTIMADO }),
+      // conserto 26/11: o teto POR EMPRESA confere o acesso (get_user_company_ids/is_admin) e precisa da sessão do
+      // USUÁRIO — chamado com a service_role, auth.uid() é nulo e a função devolvia "sem acesso" (pode=false), o que
+      // aparecia como "Esta empresa atingiu o limite diário" para TODO mundo. O teto global segue pela service_role.
+      getUsuario(u.token).rpc('fn_ia_empresa_pode_gastar', { p_company_id: companyId, p_feature: FEATURE, p_custo_estimado: CUSTO_ESTIMADO }),
       admin.rpc('fn_ia_global_pode_gastar', { p_feature: FEATURE, p_custo_estimado: CUSTO_ESTIMADO }),
     ])
     const okE = (ge as { pode?: boolean } | null)?.pode, okG = (gg as { pode?: boolean } | null)?.pode
