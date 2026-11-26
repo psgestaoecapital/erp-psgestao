@@ -22,7 +22,9 @@ if (!temFerramentas()) {
   console.log('… cenários pulados: jq ou git ausente neste ambiente (a parte 1 continua valendo)')
 } else {
   comFilaSimulada((rodar) => {
-    const critica = { n: 1, labels: ['revisao-eng-chefe'], autorizada: true, migration: true }
+    // CRÍTICA por CONTEÚDO (ALTER em tabela existente) — continua crítica após o item A (CEO 25/11), que só rebaixa a
+    // migration ADITIVA de PR autorizada. (Sem sqlMigration a migration seria `select 1;`, que o item A trata como aditiva.)
+    const critica = { n: 1, labels: ['revisao-eng-chefe'], autorizada: true, migration: true, sqlMigration: 'alter table erp_clientes add column z int;\n' }
     const aditiva = { n: 2, labels: [] as string[], migration: true }
 
     // 1) deploy VERDE + @pos de crítica VERMELHO: a ADITIVA publica, a CRÍTICA espera.

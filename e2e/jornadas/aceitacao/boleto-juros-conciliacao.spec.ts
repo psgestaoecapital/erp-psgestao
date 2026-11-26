@@ -81,7 +81,7 @@ test.describe('Financeiro — boleto com juros fica pago (direto e na conciliaç
   test('conciliação agrupada com R$4 a mais → âncora pago; desfazer volta ao estado anterior; refazer fica pago', { tag: '@pos-migration' }, async () => {
     const conta = await dbInsert<IdRow>('erp_banco_contas', { company_id: DEMO_GE, nome: `Conta E2E ${RUN}` })
     criado.contas.push(conta.id)
-    const lote = await dbInsert<IdRow>('conciliacao_lote', { company_id: DEMO_GE, conta_bancaria_id: conta.id, tipo: 'extrato' })
+    const lote = await dbInsert<IdRow>('conciliacao_lote', { company_id: DEMO_GE, conta_bancaria_id: conta.id, tipo: 'bancario', origem: 'ofx', nome: `Boleto juros conciliação ${RUN}` })
     criado.lotes.push(lote.id)
     const mov = await dbInsert<IdRow>('conciliacao_movimento', {
       company_id: DEMO_GE, lote_id: lote.id, valor: 204.00, data_transacao: HOJE, descricao_normalizada: `liq ${RUN}`, status: 'pendente',
