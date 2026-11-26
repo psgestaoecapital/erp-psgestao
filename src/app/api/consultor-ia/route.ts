@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
 
   const sb = getUsuario(u.token)
   // adaptador explícito: isola o executor do tipo exato do client do Supabase (só precisamos de rpc → { data, error }).
-  const executarTool = fazerExecutarTool({ rpc: (fn, params) => sb.rpc(fn, params ?? {}) }, companyId)
+  const executarTool = fazerExecutarTool({ rpc: (fn, params) => sb.rpc(fn, params ?? {}) }, companyId, perguntaId)
 
   const stream = new ReadableStream({
     async start(controller) {
