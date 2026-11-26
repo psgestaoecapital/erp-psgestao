@@ -48,6 +48,17 @@ export function resumoFunil(ls: PropostaFunil[], hoje: Date = new Date()) {
 export type ItemProposta = {
   orcamento_id: string; quantidade: number | null; preco_custo: number | null; subtotal: number | null
   servico_id: string | null; produto_id: string | null; bdi_percentual?: number | null
+  // Orçamento em 3 blocos (Diego/FC, 24/11): serviço/M.O. · material · despesa/omisso. tipo_item ausente (itens
+  // antigos) → inferido por servico_id (serviço) senão produto (material); 'despesa' só vem explícito do novo tipo.
+  tipo_item?: string | null
+}
+
+// Bloco de cada item: serviço (M.O.), material (produto) ou despesa (omisso). Genérico p/ todo o Hub.
+export type BlocoOrcamento = 'servico' | 'material' | 'despesa'
+export function blocoDoItem(i: Pick<ItemProposta, 'tipo_item' | 'servico_id'>): BlocoOrcamento {
+  if (i.tipo_item === 'despesa') return 'despesa'
+  if (i.tipo_item === 'servico' || (i.tipo_item == null && i.servico_id)) return 'servico'
+  return 'material'
 }
 
 // bdiPct: BDI aplicado na proposta, médio ponderado pelo custo dos itens (o BDI incide sobre o custo); sem custo em
@@ -55,6 +66,8 @@ export type ItemProposta = {
 export type Composicao = {
   itens: number; doCatalogo: number; semCusto: number; preco: number; custo: number; margemPct: number | null
   bdiPct: number | null; semBdi: number
+  // Subtotais dos 3 blocos (somam `preco`): serviços/M.O. · materiais · despesas/omissos.
+  blocoServicos: number; blocoMateriais: number; blocoDespesas: number
 }
 
 const centavos = (v: number) => Math.round(v * 100) / 100
@@ -62,9 +75,15 @@ const centavos = (v: number) => Math.round(v * 100) / 100
 export function composicaoProposta(itens: ItemProposta[]): Composicao {
   let preco = 0, custo = 0, semCusto = 0, doCatalogo = 0, semBdi = 0
   let bdiPeso = 0, bdiPond = 0, bdiN = 0, bdiSoma = 0
+  let blocoServicos = 0, blocoMateriais = 0, blocoDespesas = 0
   for (const i of itens) {
     const q = Number(i.quantidade ?? 0), c = Number(i.preco_custo ?? 0)
-    preco += Number(i.subtotal ?? 0)
+    const sub = Number(i.subtotal ?? 0)
+    preco += sub
+    const bloco = blocoDoItem(i)
+    if (bloco === 'servico') blocoServicos += sub
+    else if (bloco === 'despesa') blocoDespesas += sub
+    else blocoMateriais += sub
     if (c > 0) custo += q * c; else semCusto++
     if (i.servico_id || i.produto_id) doCatalogo++
     if (i.bdi_percentual == null || !Number.isFinite(Number(i.bdi_percentual))) { semBdi++; continue }
@@ -75,7 +94,10 @@ export function composicaoProposta(itens: ItemProposta[]): Composicao {
   preco = centavos(preco); custo = centavos(custo)
   const margemPct = itens.length && !semCusto && preco > 0 ? Math.round(((preco - custo) / preco) * 1000) / 10 : null
   const bdiPct = !bdiN ? null : Math.round((bdiPeso > 0 ? bdiPond / bdiPeso : bdiSoma / bdiN) * 100) / 100
-  return { itens: itens.length, doCatalogo, semCusto, preco, custo, margemPct, bdiPct, semBdi }
+  return {
+    itens: itens.length, doCatalogo, semCusto, preco, custo, margemPct, bdiPct, semBdi,
+    blocoServicos: centavos(blocoServicos), blocoMateriais: centavos(blocoMateriais), blocoDespesas: centavos(blocoDespesas),
+  }
 }
 
 // Agrupa os itens por proposta (uma consulta só para a lista inteira).

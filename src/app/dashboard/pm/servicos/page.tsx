@@ -4,7 +4,7 @@
 import { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import { PackageOpen, Plus, Pencil, Copy, Trash2, X, GripVertical } from 'lucide-react'
+import { PackageOpen, Plus, Pencil, Copy, Trash2, X, GripVertical, ListChecks } from 'lucide-react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { CampoDecimal } from '@/components/comum/CampoDecimal'
@@ -45,6 +45,8 @@ export default function ServicosPage() {
   // campos de lista configuráveis (área/unidade/periodicidade) — fn_agency_config_listar
   const [opcoes, setOpcoes] = useState<Record<string, Opcao[]>>({})
   const [gerenciar, setGerenciar] = useState<string | null>(null)
+  // etapas-modelo por serviço (P5.1): o job nascerá com estas etapas (tempo medido sem clique)
+  const [etapasDe, setEtapasDe] = useState<Servico | null>(null)
 
   const carregarOpcoes = useCallback(async () => {
     if (!companyId) return
@@ -131,6 +133,7 @@ export default function ServicosPage() {
                 {s.entregaveis?.length > 0 && <div style={{ fontSize: 11.5, color: TEXTM, marginTop: 2 }}>Entregáveis: {s.entregaveis.join(' · ')}</div>}
               </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <IconBtn title="Etapas do serviço" onClick={() => setEtapasDe(s)}><ListChecks size={15} /></IconBtn>
                 <IconBtn title="Editar" onClick={() => setEdit({ ...s })}><Pencil size={15} /></IconBtn>
                 <IconBtn title="Duplicar" onClick={() => duplicar(s)}><Copy size={15} /></IconBtn>
                 <IconBtn title="Excluir" onClick={() => excluir(s)} danger><Trash2 size={15} /></IconBtn>
@@ -145,6 +148,9 @@ export default function ServicosPage() {
       {gerenciar && companyId && (
         <ConfigOpcoesModal companyId={companyId} lista={gerenciar} servicos={servicos}
           onClose={() => setGerenciar(null)} onChange={() => void carregarOpcoes()} />
+      )}
+      {etapasDe && companyId && (
+        <EtapasServicoModal companyId={companyId} servico={etapasDe} onClose={() => setEtapasDe(null)} />
       )}
     </Shell>
   )
@@ -333,6 +339,91 @@ function ConfigOpcoesModal({ companyId, lista, servicos, onClose, onChange }: {
         <input value={novo} onChange={e => setNovo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void adicionar() }} placeholder="Nova opção (ex.: carrossel)" style={{ ...inp, flex: 1 }} />
         <button disabled={busy} onClick={() => void adicionar()} style={{ ...btnSec, background: DOURADO, color: '#fff', borderColor: DOURADO }}>+ Add</button>
         <AjudaCampo chave="pm.servico.opcao_nova" />
+      </div>
+    </Modal>
+  )
+}
+
+// ── Etapas-modelo do serviço (P5.1) ──────────────────────────────────────────
+// Cada serviço do catálogo tem seu modelo de etapas (briefing, criação, revisão,
+// aprovação do cliente, publicação). O job nascerá com estas etapas e, quando
+// "medir_tempo" está ligado, o tempo de calendário da etapa é registrado sozinho
+// (base do "tempo medido sem clique", CEO 25/11). Backend: fn_agency_servico_etapa_*.
+type Etapa = { id: string; servico_id: string; nome: string; descricao: string | null; ordem: number; medir_tempo: boolean }
+function EtapasServicoModal({ companyId, servico, onClose }: { companyId: string; servico: Servico; onClose: () => void }) {
+  const [rows, setRows] = useState<Etapa[]>([])
+  const [novo, setNovo] = useState('')
+  const [novoMedir, setNovoMedir] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [carregando, setCarregando] = useState(true)
+  const recarregar = useCallback(async () => {
+    setCarregando(true)
+    const { data, error } = await supabase.rpc('fn_agency_servico_etapa_listar', { p_company_id: companyId, p_servico_id: servico.id })
+    setCarregando(false)
+    if (error) { setMsg(erroAmigavel(error, 'Não foi possível carregar as etapas. Tente de novo.')); return }
+    const j = data as { etapas?: Etapa[] } | null
+    setRows((j?.etapas ?? []) as Etapa[])
+  }, [companyId, servico.id])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void recarregar() }, [recarregar])
+  async function salvar(e: Partial<Etapa>) {
+    setBusy(true); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_agency_servico_etapa_salvar', { p_company_id: companyId, p_payload: { ...e, servico_id: servico.id } })
+    setBusy(false)
+    const j = data as { id?: string } | null
+    if (error || !j?.id) { setMsg(erroAmigavel(error, 'Não foi possível salvar a etapa. Tente de novo.')); return }
+    await recarregar()
+  }
+  async function adicionar() {
+    if (!novo.trim()) { setMsg('Informe o nome da etapa.'); return }
+    const maxOrdem = rows.reduce((m, r) => Math.max(m, r.ordem), 0)
+    await salvar({ nome: novo.trim(), ordem: maxOrdem + 1, medir_tempo: novoMedir })
+    setNovo(''); setNovoMedir(true)
+  }
+  async function excluir(e: Etapa) {
+    if (!confirm(`Excluir a etapa "${e.nome}"?`)) return
+    setBusy(true); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_agency_servico_etapa_excluir', { p_company_id: companyId, p_id: e.id })
+    setBusy(false)
+    const j = data as { ok?: boolean } | null
+    if (error || !j?.ok) { setMsg(erroAmigavel(error, 'Não foi possível excluir a etapa. Tente de novo.')); return }
+    await recarregar()
+  }
+  function patch(id: string, p: Partial<Etapa>) { setRows(arr => arr.map(r => r.id === id ? { ...r, ...p } : r)) }
+  return (
+    <Modal titulo={`Etapas · ${servico.nome}`} onClose={onClose}>
+      <div style={{ display: 'flex', alignItems: 'center', fontSize: 12, color: TEXTM, marginBottom: 8 }}>
+        As etapas-modelo que todo job deste serviço herda (ex.: briefing, criação, aprovação do cliente). Marque quais têm o tempo medido sozinho.<AjudaCampo chave="pm.servico.etapas" />
+      </div>
+      {msg && <div style={{ background: '#FCEBEB', color: RED, padding: '7px 10px', borderRadius: 6, fontSize: 12, marginBottom: 8 }}>{msg}</div>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+        {rows.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center', fontSize: 11, color: TEXTM, fontWeight: 700 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Etapa<AjudaCampo chave="pm.servico.etapa_nome" /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Medir tempo<AjudaCampo chave="pm.servico.etapa_medir" /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Excluir<AjudaCampo chave="pm.servico.etapa_excluir" /></span>
+          </div>
+        )}
+        {rows.map(e => (
+          <div key={e.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <input value={e.nome} onChange={ev => patch(e.id, { nome: ev.target.value })} onBlur={() => { if (e.nome.trim()) void salvar(e) }} style={inp} /><AjudaCampo chave="pm.servico.etapa_nome" />
+            </span>
+            <button disabled={busy} onClick={() => void salvar({ ...e, medir_tempo: !e.medir_tempo })} style={{ ...btnSec, color: e.medir_tempo ? '#166534' : TEXTM }}>{e.medir_tempo ? 'Sim' : 'Não'}</button>
+            <button disabled={busy} onClick={() => void excluir(e)} title="Excluir" style={{ ...btnSec, borderColor: RED, color: RED }}>✕</button>
+          </div>
+        ))}
+        {!carregando && rows.length === 0 && <div style={{ fontSize: 12.5, color: TEXTM }}>Sem etapas — adicione a primeira (ex.: Briefing).</div>}
+        {carregando && <div style={{ fontSize: 12.5, color: TEXTM }}>Carregando…</div>}
+      </div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input value={novo} onChange={e => setNovo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void adicionar() }} placeholder="Nova etapa (ex.: Criação)" style={{ ...inp, flex: 1, minWidth: 160 }} />
+        <AjudaCampo chave="pm.servico.etapa_nova" />
+        <label style={{ display: 'inline-flex', gap: 5, alignItems: 'center', fontSize: 12.5, color: ESPRESSO, cursor: 'pointer' }}>
+          <input type="checkbox" checked={novoMedir} onChange={e => setNovoMedir(e.target.checked)} /> Medir tempo<AjudaCampo chave="pm.servico.etapa_medir" />
+        </label>
+        <button disabled={busy} onClick={() => void adicionar()} style={{ ...btnSec, background: DOURADO, color: '#fff', borderColor: DOURADO }}>+ Add</button>
       </div>
     </Modal>
   )
