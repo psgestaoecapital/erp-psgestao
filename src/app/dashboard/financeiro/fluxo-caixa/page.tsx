@@ -62,6 +62,11 @@ export default function FluxoCaixaPage() {
   const [contaId, setContaId] = useState<string>('')      // '' = todas as contas
   const [categoria, setCategoria] = useState<string>('')  // '' = todas as categorias
   const [filtros, setFiltros] = useState<Filtros>({ contas: [], categorias: [] })
+  // GO-LIVE piloto item 3 · nome do plano de contas ao lado do código no filtro de categoria
+  // (as categorias são códigos "1.01, 1.02.01…"; mostrar só o número não diz nada ao usuário).
+  // Mesmo padrão provado na listagem de pagar/receber (#1939): valor do filtro continua sendo o
+  // código (o fn_fluxo_caixa_diario recebe p_categoria = código); só o rótulo ganha o nome.
+  const [nomeCategoria, setNomeCategoria] = useState<Record<string, string>>({})
   const [dados, setDados] = useState<FluxoResp | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -78,6 +83,26 @@ export default function FluxoCaixaPage() {
     })
     return () => { vivo = false }
   }, [empresaUnica])
+
+  // Mapa código→nome do plano de contas (uma chamada por empresa). RLS de erp_plano_contas
+  // já restringe por company_id; select só de colunas de catálogo (sem dado de cliente).
+  useEffect(() => {
+    let vivo = true
+    if (!empresaUnica) { setNomeCategoria({}); return }
+    supabase
+      .from('erp_plano_contas')
+      .select('codigo, descricao')
+      .eq('company_id', empresaUnica)
+      .then(({ data: pc }) => {
+        if (!vivo || !pc) return
+        const m: Record<string, string> = {}
+        for (const c of pc as { codigo: string; descricao: string | null }[]) if (c.codigo && c.descricao) m[c.codigo] = c.descricao
+        setNomeCategoria(m)
+      })
+    return () => { vivo = false }
+  }, [empresaUnica])
+  // Rótulo "código · nome" quando há nome; só o código quando não há (categoria livre / sem plano).
+  const rotuloCategoria = (c: string | null | undefined) => (c ? (nomeCategoria[c] ? `${c} · ${nomeCategoria[c]}` : c) : '')
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
@@ -165,7 +190,7 @@ export default function FluxoCaixaPage() {
       [d.data, num(entradaDia(d)), num(saidaDia(d)), num(d.transferencias_entrada), num(d.transferencias_saida),
         num(d.movimento_dia), num(d.saldo_final), d.eh_futuro ? 'sim' : 'nao'].map(esc).join(sep),
     )
-    const ctx = [`Conta${sep}${esc(nomeContaSel || 'Todas as contas')}`, `Categoria${sep}${esc(categoria || 'Todas')}`]
+    const ctx = [`Conta${sep}${esc(nomeContaSel || 'Todas as contas')}`, `Categoria${sep}${esc(rotuloCategoria(categoria) || 'Todas')}`]
     const csv = '﻿' + [...ctx, '', cab.map(esc).join(sep), ...linhas].join('\r\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -220,7 +245,7 @@ export default function FluxoCaixaPage() {
           </div>
           <select value={categoria} onChange={(e) => setCategoria(e.target.value)} style={selectStyle}>
             <option value="">Todas as categorias</option>
-            {filtros.categorias.map((c) => (<option key={c} value={c}>{c}</option>))}
+            {filtros.categorias.map((c) => (<option key={c} value={c}>{rotuloCategoria(c)}</option>))}
           </select>
         </div>
       </div>
@@ -250,7 +275,7 @@ export default function FluxoCaixaPage() {
 
       {filtrandoCategoria && (
         <div style={{ background: '#FFF7ED', border: `1px solid ${PSGC_COLORS.dourado}`, borderRadius: PSGC_RADIUS.md, padding: '10px 12px', marginBottom: 16, fontSize: 12.5, color: PSGC_COLORS.espresso, lineHeight: 1.5 }}>
-          Mostrando só o fluxo da categoria <b>{categoria}</b>. O acumulado começa em zero (fluxo líquido da categoria no período) — o saldo bancário não pertence a uma categoria, e transferências não entram neste filtro.
+          Mostrando só o fluxo da categoria <b>{rotuloCategoria(categoria)}</b>. O acumulado começa em zero (fluxo líquido da categoria no período) — o saldo bancário não pertence a uma categoria, e transferências não entram neste filtro.
         </div>
       )}
 

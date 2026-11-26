@@ -12,12 +12,16 @@ export type PapelGestao =
   | 'OFICINA_DONO' | 'OFICINA_MECANICO'
   | null
 
+// Cache de sessão por empresa: fn_acesso_efetivo é RPC de casca — roda 1x por sessão, não a cada troca de rota.
+const papelCache = new Map<string, PapelGestao>()
+
 export function useAcesso(companyId: string | null) {
-  const [papel, setPapel] = useState<PapelGestao>(null)
-  const [carregando, setCarregando] = useState<boolean>(!!companyId)
+  const [papel, setPapel] = useState<PapelGestao>(companyId ? papelCache.get(companyId) ?? null : null)
+  const [carregando, setCarregando] = useState<boolean>(!!companyId && !papelCache.has(companyId))
 
   useEffect(() => {
     if (!companyId) { setPapel(null); setCarregando(false); return }
+    if (papelCache.has(companyId)) { setPapel(papelCache.get(companyId) ?? null); setCarregando(false); return }
     let alive = true
     setCarregando(true)
     ;(async () => {
@@ -28,6 +32,7 @@ export function useAcesso(companyId: string | null) {
       const { data } = await supabase.rpc('fn_acesso_efetivo', { p_user: uid, p_company: companyId })
       if (!alive) return
       const p = (data as { papel_gestao?: string | null } | null)?.papel_gestao ?? null
+      papelCache.set(companyId, (p as PapelGestao) ?? null)
       setPapel((p as PapelGestao) ?? null)
       setCarregando(false)
     })()
