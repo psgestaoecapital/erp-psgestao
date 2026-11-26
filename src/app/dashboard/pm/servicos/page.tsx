@@ -185,7 +185,7 @@ function FormServico({ edit, setEdit, equipe, servicos, onSalvar, erro, opcoes, 
         {edit.tipo === 'recorrente' && <Campo label="Periodicidade" ajuda="pm.servico.periodicidade"><SelectConfig lista="periodicidade" opcoes={opcoes} value={edit.periodicidade ?? ''} onChange={v => setEdit({ ...edit, periodicidade: v || null })} onGerenciar={onGerenciar} /></Campo>}
         <Campo label="Horas estimadas" ajuda="pm.servico.horas"><CampoDecimal style={inp} step={0.5} value={edit.horas_estimadas} onChange={n => setEdit({ ...edit, horas_estimadas: n })} /></Campo>
         <Campo label="Prazo padrão (dias)" ajuda="pm.servico.prazo"><input type="number" style={inp} value={edit.prazo_dias_padrao ?? ''} onChange={e => setEdit({ ...edit, prazo_dias_padrao: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
-        <div style={{ marginBottom: 10, flex: 1, minWidth: 130 }}>
+        <div data-ajuda="pm.servico.antecedencia" style={{ marginBottom: 10, flex: 1, minWidth: 130 }}>
           <label style={{ display: 'flex', alignItems: 'center', fontSize: 12, color: TEXTM, marginBottom: 4 }}>Antecedência da publicação (dias)<AjudaCampo chave="pm.servico.antecedencia" /></label>
           <input type="number" min={0} max={60} style={inp} value={edit.antecedencia_dias ?? 2} onChange={e => setEdit({ ...edit, antecedencia_dias: e.target.value === '' ? 2 : Math.max(0, Math.min(60, Number(e.target.value))) })} data-testid="servico-antecedencia" />
         </div>
@@ -249,7 +249,7 @@ function SelectConfig({ lista, opcoes, value, onChange, onGerenciar }: {
 }) {
   const lst = opcoes[lista] ?? []
   return (
-    <div style={{ display: 'flex', gap: 4 }}>
+    <div data-ajuda="pm.servico.area pm.servico.unidade pm.servico.periodicidade" style={{ display: 'flex', gap: 4 }}>
       <select style={{ ...inp, flex: 1 }} value={value} onChange={e => onChange(e.target.value)}>
         <option value="">—</option>
         {value && !lst.some(o => o.valor === value) && <option value={value}>{value}</option>}
@@ -325,7 +325,7 @@ function ConfigOpcoesModal({ companyId, lista, servicos, onClose, onChange }: {
         {rows.map(o => {
           const n = usoDe(o.valor)
           return (
-            <div key={o.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 8, alignItems: 'center' }}>
+            <div key={o.id} data-ajuda="pm.servico.opcao_nome" style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 8, alignItems: 'center' }}>
               <input value={o.rotulo} onChange={e => patch(o.id, { rotulo: e.target.value })} onBlur={() => void salvar(o)} style={inp} />
               <span style={{ fontSize: 11, color: TEXTM, minWidth: 54, textAlign: 'right' }}>{n} uso{n === 1 ? '' : 's'}</span>
               <button disabled={busy} onClick={() => void salvar({ ...o, ativo: !o.ativo })} style={{ ...btnSec, color: o.ativo ? '#166534' : TEXTM }}>{o.ativo ? 'Ativa' : 'Inativa'}</button>
