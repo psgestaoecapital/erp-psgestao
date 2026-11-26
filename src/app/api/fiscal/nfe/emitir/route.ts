@@ -110,13 +110,9 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       if (vendaVeic.nfeStatusAtual === 'autorizada' || vendaVeic.nfeStatusAtual === 'processando') {
         return NextResponse.json({ ok: false, mensagem: `Esta venda já tem NF-e ${vendaVeic.nfeStatusAtual} — não emita de novo.` }, { status: 409 })
       }
-      // #9787 · a venda comum ('venda') transmite como hoje (não gated). As SAÍDAS novas por origem
-      // (ex.: consignacao_venda, CFOP 5949) são gated por operação (emite_nfe_autorizada, default false):
-      // a prévia/card já mostra o CFOP correto, mas transmitir só depois da contadora liberar em homologação.
-      if (!body.apenasPrevia && vendaVeic.operacaoNome && vendaVeic.operacaoNome !== 'venda'
-          && vendaVeic.perfil.operacao.emiteNfeAutorizada !== true) {
-        return NextResponse.json({ ok: false, mensagem: `A emissão autorizada da operação '${vendaVeic.operacaoNome}' ainda não está liberada no perfil fiscal. Gere a prévia (card de conferência) para conferir o CFOP, ou habilite a emissão com o contador (após homologação).` }, { status: 400 })
-      }
+      // #9787 (ajuste) · TODAS as operações do perfil (venda, consignacao_venda, etc.) emitem pelo fluxo normal —
+      // o gate emite_nfe_autorizada foi removido: a única revenda (Alliance) está em homologação; o controle de
+      // "vale fiscal ou não" é o ambiente_nfe (homologação × produção). A operação/CFOP sai pela origem do veículo.
       // Nota ligada ao título da venda (sem criar título novo): vai no registro como erp_receber_id.
       body.erpReceberId = vendaVeic.receberId ?? undefined
     }
@@ -129,22 +125,15 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         return NextResponse.json({ ok: false, mensagem: 'operacaoEntrada obrigatória (compra_pf | compra_pj | troca_entrada)' }, { status: 400 })
       }
       entradaVeic = await carregarEntradaVeiculo(body.companyId, body.entradaVeiculoId, body.operacaoEntrada)
-      // #9787 · a emissão AUTORIZADA (transmite à SEFAZ, tpNF=0) só roda quando a operação está LIBERADA no perfil
-      // fiscal (emite_nfe_autorizada=true — a contadora liga por operação após validar em homologação supervisionada).
-      // Default (não liberada) = comportamento atual: só prévia/espelho. Nunca transmite por conta própria.
-      if (!body.apenasPrevia && entradaVeic.perfil.operacao.emiteNfeAutorizada !== true) {
-        return NextResponse.json({ ok: false, mensagem: `A emissão autorizada da operação '${body.operacaoEntrada}' ainda não está liberada no perfil fiscal. Gere a prévia para conferir, ou habilite a emissão autorizada com o contador (após homologação).` }, { status: 400 })
-      }
+      // #9787 (ajuste) · entrada (tpNF=0) emite pelo fluxo normal: apenasPrevia=true → espelho; false → transmite.
+      // Gate emite_nfe_autorizada removido (Alliance em homologação; ambiente_nfe controla produção × homologação).
     }
 
-    // #9787 · DEVOLUÇÃO ao consignante (consignacao_retorno) — SAÍDA (tpNF=1). Mesma trava: só transmite com a
-    // operação liberada no perfil (emite_nfe_autorizada); senão só prévia (card de conferência).
+    // #9787 (ajuste) · DEVOLUÇÃO ao consignante (consignacao_retorno) — SAÍDA (tpNF=1), emite pelo fluxo normal.
+    // Gate emite_nfe_autorizada removido (Alliance em homologação; ambiente_nfe controla produção × homologação).
     let retornoVeic: Awaited<ReturnType<typeof carregarConsignacaoRetorno>> | undefined
     if (body.consignacaoRetornoVeiculoId) {
       retornoVeic = await carregarConsignacaoRetorno(body.companyId, body.consignacaoRetornoVeiculoId)
-      if (!body.apenasPrevia && retornoVeic.perfil.operacao.emiteNfeAutorizada !== true) {
-        return NextResponse.json({ ok: false, mensagem: "A emissão autorizada da operação 'consignacao_retorno' ainda não está liberada no perfil fiscal. Gere a prévia para conferir, ou habilite com o contador (após homologação)." }, { status: 400 })
-      }
     }
 
     const nfeReq = await buildNFeRequest({
