@@ -13,10 +13,15 @@
 //  - sanitiza vírgula/parênteses/aspas/barra — quebram o parser do .or() do PostgREST
 //    (comum em razão social: "FULANO (ME)", "X, Y & Cia").
 // Retorna null quando não sobra nenhuma cláusula válida (chamador zera a lista).
+//
+// Chamado #11084: o documento do cliente mora em cpf_cnpj OU em cnpj_cpf conforme a origem do cadastro (na base: 7.283
+// só em cpf_cnpj, 4.396 só em cnpj_cpf). Buscar numa coluna só escondia o CPF/CNPJ de quem estava na outra — por isso
+// as DUAS colunas entram no filtro. O parâmetro colCpf ficou só por compatibilidade com quem já chama.
 
 export function orFiltroClienteBusca(
   busca: string,
-  colCpf: 'cpf_cnpj' | 'cnpj_cpf' = 'cpf_cnpj',
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _colCpf: 'cpf_cnpj' | 'cnpj_cpf' = 'cpf_cnpj',
 ): string | null {
   const termo = busca.replace(/[,()"\\]/g, '').trim()
   const digits = busca.replace(/\D/g, '')
@@ -25,7 +30,7 @@ export function orFiltroClienteBusca(
     parts.push(`razao_social.ilike.%${termo}%`, `nome_fantasia.ilike.%${termo}%`)
   }
   if (digits.length >= 2) {
-    parts.push(`${colCpf}.ilike.%${digits}%`)
+    parts.push(`cpf_cnpj.ilike.%${digits}%`, `cnpj_cpf.ilike.%${digits}%`)
   }
   return parts.length ? parts.join(',') : null
 }

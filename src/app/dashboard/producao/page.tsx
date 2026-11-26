@@ -9,6 +9,7 @@ import { BriefingEditor } from '@/components/pm/BriefingEditor'
 import { BriefingLigado } from '@/components/pm/BriefingLigado'
 import { CopiarJob, JobsParecidos, type ResultadoCopia } from '@/components/pm/CopiarJob'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { CampoDecimal } from '@/components/comum/CampoDecimal'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
@@ -84,6 +85,28 @@ const PRIORIDADES: Record<string, { l: string; cor: string }> = {
   normal:  { l: 'Normal',  cor: TEXTM },
   alta:    { l: 'Alta',    cor: YELLOW },
   urgente: { l: 'Urgente', cor: RED },
+}
+
+// Higiene do job (tela 10 · go-live P&M): o título carrega o trabalho, não a data. Data no título (ex.: "( 01/12)")
+// vira texto solto que não entra em prazo/agenda e bagunça a busca. Detecta dd/mm, dd/mm/aa(aa) e dd-mm — e sugere
+// usar o campo Prazo. É só um aviso claro (nunca erro cru): o usuário pode criar o job mesmo assim.
+function dataNoTitulo(titulo: string): string | null {
+  const m = (titulo || '').match(/\(?\s*\b(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?\b\s*\)?/)
+  return m ? m[0].trim() : null
+}
+// Higiene do job (tela 10 · go-live P&M): job PUBLICADO com prazo no futuro é incoerente — a entrega já saiu,
+// mas o prazo ainda "está por vir". Avisa (nunca erro cru) para o usuário corrigir o prazo ou o estágio.
+// Higiene do job (tela 10 · go-live P&M): job sem prazo é "planejamento sem fim" — não entra na agenda nem nos
+// avisos e tende a arrastar sem nunca fechar. Avisa (nunca erro cru) quando o job ainda está em aberto e sem prazo.
+function planejamentoSemFim(status: string | undefined, dataPrazo: string | undefined): boolean {
+  if (dataPrazo) return false
+  return !['concluida', 'publicado', 'cancelado'].includes(status ?? '')
+}
+function prazoAposPublicacao(status: string | undefined, dataPrazo: string | undefined): boolean {
+  if (status !== 'publicado' || !dataPrazo) return false
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
+  const prazo = new Date(dataPrazo + 'T00:00:00')
+  return !Number.isNaN(prazo.getTime()) && prazo.getTime() > hoje.getTime()
 }
 
 function ProducaoPageInner() {
@@ -602,6 +625,12 @@ function ProducaoPageInner() {
                 placeholder="Ex.: Post Dia das Crianças — carrossel 3 cards"
                 style={{ ...inp, fontSize: 15, resize: 'vertical' }} />
             </label>
+            {dataNoTitulo((form.titulo as string) ?? '') && (
+              <div data-testid="job-aviso-data-titulo" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#FFF7E3', border: '1px solid #E7C96A', borderRadius: 10, padding: '8px 11px', color: YELLOW, fontSize: 12.5 }}>
+                <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
+                <span style={{ flex: 1 }}>Parece que o título tem uma data (<b>{dataNoTitulo((form.titulo as string) ?? '')}</b>). Use o campo <b>Prazo</b> abaixo para a data entrar na agenda e nos avisos — o título fica só com o trabalho. <b>Você pode criar o job mesmo assim.</b></span>
+              </div>
+            )}
             {!editId && <JobsParecidos empresa={sel} titulo={(form.titulo as string) ?? ''} onAbrir={(id) => setCopiar(id)} />}
           </div>
           <div style={grid2}>
@@ -609,6 +638,18 @@ function ProducaoPageInner() {
             <Select label="Responsável" ajuda="pm.job.responsavel" testId="job-responsavel" v={(form.responsavel_id as string) ?? ''} on={(v) => setForm({ ...form, responsavel_id: v || null, responsavel_nome: v ? null : (form.responsavel_nome ?? null) })}
               opts={[['', '—'], ...responsaveis.map((u) => [u.id, labelUsuario(u, responsaveis)] as [string, string])]} />
           </div>
+          {prazoAposPublicacao(form.status as string | undefined, form.data_prazo as string | undefined) && (
+            <div data-testid="job-aviso-prazo-publicado" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#FFF7E3', border: '1px solid #E7C96A', borderRadius: 10, padding: '8px 11px', color: YELLOW, fontSize: 12.5, marginTop: 8 }}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
+              <span style={{ flex: 1 }}>Este job está <b>Publicado</b>, mas o <b>Prazo</b> é uma data futura. Ajuste o prazo para a data real da entrega ou reveja o estágio. <b>Você pode salvar mesmo assim.</b></span>
+            </div>
+          )}
+          {planejamentoSemFim(form.status as string | undefined, form.data_prazo as string | undefined) && (
+            <div data-testid="job-aviso-sem-prazo" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#FFF7E3', border: '1px solid #E7C96A', borderRadius: 10, padding: '8px 11px', color: YELLOW, fontSize: 12.5, marginTop: 8 }}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
+              <span style={{ flex: 1 }}>Este job está <b>sem prazo</b>: sem uma data de fim ele não entra na agenda nem nos avisos e tende a arrastar sem fechar. Defina um <b>Prazo</b> acima. <b>Você pode salvar mesmo assim.</b></span>
+            </div>
+          )}
 
           {/* BRIEFING — por último, área grande */}
           <div style={{ marginTop: 12 }}>
@@ -648,8 +689,8 @@ function ProducaoPageInner() {
               <Field label="Responsável (sem login)" v={form.responsavel_nome as string | undefined}
                 on={(v) => setForm({ ...form, responsavel_nome: v || null, responsavel_id: v ? null : (form.responsavel_id ?? null) })} />
               <Field label="Valor (R$)" moeda v={form.valor_job} on={(v) => setForm({ ...form, valor_job: parseFloat(v) || 0 })} />
-              <Field label="Horas estimadas" type="number" v={form.horas_estimadas} on={(v) => setForm({ ...form, horas_estimadas: parseFloat(v) || 0 })} />
-              <Field label="% Comissão (preview)" type="number" v={form.percentual_comissao} on={(v) => setForm({ ...form, percentual_comissao: v === '' ? null : parseFloat(v) })} />
+              <Field label="Horas estimadas" decimal v={form.horas_estimadas} on={(v) => setForm({ ...form, horas_estimadas: parseFloat(v) || 0 })} />
+              <Field label="% Comissão (preview)" decimal v={form.percentual_comissao} on={(v) => setForm({ ...form, percentual_comissao: v === '' ? null : parseFloat(v) })} />
             </div>
           )}
           {(form.valor_job && form.percentual_comissao) ? (
@@ -674,7 +715,7 @@ function ProducaoPageInner() {
                 .filter((j) => !['concluida', 'publicado', 'cancelado'].includes(j.status))
                 .map((j) => [j.id, j.titulo] as [string, string])]} />
             <Field label="Data *" ajuda="pm.timesheet.data" type="date" v={form.data} on={(v) => setForm({ ...form, data: v })} />
-            <Field label="Horas *" ajuda="pm.timesheet.horas" type="number" v={form.horas} on={(v) => setForm({ ...form, horas: parseFloat(v) || 0 })} />
+            <Field label="Horas *" ajuda="pm.timesheet.horas" decimal v={form.horas} on={(v) => setForm({ ...form, horas: parseFloat(v) || 0 })} />
             <Select label="Atividade" ajuda="pm.timesheet.atividade" v={(form.tipo_atividade as string) ?? ''} on={(v) => setForm({ ...form, tipo_atividade: v || null })}
               opts={[['', '— tipo —'], ['criacao', 'Criação'], ['atendimento', 'Atendimento'],
                 ['producao', 'Produção'], ['edicao', 'Edição'], ['revisao', 'Revisão'],
@@ -744,7 +785,7 @@ function ProducaoPageInner() {
               <Select label="Responsável" v={novaEtapa.responsavel_id} on={(v) => setNovaEtapa({ ...novaEtapa, responsavel_id: v })}
                 opts={[['', '—'], ...responsaveis.map((u) => [u.id, labelUsuario(u, responsaveis)] as [string, string])]} />
               <Field label="Prazo" type="date" v={novaEtapa.data_prazo} on={(v) => setNovaEtapa({ ...novaEtapa, data_prazo: v })} />
-              <Field label="Horas estimadas" type="number" v={novaEtapa.horas_estimadas} on={(v) => setNovaEtapa({ ...novaEtapa, horas_estimadas: v })} />
+              <Field label="Horas estimadas" decimal v={novaEtapa.horas_estimadas} on={(v) => setNovaEtapa({ ...novaEtapa, horas_estimadas: v })} />
             </div>
             <div style={actions}>
               <button onClick={addEtapa} disabled={etapaBusy === 'nova'} style={btnPrimary}>{etapaBusy === 'nova' ? 'Adicionando…' : 'Adicionar etapa'}</button>
@@ -1175,7 +1216,7 @@ function Modal({ titulo, children, onClose }: { titulo: string; children: React.
     </div>
   )
 }
-function Field({ label, v, on, type = 'text', multiline, moeda, testId, ajuda }: { label: string; v: unknown; on: (v: string) => void; type?: string; multiline?: boolean; moeda?: boolean; testId?: string; ajuda?: string }) {
+function Field({ label, v, on, type = 'text', multiline, moeda, decimal, testId, ajuda }: { label: string; v: unknown; on: (v: string) => void; type?: string; multiline?: boolean; moeda?: boolean; decimal?: boolean; testId?: string; ajuda?: string }) {
   return (
     <label style={lbl}>
       <span style={{ display: 'flex', alignItems: 'center' }}>{label}{ajuda && <AjudaCampo chave={ajuda} />}</span>
@@ -1184,6 +1225,9 @@ function Field({ label, v, on, type = 'text', multiline, moeda, testId, ajuda }:
       ) : moeda ? (
         // #6874 — valor em R$ com máscara ao digitar; devolve o número (string) p/ o parse do chamador
         <CampoMoeda value={numeroParaMoeda(v === '' || v == null ? null : Number(v))} onChange={(m) => on(String(moedaParaNumero(m) ?? ''))} testId={testId} placeholder="R$ 0,00" style={inp} />
+      ) : decimal ? (
+        // #5660 — valor/percentual/horas decimal que ACEITA vírgula BR (e ponto); devolve o número (string) p/ o parse do chamador
+        <CampoDecimal value={v as number | string | null | undefined} onChange={(n) => on(n == null ? '' : String(n))} testId={testId} style={inp} />
       ) : (
         <input type={type} value={(v as string | number) ?? ''} onChange={(e) => on(e.target.value)} data-testid={testId} style={inp} />
       )}

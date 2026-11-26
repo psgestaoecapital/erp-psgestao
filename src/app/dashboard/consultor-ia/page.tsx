@@ -15,12 +15,19 @@ const ESP = "#3D2314", GO = "#C8941A", OW = "#FAF7F2", CARD = "#FFFFFF", BD = "#
 
 type Achado = { codigo: string; categoria: string; severidade: "alta" | "media" | "baixa"; titulo: string; mensagem: string; como_corrigir: string; rota_link: string };
 type Raiox = { ok: boolean; erro?: string; resumo?: { alta: number; media: number; baixa: number; total: number }; achados?: Achado[] };
+type DiagParceiro = { codigo: string; frase: string; link?: string };
+type TituloParceiro = { id: string; natureza: string; vencimento?: string; valor?: number; juros?: number; multa?: number; desconto?: number; valor_pago?: number; saldo?: number; status?: string; conciliado?: boolean; link?: string };
+type OpcaoParceiro = { tipo: string; id: string; nome: string; cidade?: string; documento_mascarado?: string };
 type Resposta = {
   ok: boolean; bloqueado?: boolean; naoEntendi?: boolean; mensagem?: string; error?: string;
-  tipo?: "lista" | "valor" | "cliente" | "raiox" | "divergencia" | "lista_lancamentos"; titulo?: string; resumo?: string;
+  tipo?: "lista" | "valor" | "cliente" | "raiox" | "divergencia" | "lista_lancamentos" | "situacao_parceiro"; titulo?: string; resumo?: string;
   kpis?: any; linhas?: any[]; valor?: number; achados?: Achado[];
   contas?: { conta_id: string; conta_nome: string; saldo_sistema: number; saldo_banco: number; diferenca: number; rota_link?: string }[];
   contas_sem_extrato?: { conta_nome: string; saldo_sistema?: number }[];
+  parceiro?: { nome?: string; tipo?: string; cidade?: string; documento_mascarado?: string | null };
+  titulos?: TituloParceiro[]; diagnosticos?: DiagParceiro[];
+  totais?: { em_aberto?: number; vencido?: number; pago_periodo?: number; juros_receber?: number; juros_pagar?: number };
+  opcoes?: OpcaoParceiro[];
 };
 
 const CHIPS = ["Contas a receber que vencem hoje", "Despesas que vencem amanhã", "Quais clientes estão inadimplentes?", "Qual o saldo das minhas contas?",
@@ -41,6 +48,7 @@ export default function ConsultorIAPage() {
   const empresaRef = useRef(empresa);
   const [empresaInfo, setEmpresaInfo] = useState<{ nome: string; cnpj: string } | null>(null);
   const [pergunta, setPergunta] = useState("");
+  const [nomeParceiro, setNomeParceiro] = useState("");
   const [loading, setLoading] = useState(false);
   const [resposta, setResposta] = useState<Resposta | null>(null);
   const [raiox, setRaiox] = useState<Raiox | null>(null);
@@ -139,6 +147,24 @@ export default function ConsultorIAPage() {
             </button>
           ))}
         </div>
+        {/* ATALHO: situação de UM cliente/fornecedor (RD-95 "?") — pergunta "por que o saldo do X...", "o X pagou?" */}
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${BD}` }}>
+          <label data-ajuda="inteligencia.consultor.situacao_parceiro" style={{ display: "block" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: TXM, marginBottom: 6, display: "flex", alignItems: "center" }}>
+              Situação de um cliente ou fornecedor<AjudaCampo chave="inteligencia.consultor.situacao_parceiro" />
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <input value={nomeParceiro} onChange={(e) => setNomeParceiro(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && nomeParceiro.trim()) { e.preventDefault(); perguntar(`Situação de ${nomeParceiro.trim()}`); } }}
+                placeholder="Nome ou CNPJ — ex.: IGP Cereais"
+                style={{ flex: "1 1 220px", background: OW, border: `1px solid ${BD}`, color: ESP, borderRadius: 10, padding: "10px 12px", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              <button type="button" onClick={() => nomeParceiro.trim() && perguntar(`Situação de ${nomeParceiro.trim()}`)} disabled={loading || !empresa || !nomeParceiro.trim()}
+                style={{ borderRadius: 10, border: `1px solid ${GO}`, background: "transparent", color: ESP, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: loading || !empresa || !nomeParceiro.trim() ? "not-allowed" : "pointer" }}>
+                Ver situação
+              </button>
+            </div>
+          </label>
+        </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
           <button type="button" onClick={() => perguntar()} disabled={loading || !empresa || !pergunta.trim()}
             style={{ flex: "1 1 220px", borderRadius: 10, border: "none", padding: "12px 16px", fontSize: 14, fontWeight: 700, cursor: loading || !empresa || !pergunta.trim() ? "not-allowed" : "pointer", color: "#fff", background: loading || !empresa || !pergunta.trim() ? "#CDB89A" : `linear-gradient(135deg,${ESP},${GO})` }}>
@@ -207,6 +233,69 @@ export default function ConsultorIAPage() {
             </div>
           )}
 
+          {/* SITUAÇÃO DE UM CLIENTE/FORNECEDOR — POR QUE o saldo está assim, com link para corrigir */}
+          {resposta.tipo === "situacao_parceiro" && (
+            <div style={{ marginTop: 10 }}>
+              {(resposta.opcoes?.length ?? 0) > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {resposta.opcoes!.map((o) => (
+                    <button key={o.id} type="button" onClick={() => perguntar(`Situação do ${o.tipo} ${o.nome}`)}
+                      style={{ textAlign: "left", background: CARD, border: `1px solid ${BD}`, borderRadius: 12, padding: "10px 14px", cursor: "pointer" }}>
+                      <span style={{ fontWeight: 700, color: ESP }}>{o.nome}</span>
+                      <span style={{ fontSize: 12, color: TXM }}> · {o.tipo === "fornecedor" ? "fornecedor" : "cliente"}{o.cidade ? ` · ${o.cidade}` : ""}{o.documento_mascarado ? ` · ${o.documento_mascarado}` : ""}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {(resposta.diagnosticos?.length ?? 0) > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: (resposta.titulos?.length ?? 0) ? 10 : 0 }}>
+                  {resposta.diagnosticos!.map((d, i) => (
+                    <div key={`${d.codigo}-${i}`} style={{ background: CARD, border: `1px solid ${BD}`, borderLeft: `4px solid ${GO}`, borderRadius: 12, padding: "10px 14px" }}>
+                      <div style={{ fontSize: 12.5, color: ESP, lineHeight: 1.5 }}>{d.frase}</div>
+                      {d.link && (
+                        <button type="button" onClick={() => router.push(d.link!)}
+                          style={{ marginTop: 8, background: "transparent", border: `1px solid ${GO}`, color: ESP, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                          Abrir título →
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {resposta.totais && (resposta.titulos?.length ?? 0) > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                  {([["Em aberto", resposta.totais.em_aberto], ["Vencido", resposta.totais.vencido], ["Pago no período", resposta.totais.pago_periodo], ["Juros", resposta.parceiro?.tipo === "fornecedor" ? resposta.totais.juros_pagar : resposta.totais.juros_receber]] as [string, number | undefined][]).map(([rot, val]) => (
+                    <div key={rot} style={{ flex: "1 1 120px", background: CARD, border: `1px solid ${BD}`, borderRadius: 10, padding: "8px 12px" }}>
+                      <div style={{ fontSize: 10.5, color: TXM, textTransform: "uppercase", letterSpacing: 0.4 }}>{rot}</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: Number(val) < 0 ? RED : ESP }}>{brl(Number(val || 0))}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(resposta.titulos?.length ?? 0) > 0 && (
+                <div style={{ overflowX: "auto", border: `1px solid ${BD}`, borderRadius: 12, background: CARD }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead><tr style={{ background: OW, color: ESP }}>
+                      {["Vencimento", "Valor", "Pago", "Saldo", "Situação", ""].map((h, i) => <th key={i} style={{ textAlign: i >= 1 && i <= 3 ? "right" : "left", padding: "8px 10px", fontWeight: 700, borderBottom: `1px solid ${BD}` }}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {resposta.titulos!.map((t) => (
+                        <tr key={t.id} style={{ borderBottom: `1px solid ${BD}` }}>
+                          <td style={{ padding: "7px 10px" }}>{fmtData(t.vencimento)}</td>
+                          <td style={{ padding: "7px 10px", textAlign: "right" }}>{brl(t.valor)}</td>
+                          <td style={{ padding: "7px 10px", textAlign: "right" }}>{brl(t.valor_pago)}</td>
+                          <td style={{ padding: "7px 10px", textAlign: "right", fontWeight: 600, color: Number(t.saldo) < 0 ? RED : ESP }}>{brl(t.saldo)}</td>
+                          <td style={{ padding: "7px 10px", color: TXM }}>{t.status || "—"}{!t.conciliado && (t.status === "pago" || t.status === "recebido") ? <span style={{ marginLeft: 6, background: "#FDF2E9", color: Y, borderRadius: 999, padding: "1px 8px", fontWeight: 600 }}>sem conciliar</span> : null}</td>
+                          <td style={{ padding: "7px 10px" }}>{t.link && <button type="button" onClick={() => router.push(t.link!)} style={{ background: "transparent", border: `1px solid ${GO}`, color: ESP, borderRadius: 8, padding: "5px 10px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>Abrir →</button>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* DIVERGÊNCIA sistema × banco, por conta */}
           {resposta.tipo === "divergencia" && (
             <div style={{ marginTop: 10 }}>
@@ -240,7 +329,41 @@ export default function ConsultorIAPage() {
                   Sem extrato para comparar: {resposta.contas_sem_extrato!.map((c) => c.conta_nome).join(", ")}.
                 </div>
               )}
-              {(resposta.contas?.length ?? 0) > 0 && (
+              {/* Lançamentos que causam a diferença — já na MESMA resposta (sem 2º clique). Mesmo estilo de lista_lancamentos. */}
+              {(resposta.linhas?.length ?? 0) > 0 && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: ESP, marginBottom: 6 }}>Lançamentos sem conciliar que explicam a diferença</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {resposta.linhas!.map((l: any, i: number) => (
+                      <div key={l.id ?? i} style={{ background: CARD, border: `1px solid ${BD}`, borderRadius: 12, padding: "10px 14px", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
+                        <div style={{ minWidth: 0, flex: "1 1 260px" }}>
+                          <div style={{ fontWeight: 700, color: ESP, fontSize: 13 }}>
+                            {l.descricao || l.numero_documento || "Lançamento"}
+                            <span style={{ fontWeight: 500, color: TXM, fontSize: 11, marginLeft: 6 }}>{l.natureza === "pagar" ? "a pagar" : "a receber"}</span>
+                          </div>
+                          <div style={{ fontSize: 12, color: TXM, marginTop: 2 }}>
+                            {l.contraparte_nome || "Sem fornecedor/cliente"} · {l.contraparte_cnpj ? `CNPJ/CPF ${l.contraparte_cnpj}` : <span style={{ color: RED, fontWeight: 600 }}>sem CNPJ</span>}
+                          </div>
+                          <div style={{ fontSize: 11.5, color: TXM, marginTop: 2 }}>
+                            Venc. {fmtData(l.data_vencimento)}{l.data_pagamento ? ` · pago em ${fmtData(l.data_pagamento)}` : ""}{l.conta ? ` · ${l.conta}` : ""} · {l.status || "—"}
+                            {!l.conciliado && (l.data_pagamento || l.status === "pago" || l.status === "recebido") ? <span style={{ marginLeft: 6, background: "#FDF2E9", color: Y, borderRadius: 999, padding: "1px 8px", fontWeight: 600 }}>sem conciliar</span> : null}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontWeight: 700, color: ESP, fontSize: 13.5 }}>{brl(l.valor)}</span>
+                          {l.rota_link && (
+                            <button type="button" onClick={() => router.push(l.rota_link)}
+                              style={{ background: "transparent", border: `1px solid ${GO}`, color: ESP, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                              Abrir lançamento →
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(resposta.contas?.length ?? 0) > 0 && (resposta.linhas?.length ?? 0) === 0 && (
                 <button type="button" onClick={() => perguntar("Lançamentos sem conciliar")}
                   style={{ marginTop: 10, background: OW, border: `1px solid ${BD}`, color: ESP, borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                   Ver os lançamentos sem conciliar

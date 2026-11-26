@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase'
 import { ehUuid, erroAmigavel } from '@/lib/erroAmigavel'
 import { comPrazo } from '@/lib/comPrazo'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CheckSquare, Square } from 'lucide-react'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
 const CARD: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 18, boxShadow: '0 1px 2px rgba(61,35,20,0.04)' }
@@ -121,6 +122,10 @@ function mapearColunas(matriz: string[][]): { headerRow: number; col: Record<str
     quantidade: /qtd|quant/i,
     custo_material_unit: /material|mat\.?$|insumo/i,
     custo_mao_obra_unit: /m[aã]o.?de.?obra|m\.?o\.?|\bmo\b|servi[çc]o unit/i,
+    // §334: planilha "simples" (prestadora/pessoa física) traz UM valor por item, sem separar material × mão de obra.
+    // Casamos "Preço/Valor/Custo Unitário", "P. Unit.", "V. Unit", "Vlr Unit", "Unitário". Só é usado quando NÃO há
+    // coluna de material NEM de mão de obra (ver `modoValorUnico`), para não atrapalhar a planilha detalhada.
+    preco_unit: /(pre[çc]o|valor|vlr|custo|p|v)\.?\s*unit|unit[aá]ri/i,
     local_tipo: /local|pavimento|ambiente|zona/i,
   }
   for (let r = 0; r < Math.min(matriz.length, 15); r++) {
@@ -166,8 +171,14 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
   const [linhasIgnoradas, setLinhasIgnoradas] = useState(0)
   // §334: quantas linhas tiveram a unidade padronizada para a grafia canônica (ex.: "UND"→"un", "M2"→"m²").
   const [unidadesNormalizadas, setUnidadesNormalizadas] = useState(0)
+  // §334: linhas de ESTRUTURA (agrupador/título) da EAP — têm código, mas sem unidade, sem quantidade e sem custo
+  // (ex.: "1 SERVIÇOS PRELIMINARES"). Não são item do orçamento: não entram e NÃO contam como "linha com erro".
+  const [agrupadoresEstrutura, setAgrupadoresEstrutura] = useState(0)
+  // §334: planilha trouxe um único valor por item (sem separar material × mão de obra) — usado como custo do item.
+  const [valorUnicoAviso, setValorUnicoAviso] = useState(false)
   // §334: qual aba da planilha foi usada, quando o arquivo tem mais de uma (a EAP pode não estar na 1ª aba).
-  const [abaImportada, setAbaImportada] = useState<{ nome: string; total: number } | null>(null)
+  // `ignoradas` = nomes das demais abas que NÃO entram na EAP ("Outros Custos"/"Análise"/… vão para a Viabilidade 316).
+  const [abaImportada, setAbaImportada] = useState<{ nome: string; total: number; ignoradas: string[] } | null>(null)
   // §334 conferência do total: soma importada (Σ qtd × (material + mão de obra)) × total declarado na planilha.
   const [totalImportado, setTotalImportado] = useState(0)
   const [totalPlanilha, setTotalPlanilha] = useState<number | null>(null)
@@ -218,6 +229,10 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       if (!mapa) { setAviso(''); setErro('Não reconheci as colunas da planilha. Confira se há colunas de código, descrição e quantidade.'); return }
       const { headerRow, col } = mapa
       const pega = (linha: string[], chave: string) => (col[chave] === undefined ? '' : String(linha[col[chave]] ?? '').trim())
+      // §334: planilha "simples" (prestadora/pessoa física) — tem UM valor por item (coluna de preço/valor unitário) e
+      // NÃO separa material × mão de obra. Nesse caso o valor unitário vira o custo do item (entra em "material" para
+      // somar no total e na árvore; a mão de obra fica vazia). Só vale quando NÃO há coluna de material NEM de MO.
+      const modoValorUnico = col.custo_material_unit === undefined && col.custo_mao_obra_unit === undefined && col.preco_unit !== undefined
       // Origem do range da planilha: matriz[r][c] corresponde à célula (range.s.r + r, range.s.c + c).
       const range = XLSX.utils.decode_range(ws['!ref'] ?? 'A1')
       // A célula do código veio como NÚMERO? (tipo 'n' no SheetJS). Guarda índice base 0 da linha em `lin`.
@@ -225,27 +240,39 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       const lin: Linha[] = []
       let ignoradas = 0
       let normalizadas = 0
+      let agrupadores = 0
       for (let r = headerRow + 1; r < matriz.length; r++) {
         const row = matriz[r] ?? []
         const eap = pega(row, 'eap_codigo')
         const desc = pega(row, 'descricao')
-        // pula agrupadores/linhas vazias (sem código e sem descrição); conta p/ o relatório do que não foi lido.
+        // pula linhas totalmente vazias (sem código e sem descrição); conta p/ o relatório do que não foi lido.
         if (!eap && !desc) { if (row.some((c) => String(c ?? '').trim())) ignoradas++; continue }
+        const unidadeOrig = pega(row, 'unidade')
+        const unidadeNorm = normalizarUnidade(unidadeOrig)
+        const qtd = numCanonico(pega(row, 'quantidade'))
+        let mat = numCanonico(pega(row, 'custo_material_unit'))
+        let mo = numCanonico(pega(row, 'custo_mao_obra_unit'))
+        // §334: planilha de valor único — o preço/valor unitário vira o custo do item (sem separar material × MO).
+        if (modoValorUnico) { mat = numCanonico(pega(row, 'preco_unit')); mo = '' }
+        // §334: linha COM unidade = item; linha SEM unidade (e sem quantidade e sem custo) = AGRUPADOR/título da
+        // estrutura (ex.: "1 SERVIÇOS PRELIMINARES"). Agrupador não é item do orçamento e não deve contar como
+        // "linha com erro" (antes a validação devolvia "unidade vazia"). Conservador: só é agrupador quando tem
+        // código estruturado MAS sem unidade, sem quantidade e sem custo. Item com valor e sem unidade continua
+        // indo como erro (falta real a corrigir). Não muda o que é gravado — agrupador nunca seria importado.
+        if (eap && !unidadeNorm && numBR(qtd) === 0 && numBR(mat) === 0 && numBR(mo) === 0) { agrupadores++; continue }
         const linIdx = lin.length
-        // Só vale avisar quando há código: célula do código com tipo numérico perde o zero à direita.
+        // célula do código com tipo numérico perde o zero à direita — avisa só nos itens de fato.
         if (eap && col.eap_codigo !== undefined) {
           const addr = XLSX.utils.encode_cell({ r: range.s.r + r, c: range.s.c + col.eap_codigo })
           const cel = ws[addr] as { t?: string } | undefined
           if (cel && cel.t === 'n') numericos.add(linIdx)
         }
-        const unidadeOrig = pega(row, 'unidade')
-        const unidadeNorm = normalizarUnidade(unidadeOrig)
         if (unidadeOrig && unidadeNorm !== unidadeOrig.trim()) normalizadas++
         lin.push({
           eap_codigo: eap, descricao: desc, unidade: unidadeNorm,
-          quantidade: numCanonico(pega(row, 'quantidade')),
-          custo_material_unit: numCanonico(pega(row, 'custo_material_unit')),
-          custo_mao_obra_unit: numCanonico(pega(row, 'custo_mao_obra_unit')),
+          quantidade: qtd,
+          custo_material_unit: mat,
+          custo_mao_obra_unit: mo,
           local_tipo: pega(row, 'local_tipo'), local_nome: pega(row, 'local_tipo'),
         })
       }
@@ -260,7 +287,9 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       setCodigosRepetidos([...cont.entries()].filter(([, n]) => n > 1).map(([codigo, vezes]) => ({ codigo, vezes })).sort((a, b) => b.vezes - a.vezes))
       setLinhasIgnoradas(ignoradas)
       setUnidadesNormalizadas(normalizadas)
-      setAbaImportada(wb.SheetNames.length > 1 ? { nome: abaUsada, total: wb.SheetNames.length } : null)
+      setAgrupadoresEstrutura(agrupadores)
+      setValorUnicoAviso(modoValorUnico)
+      setAbaImportada(wb.SheetNames.length > 1 ? { nome: abaUsada, total: wb.SheetNames.length, ignoradas: wb.SheetNames.filter((n) => n !== abaUsada) } : null)
       // §334 conferência: soma importada = Σ qtd × (material + mão de obra) de todas as linhas lidas.
       const somaImportada = lin.reduce((acc, l) => acc + numBR(l.quantidade) * (numBR(l.custo_material_unit) + numBR(l.custo_mao_obra_unit)), 0)
       setTotalImportado(somaImportada)
@@ -287,7 +316,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
     setPasso('resultado')
   }
 
-  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false); setCodigosRepetidos([]); setLinhasIgnoradas(0); setUnidadesNormalizadas(0); setAbaImportada(null); setTotalImportado(0); setTotalPlanilha(null) }
+  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false); setCodigosRepetidos([]); setLinhasIgnoradas(0); setUnidadesNormalizadas(0); setAgrupadoresEstrutura(0); setValorUnicoAviso(false); setAbaImportada(null); setTotalImportado(0); setTotalPlanilha(null) }
 
   // diferença entre a soma importada e o total declarado na planilha; "confere" quando ≤ 1 centavo.
   const difTotal = totalPlanilha === null ? null : Math.round((totalImportado - totalPlanilha) * 100) / 100
@@ -364,13 +393,20 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
           <div style={{ display: 'grid', gap: 12 }}>
             <div style={{ ...CARD, display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ fontSize: 13, color: MUT }}>Arquivo: <strong style={{ color: ESP }}>{arquivoNome}</strong></span>
-              {abaImportada && <span data-testid="eap-importar-aba" title={`A planilha tem ${abaImportada.total} abas; usamos a que tem a EAP. As abas de "Outros Custos"/"Análise" não entram no orçamento.`} style={{ fontSize: 13, color: MUT }}>Aba: <strong style={{ color: ESP }}>{abaImportada.nome}</strong></span>}
+              {abaImportada && <span data-testid="eap-importar-aba" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: MUT }}>Aba: <strong style={{ color: ESP }}>{abaImportada.nome}</strong> <AjudaCampo chave="projetos.orcamento_eap.importar_aba" /></span>}
+              {abaImportada && abaImportada.ignoradas.length > 0 && (
+                <span data-testid="eap-importar-abas-ignoradas" style={{ flexBasis: '100%', fontSize: 12, color: MUT, lineHeight: 1.5 }}>
+                  Importei só a aba da EAP. {abaImportada.ignoradas.length === 1 ? 'A outra aba' : `As outras ${abaImportada.ignoradas.length} abas`} <strong style={{ color: ESP }}>{abaImportada.ignoradas.join(', ')}</strong> {abaImportada.ignoradas.length === 1 ? 'não entra' : 'não entram'} no orçamento por EAP — abas como “Outros Custos” e “Análise” pertencem ao estudo de <strong style={{ color: ESP }}>Viabilidade</strong> do empreendimento.
+                </span>
+              )}
               <span style={{ fontSize: 13, color: VERDE, fontWeight: 700 }}>{resumo.validos} válidas</span>
               <span style={{ fontSize: 13, color: resumo.com_erro ? VERM : MUT, fontWeight: 700 }}>{resumo.com_erro} com erro</span>
               {codigosNumericos.size > 0 && <span style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>{codigosNumericos.size} código(s) como número</span>}
               {codigosRepetidos.length > 0 && <span style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>{codigosRepetidos.length} código(s) repetido(s)</span>}
-              {linhasIgnoradas > 0 && <span data-testid="eap-importar-ignoradas" title="Linhas sem código e sem descrição (títulos/agrupadores) — não entram no orçamento" style={{ fontSize: 13, color: MUT, fontWeight: 700 }}>{linhasIgnoradas} linha(s) ignorada(s)</span>}
-              {unidadesNormalizadas > 0 && <span data-testid="eap-importar-unidades-normalizadas" title="Unidades padronizadas para a grafia do orçamento (ex.: UND→un, M2→m², peça→pç, hr→h)" style={{ fontSize: 13, color: VERDE, fontWeight: 700 }}>{unidadesNormalizadas} unidade(s) padronizada(s)</span>}
+              {linhasIgnoradas > 0 && <span data-testid="eap-importar-ignoradas" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: MUT, fontWeight: 700 }}>{linhasIgnoradas} linha(s) ignorada(s) <AjudaCampo chave="projetos.orcamento_eap.importar_ignoradas" /></span>}
+              {unidadesNormalizadas > 0 && <span data-testid="eap-importar-unidades-normalizadas" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: VERDE, fontWeight: 700 }}>{unidadesNormalizadas} unidade(s) padronizada(s) <AjudaCampo chave="projetos.orcamento_eap.importar_unidades" /></span>}
+              {agrupadoresEstrutura > 0 && <span data-testid="eap-importar-agrupadores" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: MUT, fontWeight: 700 }}>{agrupadoresEstrutura} linha(s) de estrutura <AjudaCampo chave="projetos.orcamento_eap.importar_estrutura" /></span>}
+              {valorUnicoAviso && <span data-testid="eap-importar-valor-unico" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: GOLD, fontWeight: 700 }}>valor único por item <AjudaCampo chave="projetos.orcamento_eap.importar_valor_unico" /></span>}
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
                 <button type="button" data-testid="eap-importar-recomecar" onClick={recomecar} disabled={busy} style={{ background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Trocar arquivo</button>
                 <button type="button" data-testid="eap-importar-confirmar" onClick={() => void confirmar()} disabled={busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico)} style={{ background: ESP, color: BG, border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico) ? 'default' : 'pointer', opacity: busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico) ? 0.5 : 1 }}>Confirmar importação</button>
@@ -412,7 +448,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
             )}
             <div data-testid="eap-importar-conferencia-total" style={{ ...CARD, display: 'grid', gap: 8, borderColor: confereTotal ? VERDE : (difTotal !== null ? GOLD : LINE) }}>
               <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
-                <span style={{ fontSize: 13, color: MUT }}>Total importado (soma dos itens)</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: MUT }}>Total importado (soma dos itens) <AjudaCampo chave="projetos.orcamento_eap.importar_conferencia" /></span>
                 <strong data-testid="eap-importar-total-importado" style={{ fontSize: 18, color: ESP, letterSpacing: -0.3 }}>{brl(totalImportado)}</strong>
                 {totalPlanilha !== null && (
                   <span style={{ fontSize: 13, color: MUT }}>× Total declarado na planilha <strong style={{ color: ESP }}>{brl(totalPlanilha)}</strong></span>
@@ -443,7 +479,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
                   onClick={() => setCienteNumerico((v) => !v)}
                   style={{ justifySelf: 'start', display: 'flex', alignItems: 'center', gap: 8, background: cienteNumerico ? ESP : '#fff', color: cienteNumerico ? BG : ESP, border: `1px solid ${cienteNumerico ? ESP : LINE}`, borderRadius: 10, padding: '9px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
                 >
-                  <span aria-hidden="true" style={{ fontSize: 15 }}>{cienteNumerico ? '☑' : '☐'}</span>
+                  {cienteNumerico ? <CheckSquare aria-hidden="true" size={16} /> : <Square aria-hidden="true" size={16} />}
                   Conferi os códigos numéricos e estão corretos
                 </button>
               </div>

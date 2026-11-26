@@ -45,7 +45,8 @@ export default function PessoasList({ companyId, tipo }: Props) {
     // Colunas comerciais só existem em erp_clientes (editadas no PessoaForm — RD-98). Fornecedor não as tem.
     (tabela === 'erp_clientes'
       ? ', codigo_ibge_municipio, codigo, limite_credito, condicao_pagamento_padrao, prazo_medio_dias, segmento, regime_tributario, origem, vendedor_nome, observacoes'
-      : '')
+      // Dados bancários para pagamento só existem em erp_fornecedores (editados no PessoaForm — RD-98).
+      : ', banco, agencia, conta, pix')
 
   const [pessoas, setPessoas] = useState<Pessoa[]>([])
   const [total, setTotal] = useState(0)
@@ -79,8 +80,17 @@ export default function PessoasList({ companyId, tipo }: Props) {
       // Filtra a coluna gerada `busca_norm` (nome+razão, minúsculo e sem acento) com o termo
       // também normalizado no cliente. Assim "romario", "ROMÁRIO" e "Romário" acham o mesmo cadastro.
       if (texto) { ors.push(`busca_norm.ilike.*${semAcento(texto)}*`) }
-      // busca nas DUAS colunas de documento: cadastro grava cnpj_cpf, CRM grava cpf_cnpj
-      if (digitos) { ors.push(`cnpj_cpf.ilike.*${digitos}*`); ors.push(`cpf_cnpj.ilike.*${digitos}*`) }
+      if (digitos) {
+        if (tabela === 'erp_clientes') {
+          // Busca por documento acha 100%: a coluna GERADA documento_digitos guarda só os
+          // dígitos, então quem digita números acha mesmo o cliente que gravou o doc FORMATADO
+          // (50% da base). Antes a busca batia na coluna CRUA e perdia esses (RD-38, 9.350/18.619).
+          ors.push(`documento_digitos.ilike.*${digitos}*`)
+        } else {
+          // Fornecedores ainda não têm a coluna de dígitos: busca nas duas colunas cruas.
+          ors.push(`cnpj_cpf.ilike.*${digitos}*`); ors.push(`cpf_cnpj.ilike.*${digitos}*`)
+        }
+      }
       if (ors.length) q = q.or(ors.join(','))
     }
     const { data, error, count } = await q

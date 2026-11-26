@@ -31,7 +31,7 @@ type Item = {
   id: string; numero: number; company_id: string | null; empresa: string | null; user_email: string; user_name: string | null
   titulo: string | null; descricao: string; categoria: string | null; prioridade: string; status: string
   rota: string | null; area: string | null; atendente_id: string | null; pr_numero: number | null; resposta: string | null
-  resposta_aprovada: boolean; confirmado_pelo_autor: boolean
+  resposta_aprovada: boolean; aguardando_usuario: boolean; confirmado_pelo_autor: boolean
   tem_ia: boolean; ia_analise: Record<string, unknown> | null; ia_analisado_em: string | null; n_anexos: number
   created_at: string; dias_aberta: number
   erro_assinatura: string | null; origem_sugestao_id: string | null; ultimo_erro_comparacao: string | null
@@ -355,6 +355,7 @@ function Inner() {
           rotuloStatus={(st) => st.replace(/_/g, ' ')}
           onAbrir={(numero) => { setBusca(String(numero)); setVisao('todos'); setFormato('lista') }}
           onMover={(card, de, para) => void moverNoQuadro(card, de, para)}
+          autorRespondeu={autorAguarda}
         />
       )}
       {formato === 'lista' && (<>

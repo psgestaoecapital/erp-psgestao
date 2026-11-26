@@ -41,6 +41,7 @@ const CATALOGO: Ferramenta[] = [
   { tool: 'lancamentos_sem_conciliar', desc: 'Lista os lançamentos já pagos/recebidos e SEM conciliar (os que fazem o saldo não bater), com valor, data, contraparte e CNPJ, e link para corrigir.', params: { conta: '(opcional) nome da conta bancária' } },
   { tool: 'lancamentos_sem_cnpj', desc: 'Lançamentos cujo fornecedor/cliente está sem CNPJ ou sem cadastro.', params: {} },
   { tool: 'buscar_lancamento', desc: 'Localiza um lançamento específico por valor, número do documento/NF, descrição ou nome do fornecedor/cliente, com link para abrir e corrigir.', params: { termo: 'valor, documento, descrição ou nome' } },
+  { tool: 'situacao_parceiro', desc: 'Situação de UM cliente ou fornecedor citado pelo nome ou CNPJ: títulos (a receber/a pagar), pagamentos, juros, saldo, e POR QUE o saldo está assim (pago com juros, pago a mais, pago sem conciliar, vencido). Use para "por que o saldo do X...", "o X pagou?", "quanto o X deve?", "situação do X".', params: { termo: 'nome ou CNPJ do cliente/fornecedor', tipo: '(opcional) cliente|fornecedor' } },
   { tool: 'raio_x', desc: 'Raio-X dos dados: inconsistências, saldo que não bate, boleto sem baixa, cadastro errado.', params: {} },
 ]
 const TOOLS = new Set(CATALOGO.map((c) => c.tool))
@@ -50,6 +51,7 @@ const SYSTEM = [
   'Dada a PERGUNTA do usuário (português) e a lista de FERRAMENTAS, escolha UMA ferramenta e seus parâmetros.',
   'NUNCA invente dados. NUNCA gere SQL. Não escolha empresa — o servidor já sabe qual é.',
   'Para datas use SOMENTE os valores de "periodo" do catálogo (hoje, amanha, semana, mes, vencidos, todos) — não calcule datas.',
+  'Pergunta com "por que"/"porque" junto do NOME de um cliente ou fornecedor, ou "situação do X", "o X pagou?", "quanto o X deve?", "o saldo do X está certo?" → use situacao_parceiro com params.termo = o nome (ou CNPJ) citado.',
   'Responda SOMENTE um JSON, sem texto fora dele: {"tool":"<nome>","params":{...}}.',
   'Se nenhuma ferramenta responder a pergunta, responda {"tool":"nenhuma"}.',
 ].join(' ')
@@ -89,6 +91,66 @@ function extrairJSON(texto: string): { tool?: string; params?: Record<string, un
   const i = limpo.indexOf('{'); const j = limpo.lastIndexOf('}')
   if (i < 0 || j <= i) return null
   try { return JSON.parse(limpo.slice(i, j + 1)) } catch { return null }
+}
+
+// ── Situação de um parceiro (situacao_parceiro) ─────────────────────────────────────────────────
+// Os DIAGNÓSTICOS vêm estruturados da RPC (números crus); a FRASE em português e o RESUMO são montados AQUI
+// (no servidor) — a IA nunca redige número. Cada diagnóstico leva a frase + o link para abrir e corrigir.
+const fmtDataBR = (s?: string | null) => { if (!s) return '—'; const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s)); return m ? `${m[3]}/${m[2]}/${m[1]}` : String(s) }
+type Diag = Record<string, unknown> & { codigo?: string; link?: string }
+function fraseDiag(d: Diag): string {
+  const num = d.numero ? `nº ${d.numero}` : 'sem número'
+  const venc = fmtDataBR(d.vencimento as string)
+  switch (d.codigo) {
+    case 'pago_com_juros_parcial':
+      return `O título ${num} (venc. ${venc}) foi pago (${brl(Number(d.valor_pago))}) com ${brl(Number(d.juros_multa))} de juros/multa, mas ficou marcado como "${d.status}". O saldo de ${brl(Number(d.saldo))} é só o juro/multa não liquidado — reabrir e salvar o título acerta o status.`
+    case 'saldo_negativo':
+      return `O título ${num} (venc. ${venc}) está com saldo negativo: foi pago ${brl(Number(d.a_mais))} a mais (crédito do cliente).`
+    case 'juros_nao_lancados':
+      return `A baixa conciliada do título ${num} (venc. ${venc}) recebeu ${brl(Number(d.diferenca))} a mais no banco do que o valor lançado — provável juros/multa não lançado no título.`
+    case 'pago_sem_conciliar':
+      return `O título ${num} (venc. ${venc}) está pago, mas ainda não foi conciliado com o banco.`
+    case 'vencido_em_aberto':
+      return `O título ${num} (venc. ${venc}) está vencido há ${Number(d.dias)} dia(s) com ${brl(Number(d.saldo))} em aberto.`
+    default: return ''
+  }
+}
+function montarSituacao(data: unknown): Record<string, unknown> {
+  const r = data as { ok?: boolean; encontrou?: boolean; motivo?: string; termo?: string; opcoes?: unknown[];
+    parceiro?: { nome?: string; tipo?: string }; titulos?: unknown[]; diagnosticos?: Diag[]; totais?: Record<string, number> } | null
+  if (!r?.ok) return { ok: false, error: 'Você não tem acesso aos dados desta empresa.', _status: 403 }
+  if (r.encontrou === false) {
+    if (r.motivo === 'varios')
+      return { ok: true, tipo: 'situacao_parceiro', titulo: 'situação', resumo: `Encontrei mais de um cadastro para "${r.termo}". Toque no que você quer ver.`, opcoes: r.opcoes ?? [] }
+    if (r.motivo === 'nao_encontrado')
+      return { ok: true, tipo: 'situacao_parceiro', titulo: 'situação', resumo: `Não encontrei nenhum cliente ou fornecedor com "${r.termo}" nesta empresa.`, titulos: [], diagnosticos: [] }
+    return { ok: true, naoEntendi: true, mensagem: 'Diga o nome ou o CNPJ do cliente/fornecedor que você quer consultar.' }
+  }
+  const diag = (r.diagnosticos ?? []).map((d) => ({ ...d, frase: fraseDiag(d) }))
+  const t = r.totais ?? {}
+  const nome = r.parceiro?.nome || 'Parceiro'
+  const partes: string[] = [`${nome}: ${Number(t.em_aberto || 0) > 0 ? brl(t.em_aberto) + ' em aberto' : 'nada em aberto'}`]
+  if (Number(t.vencido || 0) > 0) partes.push(`${brl(t.vencido)} vencido`)
+  const base = partes.join(' · ') + '.'
+  const resumo = diag.length ? base + ' ' + diag.slice(0, 2).map((d) => d.frase).join(' ') : base + ' Nenhuma pendência de lançamento encontrada.'
+  return { ok: true, tipo: 'situacao_parceiro', titulo: `situação de ${r.parceiro?.tipo === 'fornecedor' ? 'fornecedor' : 'cliente'}`,
+    resumo, parceiro: r.parceiro, titulos: r.titulos ?? [], diagnosticos: diag, totais: r.totais }
+}
+
+// Fallback: extrai um nome próprio / termo (3+ letras) da pergunta quando o roteador não achou ferramenta.
+const STOP_TERMO = new Set(['por', 'que', 'porque', 'qual', 'quais', 'quanto', 'quanta', 'como', 'quando', 'onde', 'esta', 'está', 'sta', 'estao', 'estão', 'meu', 'minha', 'minhas', 'meus', 'saldo', 'negativo', 'positivo', 'cliente', 'clientes', 'fornecedor', 'fornecedores', 'titulo', 'título', 'titulos', 'títulos', 'pagou', 'paga', 'pago', 'juros', 'multa', 'conta', 'contas', 'valor', 'valores', 'ele', 'ela', 'dele', 'dela', 'com', 'sem', 'dos', 'das', 'para', 'pra', 'nao', 'não', 'sim', 'mim', 'esse', 'essa', 'isso', 'aberto', 'vencido', 'vencida', 'situacao', 'situação', 'boleto', 'recebeu', 'receber', 'pagar', 'devo', 'deve', 'tem', 'uma', 'meu'])
+const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '')
+function extrairTermo(p: string): string | null {
+  const limpa = (w: string) => semAcento(w).toLowerCase().replace(/[^a-z0-9]/g, '')
+  const proprios = p.split(/\s+/).filter((w) => /^[A-ZÀ-Ý]/.test(w) && limpa(w).length >= 3 && !STOP_TERMO.has(limpa(w)))
+  const cand = p.split(/\s+/).filter((w) => limpa(w).length >= 3 && !STOP_TERMO.has(limpa(w)))
+  const base = (proprios.length ? proprios : cand).slice(0, 3).join(' ').replace(/[^A-Za-zÀ-ÿ0-9 ]/g, '').trim()
+  return base.length >= 3 ? base : null
+}
+
+// Log LGPD: só a pergunta + a ferramenta (entendeu true/false). Nunca o resultado. Grava pela conexão de serviço.
+async function logPergunta(admin: ReturnType<typeof getAdmin>, companyId: string, userId: string | null, pergunta: string, tool: string, entendeu: boolean) {
+  try { await admin.from('consultor_ia_pergunta_log').insert({ company_id: companyId, user_id: userId || null, pergunta: pergunta.slice(0, 500), tool_escolhida: tool, entendeu }) } catch { /* log não bloqueia a resposta */ }
 }
 
 export async function POST(req: NextRequest) {
@@ -153,14 +215,30 @@ export async function POST(req: NextRequest) {
   }
 
   const tool = typeof escolha?.tool === 'string' ? escolha.tool : ''
-  if (!tool || tool === 'nenhuma' || !TOOLS.has(tool)) {
-    return NextResponse.json({ ok: true, naoEntendi: true,
-      mensagem: 'Não entendi a pergunta. Posso trazer contas a pagar e a receber, saldo, inadimplentes, comparar seu saldo com o banco, listar lançamentos sem conciliar ou sem CNPJ, localizar um lançamento ou buscar um cliente. Tente reformular ou use um atalho abaixo.' })
-  }
   const params = (escolha?.params && typeof escolha.params === 'object') ? escolha.params as Record<string, unknown> : {}
-
   // Executa a RPC escolhida com o company_id FORÇADO (nunca o que o LLM mandar), no token do usuário.
   const sb = getUsuario(u.token)
+
+  if (!tool || tool === 'nenhuma' || !TOOLS.has(tool)) {
+    // Fallback: a pergunta cita um nome próprio/termo (3+ letras)? Antes de desistir, tenta a situação do parceiro
+    // e, se não houver parceiro, um lançamento com esse termo — só então "Não entendi".
+    const termoFb = extrairTermo(pergunta)
+    if (termoFb) {
+      try {
+        const { data: sp } = await sb.rpc('fn_consultor_situacao_parceiro', { p_company_id: companyId, p_termo: termoFb, p_tipo: 'auto' })
+        const spj = sp as { ok?: boolean; encontrou?: boolean } | null
+        if (spj?.ok && spj.encontrou) { await logPergunta(admin, companyId, u.userId, pergunta, 'situacao_parceiro', true); return NextResponse.json(montarSituacao(spj)) }
+        const { data: ld } = await sb.rpc('fn_consultor_lancamentos_detalhe', { p_company_id: companyId, p_filtro: 'por_termo', p_termo: termoFb, p_conta: null, p_limite: 50 })
+        const ldj = ld as { ok?: boolean; total?: number; linhas?: unknown[] } | null
+        if (ldj?.ok && (ldj.total ?? 0) > 0) { await logPergunta(admin, companyId, u.userId, pergunta, 'buscar_lancamento', true); return NextResponse.json({ ok: true, tipo: 'lista_lancamentos', titulo: 'lançamentos', resumo: `Encontrei ${ldj.total} lançamento(s) para "${termoFb}".`, linhas: ldj.linhas ?? [] }) }
+      } catch { /* fallback é best-effort; cai no "não entendi" abaixo */ }
+    }
+    await logPergunta(admin, companyId, u.userId, pergunta, 'nenhuma', false)
+    return NextResponse.json({ ok: true, naoEntendi: true,
+      mensagem: 'Não entendi a pergunta. Posso trazer contas a pagar e a receber, saldo, inadimplentes, comparar seu saldo com o banco, listar lançamentos sem conciliar ou sem CNPJ, localizar um lançamento, buscar um cliente ou mostrar a situação de um cliente/fornecedor. Tente reformular ou use um atalho abaixo.' })
+  }
+
+  await logPergunta(admin, companyId, u.userId, pergunta, tool, true)
   try {
     if (tool === 'contas_receber' || tool === 'contas_pagar') {
       const tipo = tool === 'contas_receber' ? 'receber' : 'pagar'
@@ -202,6 +280,16 @@ export async function POST(req: NextRequest) {
       }
       return NextResponse.json({ ok: true, tipo: 'cliente', titulo: 'cliente', resumo: `Encontrei ${lista.length} cliente(s) para "${termo}".`, linhas: lista })
     }
+    if (tool === 'situacao_parceiro') {
+      const termo = typeof params.termo === 'string' ? params.termo.trim().slice(0, 120) : ''
+      const tp = typeof params.tipo === 'string' && ['cliente', 'fornecedor'].includes(params.tipo.toLowerCase()) ? params.tipo.toLowerCase() : 'auto'
+      if (termo.length < 2) return NextResponse.json({ ok: true, naoEntendi: true, mensagem: 'Diga o nome ou o CNPJ do cliente/fornecedor que você quer consultar.' })
+      const { data, error } = await sb.rpc('fn_consultor_situacao_parceiro', { p_company_id: companyId, p_termo: termo, p_tipo: tp })
+      if (error) throw error
+      const payload = montarSituacao(data)
+      if (payload.ok === false) return NextResponse.json({ ok: false, error: payload.error }, { status: (payload._status as number) ?? 403 })
+      return NextResponse.json(payload)
+    }
     if (tool === 'divergencia_saldo') {
       const { data, error } = await sb.rpc('fn_consultor_divergencia_contas', { p_company_id: companyId })
       if (error) throw error
@@ -210,10 +298,24 @@ export async function POST(req: NextRequest) {
       const contas = r.contas ?? []
       const semExtrato = r.contas_sem_extrato ?? []
       const notaSem = semExtrato.length ? ` Sem extrato para comparar: ${semExtrato.map((c) => c.conta_nome).join(', ')}.` : ''
+      // Já traz, na MESMA resposta, os lançamentos sem conciliar que causam a diferença (RPC do banco — NÃO vai ao LLM),
+      // para a Julia concluir sem 2º clique. Uma chamada por conta divergente; cada linha carrega o nome da conta.
+      const divergentes = contas.filter((c) => Math.abs(Number(c.diferenca)) > 0.005)
+      const linhas: Record<string, unknown>[] = []
+      if (divergentes.length) {
+        const detalhes = await Promise.all(divergentes.map((c) =>
+          sb.rpc('fn_consultor_lancamentos_detalhe', { p_company_id: companyId, p_filtro: 'nao_conciliados', p_termo: null, p_conta: c.conta_nome, p_limite: 50 })))
+        divergentes.forEach((c, i) => {
+          const dd = detalhes[i].data as { ok?: boolean; linhas?: Record<string, unknown>[] } | null
+          if (dd?.ok && Array.isArray(dd.linhas)) for (const ln of dd.linhas) linhas.push({ ...ln, conta: (ln as { conta?: unknown }).conta ?? c.conta_nome })
+        })
+      }
       const resumo = r.tem_divergencia
-        ? 'Não batem: ' + contas.map((c) => `conta ${c.conta_nome} tem ${brl(Math.abs(c.diferenca))} de diferença (sistema ${brl(c.saldo_sistema)} × banco ${brl(c.saldo_banco)})`).join('; ') + '.' + notaSem
+        ? 'Não batem: ' + contas.map((c) => `conta ${c.conta_nome} tem ${brl(Math.abs(c.diferenca))} de diferença (sistema ${brl(c.saldo_sistema)} × banco ${brl(c.saldo_banco)})`).join('; ') + '.'
+          + (linhas.length ? ` Encontrei ${linhas.length} lançamento(s) sem conciliar que explicam a maior parte da diferença — veja a lista abaixo.` : '')
+          + notaSem
         : 'Sim, todas as contas com extrato estão batendo com o banco.' + notaSem
-      return NextResponse.json({ ok: true, tipo: 'divergencia', titulo: 'saldo do sistema × banco', resumo, contas, contas_sem_extrato: semExtrato })
+      return NextResponse.json({ ok: true, tipo: 'divergencia', titulo: 'saldo do sistema × banco', resumo, contas, contas_sem_extrato: semExtrato, linhas })
     }
     if (tool === 'lancamentos_sem_conciliar' || tool === 'lancamentos_sem_cnpj' || tool === 'buscar_lancamento') {
       const filtro = tool === 'lancamentos_sem_conciliar' ? 'nao_conciliados' : tool === 'lancamentos_sem_cnpj' ? 'sem_cnpj' : 'por_termo'

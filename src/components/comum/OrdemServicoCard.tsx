@@ -21,9 +21,18 @@ import { itensPendentesOS, podeAprovarNaOS } from '@/lib/oficina/aprovarNaOS'
 import { edicaoInicialOS, idsRemovidosNaEdicao, itemEditavelNaOS, montarDadosDiagnosticoOS, motivoItensBloqueadosOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
 import { aprovaPendentesAoAvancar, proximoPassoOS } from '@/lib/oficina/avancoNaOS'   // #135 · Iniciar → Finalizar → Entregar na ficha
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { TIPOS_ITEM_SPED } from '@/lib/produtos/fiscalMassa'   // #5452 item 2 · rótulo do Tipo de item (SPED) na linha da OS
 import FotosOS from '@/components/oficina/FotosOS'   // #135 item 6 · fotos da OS em lote
 import OSCustosAvulsos from '@/components/oficina/OSCustosAvulsos'   // #6714 · custo avulso (sem NF) na OS
 import { Lock, Package, PencilLine, Play, Search, Trash2, Wrench } from 'lucide-react'
+
+// #5452 item 2 · "00 - Mercadoria para revenda" / "99 - Outras" a partir do código SPED do produto.
+// Reusa o catálogo único TIPOS_ITEM_SPED (RD-26); código desconhecido volta como está.
+function rotuloTipoItemSped(cod: string | null | undefined): string | null {
+  if (!cod) return null
+  const o = TIPOS_ITEM_SPED.find((t) => t.codigo === cod)
+  return o ? `${o.codigo} - ${o.rotulo}` : cod
+}
 
 interface OS {
   id: string
@@ -60,6 +69,10 @@ interface OS {
   data_abertura: string | null
   data_execucao: string | null
   data_conclusao: string | null
+  // #9726 item 3 · baixa de estoque pelo botão "Baixar estoque" (modo 'baixar_estoque')
+  estoque_baixado?: boolean | null
+  estoque_baixado_em?: string | null
+  estoque_baixado_por?: string | null
 }
 
 interface Props {
@@ -183,6 +196,10 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   // #135 (Triches) · atendimento centralizado: aprovar o orçamento na própria OS (sem a tela de Aprovação)
   const [aprovandoOrc, setAprovandoOrc] = useState(false)
   const [avancando, setAvancando] = useState(false)   // #135 · Iniciar/Finalizar/Entregar (centralizado)
+  // #9726 item 3 · modo de baixa da empresa + ação "Baixar estoque" na OS (só modo 'baixar_estoque')
+  const [modoBaixaEstoque, setModoBaixaEstoque] = useState<string>('faturamento')
+  const [baixandoEstoque, setBaixandoEstoque] = useState(false)
+  const [baixadoPorNome, setBaixadoPorNome] = useState<string | null>(null)
 
   const faturada = Boolean(os?.titulos_gerados) || os?.lancamento_id != null
   const podeFaturar = !faturada && ['pronta', 'entregue', 'concluida', 'concluída', 'finalizada'].includes(String(os?.status ?? ''))
@@ -207,6 +224,24 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao faturar'); return }
     const v = r?.valor != null ? ` — R$ ${Number(r.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''
     flash(`Financeiro gravado ✓ título gerado na GE${v}. Veja em Financeiro → Contas a Receber.`)
+    void carregar()
+  }
+
+  // #9726 item 3 · "Baixar estoque": dá saída das peças da OS (quente e frio) reaproveitando a MESMA baixa do
+  // faturamento (fn_os_baixar_estoque → núcleo compartilhado). Idempotente: não baixa duas vezes.
+  async function baixarEstoque() {
+    if (!os) return
+    setBaixandoEstoque(true); setErro(null); setMsgOk(null)
+    const { data, error } = await supabase.rpc('fn_os_baixar_estoque', { p_os_id: os.id })
+    setBaixandoEstoque(false)
+    const r = data as { ok?: boolean; erro?: string; itens_baixados?: number; ja_baixado?: boolean } | null
+    if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao baixar o estoque'); return }
+    if (r?.ja_baixado) {
+      flash('O estoque desta OS já tinha sido baixado — nada foi baixado de novo.')
+    } else {
+      const n = r?.itens_baixados ?? 0
+      flash(`Estoque baixado ✓ ${n} ${n === 1 ? 'peça saiu' : 'peças saíram'} do estoque.`)
+    }
     void carregar()
   }
 
@@ -365,11 +400,14 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [msgPlaca, setMsgPlaca] = useState<string | null>(null)
   const [buscaCli, setBuscaCli] = useState('')
   const [cliOpts, setCliOpts] = useState<Array<{ id: string; nome: string; doc: string | null }>>([])
+  // #5452 item 2 · Tipo de item (SPED) por produto dos itens da OS (produto_id → código). Leitura additiva,
+  // guardada por company_id (RLS de erp_produtos); peça texto-livre fica sem rótulo.
+  const [spedPorProduto, setSpedPorProduto] = useState<Record<string, string>>({})
 
   const carregar = useCallback(async () => {
     setLoading(true)
     // ONDA-OS-MECANICO-MOBILE-v1 · osId tem prioridade · permite OS avulsa
-    const cols = 'id,numero,status,nasceu_orcamento,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,placa,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
+    const cols = 'id,numero,status,nasceu_orcamento,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,placa,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao,estoque_baixado,estoque_baixado_em,estoque_baixado_por'
     const q = supabase.from('erp_os').select(cols)
     const { data, error } = osId
       ? await q.eq('id', osId).maybeSingle()
@@ -397,9 +435,45 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     if (row?.id && row.company_id) {
       const { data: diag } = await supabase.rpc('fn_oficina_diagnostico_obter', { p_company_id: row.company_id, p_os_id: row.id })
       const dd = diag as { itens?: typeof itensDiag } | null   // o retorno traz {diagnostico,km,itens,resumo} (sem 'ok')
-      setItensDiag(Array.isArray(dd?.itens) ? (dd?.itens ?? []) : [])
+      const itens = Array.isArray(dd?.itens) ? (dd?.itens ?? []) : []
+      setItensDiag(itens)
+      // #5452 item 2 · busca o Tipo de item (SPED) dos produtos ligados aos itens (uma chamada por OS).
+      const prodIds = Array.from(new Set(itens.map((it) => it.produto_id).filter((x): x is string => !!x)))
+      if (prodIds.length > 0) {
+        const { data: prods } = await supabase
+          .from('erp_produtos')
+          .select('id, tipo_item_sped')
+          .eq('company_id', row.company_id)
+          .in('id', prodIds)
+        const mapa: Record<string, string> = {}
+        for (const p of (prods ?? []) as Array<{ id: string; tipo_item_sped: string | null }>) {
+          if (p.tipo_item_sped) mapa[p.id] = p.tipo_item_sped
+        }
+        setSpedPorProduto(mapa)
+      } else {
+        setSpedPorProduto({})
+      }
     } else {
       setItensDiag([])
+      setSpedPorProduto({})
+    }
+    // #9726 item 3 · modo de baixa da empresa (faturamento × baixar_estoque) + quem baixou (nome)
+    if (row?.company_id) {
+      const { data: par } = await supabase
+        .from('erp_oficina_parametros')
+        .select('modo_baixa_estoque')
+        .eq('company_id', row.company_id)
+        .maybeSingle()
+      setModoBaixaEstoque((par as { modo_baixa_estoque?: string | null } | null)?.modo_baixa_estoque ?? 'faturamento')
+      if (row.estoque_baixado && row.estoque_baixado_por) {
+        const { data: nome } = await supabase.rpc('fn_usuario_nome', { p_id: row.estoque_baixado_por })
+        setBaixadoPorNome(typeof nome === 'string' && nome.trim() ? nome : null)
+      } else {
+        setBaixadoPorNome(null)
+      }
+    } else {
+      setModoBaixaEstoque('faturamento')
+      setBaixadoPorNome(null)
     }
     setLoading(false)
   }, [pedidoId, osId])
@@ -1061,6 +1135,13 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
                       ? <span style={{ fontWeight: 700, color: C.espresso, whiteSpace: 'nowrap' }}>{fmtBRL(Number(val))}</span>
                       : <span style={{ fontSize: 10.5, fontWeight: 700, color: C.amber, background: C.amberBg, borderRadius: 6, padding: '2px 6px', whiteSpace: 'nowrap' }}>precificar</span>}
                 </div>
+                {/* #5452 item 2 · Tipo de item (SPED) do produto, em letra menor sob o nome: distingue estoque
+                    quente (00) de frio (99) para a baixa e o faturamento. Só para peça ligada ao estoque. */}
+                {it.produto_id && rotuloTipoItemSped(spedPorProduto[it.produto_id]) && (
+                  <div data-testid={`os-item-tipo-sped-${i}`} style={{ fontSize: 10.5, color: C.espressoL, paddingLeft: 26, marginTop: -3, paddingBottom: 3 }}>
+                    {rotuloTipoItemSped(spedPorProduto[it.produto_id])} <AjudaCampo chave="oficina.os.item_tipo_sped" rota="/dashboard/os" />
+                  </div>
+                )}
                 {substItem === it.id && (
                   <div style={{ padding: '2px 0 8px 26px' }}>
                     <input value={substTermo} onChange={(e) => setSubstTermo(e.target.value)} placeholder="Buscar peça no estoque (nome/código)…" autoFocus
@@ -1180,6 +1261,35 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         >
           🖨️ {entregue ? 'Reimprimir OS' : 'Imprimir OS'}
         </button>
+        {/* #9726 item 3 · "Baixar estoque": só em empresa no modo 'baixar_estoque' e OS avulsa (não-pedido).
+            OS via pedido baixa pelas parcelas do pedido (fn_faturar), não por este botão. */}
+        {modoBaixaEstoque === 'baixar_estoque' && !os.pedido_id && os.status !== 'cancelada' && (
+          os.estoque_baixado ? (
+            <span
+              title={`Estoque já baixado${os.estoque_baixado_em ? ' em ' + new Date(os.estoque_baixado_em).toLocaleString('pt-BR') : ''}${baixadoPorNome ? ' por ' + baixadoPorNome : ''}. Faturar a OS não baixa de novo.`}
+              style={{ fontSize: 12, fontWeight: 700, color: C.green, background: C.greenBg, borderRadius: 8, padding: '10px 14px', minHeight: 44, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            >
+              <Package size={14} /> Estoque baixado
+              {os.estoque_baixado_em ? ` · ${fmtData(String(os.estoque_baixado_em).slice(0, 10))}` : ''}
+              {baixadoPorNome ? ` · ${baixadoPorNome}` : ''}
+              <AjudaCampo chave="oficina.os.baixar_estoque" rota="/dashboard/os" />
+            </span>
+          ) : (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <button
+                type="button"
+                onClick={() => void baixarEstoque()}
+                disabled={baixandoEstoque}
+                data-testid="os-baixar-estoque"
+                title="Dá saída, do estoque, de todas as peças desta OS (quente e frio), pela mesma baixa do faturamento. Não baixa duas vezes."
+                style={{ ...btnSec, display: 'inline-flex', alignItems: 'center', gap: 4, opacity: baixandoEstoque ? 0.6 : 1 }}
+              >
+                <Package size={14} /> {baixandoEstoque ? 'Baixando…' : 'Baixar estoque'}
+              </button>
+              <AjudaCampo chave="oficina.os.baixar_estoque" rota="/dashboard/os" />
+            </span>
+          )
+        )}
         {faturada ? (
           // §2.5 · mostra o estado e LEVA à GE (alterar o título é ação da GE, não da OS — fronteira [→GE])
           <>
