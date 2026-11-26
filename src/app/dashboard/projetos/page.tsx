@@ -338,7 +338,7 @@ export default function PainelProjetos() {
             valor={resumo ? resumo.orcamentos_parados : null}
             texto={(n) => n === 1 ? "proposta enviada há mais de 7 dias sem resposta" : "propostas enviadas há mais de 7 dias sem resposta"}
             vazioTexto="Nenhuma proposta enviada esperando resposta há mais de 7 dias."
-            href="/dashboard/projetos/propostas"
+            href="/dashboard/projetos/propostas?status=parado"
           />
         </div>
       </section>
