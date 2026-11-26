@@ -15,6 +15,7 @@ import {
   Search,
   Upload,
   FileText,
+  Settings2,
 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
@@ -743,6 +744,17 @@ export default function CatalogoServicosPage() {
                 <AjudaCampo chave="projetos.catalogo.bdi" rota={ROTA} />
               </span>
             )}
+            {/* Chamado #11474 ("onde eu encontro o BDI"): link direto para onde o BDI é definido,
+                sempre visível (inclusive quando ainda não há BDI configurado), mesmo destino do detalhe. */}
+            <button
+              type="button"
+              onClick={() => router.push("/dashboard/projetos/configuracoes?aba=precificacao")}
+              className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-[#C8941A] hover:text-[#9c7214] hover:underline"
+              title="Onde o BDI é definido: Projetos · Configurações · Precificação"
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              {config?.bdi_total_pct != null ? "Configurar BDI" : "Definir o BDI"}
+            </button>
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
