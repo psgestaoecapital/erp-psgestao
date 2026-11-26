@@ -43,10 +43,15 @@ interface Props {
   bom: BomLinha[];
   onChange: () => void | Promise<void>;
   // Para a calculadora de coeficiente (consumo por unidade): dados do serviço + config da empresa.
-  produtividade?: number | null; // produtividade_unidade_dia
+  produtividade?: number | null; // produtividade_unidade_dia (legado, equipe/dia)
   equipePadrao?: string | null;
   unidadeServico?: string | null; // unidade da produtividade (ex.: m²)
   diasUteisMes?: number | null; // config da empresa (padrão 22)
+  // Mão de obra por pessoa (CEO 26/11): parâmetros do serviço p/ a conversão automática.
+  produtividadePessoa?: number | null;
+  produtividadeBase?: "hora" | "dia" | null;
+  equipePessoas?: number | null;
+  jornadaHorasDia?: number | null;
 }
 
 const METODO_LABEL: Record<string, string> = {
@@ -99,7 +104,7 @@ function parseNumero(s: string): number | null {
   return parseNumBR(s);
 }
 
-export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, equipePadrao, unidadeServico, diasUteisMes }: Props) {
+export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, equipePadrao, unidadeServico, diasUteisMes, produtividadePessoa, produtividadeBase, equipePessoas, jornadaHorasDia }: Props) {
   const [seletorOpen, setSeletorOpen] = useState(false);
   const [salvandoLinha, setSalvandoLinha] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -479,7 +484,10 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
           onClose={() => setProdLinha(null)}
           itemNome={prodLinha.item_nome || "mão de obra"}
           unidadeServico={unidadeServico ?? null}
-          produtividade={produtividade ?? null}
+          produtividadePessoa={produtividadePessoa ?? null}
+          produtividadeBase={produtividadeBase ?? null}
+          equipePessoas={equipePessoas ?? null}
+          jornada={jornadaHorasDia ?? 8}
           onConfirm={(r) => salvarProd(prodLinha, r)}
         />
       )}
