@@ -156,7 +156,7 @@ function AbaFunil({ empresa }: { empresa: string | null }) {
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {etapas.map((e) => (
-          <div key={e.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 70px auto auto', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px' }}>
+          <div key={e.id} data-ajuda="pm.config.funil_rotulo pm.config.funil_cor pm.config.funil_situacao" style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 70px auto auto', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px' }}>
             <span title={`chave: ${e.chave}`} style={{ fontSize: 10, color: MUT, fontFamily: 'monospace', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.chave}</span>
             <input value={e.rotulo} onChange={(ev) => patch(e.id, { rotulo: ev.target.value })} style={inp} />
             <input type="color" value={e.cor ?? '#E7DECF'} onChange={(ev) => patch(e.id, { cor: ev.target.value })} style={{ width: 42, height: 32, border: `1px solid ${LINE}`, borderRadius: 6, background: '#fff', cursor: 'pointer' }} />
@@ -230,7 +230,7 @@ function AbaListas({ empresa }: { empresa: string | null }) {
       {rows.length > 0 && <span style={{ ...lblS, marginBottom: 6 }}>Opção (texto · ativa/oculta · remover)<AjudaCampo chave="pm.config.listas_rotulo" /></span>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {rows.map((o) => (
-          <div key={o.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 8, padding: '7px 10px' }}>
+          <div key={o.id} data-ajuda="pm.config.listas_rotulo" style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 8, padding: '7px 10px' }}>
             <input value={o.rotulo} onChange={(e) => setRows((arr) => arr.map((x) => (x.id === o.id ? { ...x, rotulo: e.target.value } : x)))} onBlur={() => void salvar({ id: o.id, valor: o.valor, rotulo: o.rotulo, ordem: o.ordem, ativo: o.ativo })} style={inp} />
             <button type="button" onClick={() => void salvar({ id: o.id, valor: o.valor, rotulo: o.rotulo, ordem: o.ordem, ativo: !o.ativo })} style={{ fontSize: 11, fontWeight: 700, padding: '5px 8px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${LINE}`, background: o.ativo ? '#E8F4DC' : '#F3EDE3', color: o.ativo ? '#3F7012' : MUT }}>{o.ativo ? 'ativa' : 'oculta'}</button>
             <button type="button" disabled={busy} onClick={() => void excluir(o.id)} title="Remover" style={{ ...btnGhost, color: VERM, borderColor: VERM }}>✕</button>
