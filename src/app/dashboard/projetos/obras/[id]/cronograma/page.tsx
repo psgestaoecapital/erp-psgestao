@@ -65,6 +65,8 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   const [soCriticas, setSoCriticas] = useState(false)
   const [semanas, setSemanas] = useState(2)
   const [falhaCarga, setFalhaCarga] = useState<string | null>(null) // carga falhou: não mostra o estado vazio junto
+  // §109: dias realmente trabalhados por tarefa (exclui fim de semana, feriado nacional e o Calendário da obra)
+  const [diasTrab, setDiasTrab] = useState<{ porTarefa: Record<string, number>; naoUteis: number; total: number } | null>(null)
 
   const carregar = useCallback(async () => {
     setLoading(true); setErro(null); setFalhaCarga(null)
@@ -149,6 +151,18 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
     })
     return () => { vivo = false }
   }, [id, prox.ate, loading, falhaCarga, vinculos])
+  // §109: dias trabalhados pela regra do banco (fonte única: calendário da obra + feriados). Falha aqui não derruba a tela.
+  useEffect(() => {
+    if (!UUID.test(id) || loading || falhaCarga || tarefas.length === 0) { setDiasTrab(null); return }
+    let vivo = true
+    void supabase.rpc('fn_obra_cronograma_dias', { p_obra_id: id }).then((r) => {
+      if (!vivo) return
+      if (r.error || !r.data || (r.data as { ok?: boolean }).ok === false) { setDiasTrab(null); return }
+      const d = r.data as { por_tarefa?: Record<string, number>; dias_nao_uteis?: number; total_trabalhados?: number }
+      setDiasTrab({ porTarefa: d.por_tarefa ?? {}, naoUteis: Number(d.dias_nao_uteis ?? 0), total: Number(d.total_trabalhados ?? 0) })
+    })
+    return () => { vivo = false }
+  }, [id, loading, falhaCarga, tarefas])
   const itensDaTarefa = useCallback((tid: string) => vinculos.filter((v) => v.tarefa_id === tid), [vinculos])
   // participação do item já usada pelas OUTRAS tarefas (a soma não passa de 100%)
   const usadoFora = useCallback((itemId: string, tid: string | null) =>
@@ -397,6 +411,15 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                     Só caminho crítico <AjudaCampo chave="projetos.cronograma.so_criticas" rota={ROTA_AJUDA} />
                   </label>
                   </div>
+                  {diasTrab && (
+                    <div data-testid="cronograma-dias-trabalhados" style={{ fontSize: 12, color: MUT, marginBottom: 8 }}>
+                      <span style={{ fontWeight: 600, color: ESP }}>{diasTrab.total}</span> dias trabalhados no total
+                      <AjudaCampo chave="projetos.cronograma.dias_trabalhados" rota={ROTA_AJUDA} />
+                      {diasTrab.naoUteis > 0
+                        ? ` · o Calendário da obra tira ${diasTrab.naoUteis} dia${diasTrab.naoUteis === 1 ? '' : 's'} não úti${diasTrab.naoUteis === 1 ? 'l' : 's'}`
+                        : ' · nenhum dia não útil cadastrado no Calendário da obra'}
+                    </div>
+                  )}
                   <LegendaGantt />
                   <div style={{ minWidth: 560 }}>
                     {/* eixo do tempo: mesma grade das linhas (152px rótulo · 1fr tempo · auto ações) para a marca "hoje" e as datas baterem com as barras */}
@@ -420,7 +443,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                         <div key={t.id} style={{ ...gridGantt, padding: '6px 0', borderTop: `0.5px solid ${LINE}` }}>
                           <div>
                             <div style={{ fontSize: 12.5, fontWeight: 600, color: ESP }}>{t.nome}{critica && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: VERM, textTransform: 'uppercase', letterSpacing: 0.4 }}>crítica</span>}</div>
-                            <div style={{ fontSize: 10.5, color: MUT }}>{fmt(t.inicio)} a {fmt(t.fim)} · {t.percentual}%{p ? ` · após ${nomePorId.get(p.predecessora_id) ?? '—'}` : ''}{!critica ? ` · folga ${folga} d` : ''}</div>
+                            <div style={{ fontSize: 10.5, color: MUT }}>{fmt(t.inicio)} a {fmt(t.fim)} · {t.percentual}%{diasTrab?.porTarefa[t.id] != null ? ` · ${diasTrab.porTarefa[t.id]} dia${diasTrab.porTarefa[t.id] === 1 ? '' : 's'} trab.` : ''}{p ? ` · após ${nomePorId.get(p.predecessora_id) ?? '—'}` : ''}{!critica ? ` · folga ${folga} d` : ''}</div>
                             {atras && t.fim_base && <div style={{ fontSize: 10.5, color: VERM, fontWeight: 600 }}>{concluida ? 'terminou' : 'termina'} depois da linha de base ({fmt(t.fim_base)})</div>}
                           </div>
                           <div style={{ position: 'relative', height: 22 }}>
