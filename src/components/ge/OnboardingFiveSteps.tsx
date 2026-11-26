@@ -11,7 +11,6 @@ import {
   PieChart,
   CheckCircle2,
   ArrowRight,
-  Lock,
   Sparkles,
   MessageCircle,
   type LucideIcon,
@@ -49,13 +48,18 @@ const ICONE_MAP: Record<string, LucideIcon> = {
   'chart-pie': PieChart,
 }
 
-type EstadoPasso = 'completo' | 'ativo' | 'bloqueado'
+// Os 5 passos são TAREFAS INDEPENDENTES (contas, lançamentos, contratos, categorias, DRE),
+// não etapas sequenciais de verdade — cada recurso do núcleo já está pronto e acionável AGORA.
+// Por isso TODO passo incompleto é acionável ('ativo' p/ o recomendado, 'disponivel' p/ os demais):
+// nunca "Em breve 🔒" (que significa recurso inexistente e induz o cliente ao erro — PDCA GE 26/11,
+// critério e / RD-99). O primeiro incompleto fica em destaque só como SUGESTÃO de ordem, não trava.
+type EstadoPasso = 'completo' | 'ativo' | 'disponivel'
 
 function getEstadoPasso(passos: OnboardingPasso[], passo: OnboardingPasso): EstadoPasso {
   if (passo.completo) return 'completo'
   const proximoIncompleto = passos.find((p) => !p.completo)
   if (proximoIncompleto && proximoIncompleto.numero === passo.numero) return 'ativo'
-  return 'bloqueado'
+  return 'disponivel'
 }
 
 export function OnboardingFiveSteps({ data }: { data: OnboardingData }) {
@@ -250,7 +254,7 @@ function CardPasso({
 }) {
   const isCompleto = estado === 'completo'
   const isAtivo = estado === 'ativo'
-  const isBloqueado = estado === 'bloqueado'
+  const isDisponivel = estado === 'disponivel'
 
   const corBolinha = isCompleto ? PSGC_COLORS.baixa : isAtivo ? PSGC_COLORS.dourado : PSGC_COLORS.offWhiteDarker
   const textoBolinha = isCompleto ? <CheckCircle2 size={18} color="white" /> : (
@@ -270,7 +274,6 @@ function CardPasso({
         border: `1px solid ${isAtivo ? PSGC_COLORS.dourado : PSGC_COLORS.offWhiteDarker}`,
         borderRadius: PSGC_RADIUS.xl,
         boxShadow: isAtivo ? '0 4px 12px rgba(200, 148, 26, 0.08)' : 'none',
-        opacity: isBloqueado ? 0.7 : 1,
       }}
     >
       {/* Bolinha numerada / check */}
@@ -359,21 +362,28 @@ function CardPasso({
           </button>
         )}
 
-        {isBloqueado && (
-          <span
+        {isDisponivel && (
+          // Passo independente e já pronto: acionável AGORA (botão secundário, sem "Em breve"/cadeado).
+          // O destaque dourado fica só no passo recomendado (ativo); aqui a ordem é sugestão, não trava.
+          <button
+            type="button"
+            onClick={onComecar}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               gap: 6,
-              ...typoToStyle('label'),
-              color: PSGC_COLORS.espressoLight,
-              padding: '6px 12px',
+              padding: '8px 16px',
               borderRadius: PSGC_RADIUS.md,
-              backgroundColor: PSGC_COLORS.offWhiteDark,
+              border: `1px solid ${PSGC_COLORS.dourado}`,
+              backgroundColor: 'white',
+              color: PSGC_COLORS.dourado,
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
             }}
           >
-            <Lock size={12} /> Em breve
-          </span>
+            Começar <ArrowRight size={14} />
+          </button>
         )}
       </div>
     </article>
