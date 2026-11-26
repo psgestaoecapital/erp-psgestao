@@ -13,6 +13,14 @@ const ROTA = '/dashboard/projetos/obras/[id]/cockpit'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
 const brl = (n: number | null | undefined) => (n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
+// Situação da obra no cabeçalho do cockpit (a situação é mudada na lista de Obras; aqui só mostra).
+const STATUS_OBRA: Record<string, { label: string; cor: string; bg: string }> = {
+  em_andamento: { label: 'Em andamento', cor: GOLD, bg: 'rgba(200,148,26,0.12)' },
+  concluida: { label: 'Concluída', cor: VERDE, bg: 'rgba(22,163,74,0.12)' },
+  pausada: { label: 'Pausada', cor: '#92400E', bg: 'rgba(146,64,14,0.10)' },
+  cancelada: { label: 'Cancelada', cor: VERM, bg: 'rgba(185,28,28,0.10)' },
+}
+
 type Resultado = {
   obra_id: string; numero: string; nome: string | null; status: string
   custo_previsto: number; receita_prevista: number; receita_servico: number; receita_material: number
@@ -20,7 +28,7 @@ type Resultado = {
   custo_mao_obra: number; custo_rateio: number; margem_alocada: number
 }
 // Contexto da obra (avanço físico, prazo, cliente) — vem de projetos_obras, não da view de resultado financeiro.
-type ObraInfo = { pct_conclusao: number | null; data_inicio: string | null; data_prevista_fim: string | null; cliente_nome: string | null; cidade: string | null }
+type ObraInfo = { pct_conclusao: number | null; data_inicio: string | null; data_prevista_fim: string | null; cliente_nome: string | null; cidade: string | null; area_construida_m2: number | null }
 type Linha = { k: string; ajuda: string; l: string; v: number }
 type Card = { k: string; ajuda: string; l: string; v: string; sub: string; cor?: string; bar?: number | null; linhas?: Linha[] }
 
@@ -32,6 +40,9 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   const [erro, setErro] = useState<string | null>(null)
   // Código curto de referência do erro para o suporte triar o motivo (RD-98 p2: erro amigável + código + CTA).
   const [codigoErro, setCodigoErro] = useState<string | null>(null)
+  // Regularização (alvará e licenças) — alerta de documento vencido/a vencer vira pendência do cockpit (tela 314).
+  // Dado real de fn_obra_licenca_listar; falha aqui não trava a tela.
+  const [reg, setReg] = useState<{ vencidos: number; vence30: number } | null>(null)
 
   const consulta = useCallback(async () => await supabase.from('v_obra_resultado_alocado').select('*').eq('obra_id', id).maybeSingle(), [id])
   const carregar = useCallback(async () => {
@@ -54,8 +65,20 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
     setR(data as Resultado)
     // Contexto da obra (avanço físico, prazo, cliente) — leitura separada de projetos_obras; se falhar, os cards
     // financeiros seguem aparecendo (não trava a tela).
-    const { data: oi } = await supabase.from('projetos_obras').select('pct_conclusao,data_inicio,data_prevista_fim,cliente_nome,cidade').eq('id', id).maybeSingle()
+    const { data: oi } = await supabase.from('projetos_obras').select('pct_conclusao,data_inicio,data_prevista_fim,cliente_nome,cidade,area_construida_m2').eq('id', id).maybeSingle()
     if (oi) setInfo(oi as ObraInfo)
+    // Regularização: conta documentos vencidos / a vencer em 30 dias para virar pendência. Não trava a tela.
+    try {
+      const { data: licData } = await supabase.rpc('fn_obra_licenca_listar', { p_obra_id: id })
+      const lic = licData as { ok?: boolean; itens?: { situacao: string }[] } | null
+      if (lic && lic.ok) {
+        const itens = lic.itens ?? []
+        setReg({
+          vencidos: itens.filter((l) => l.situacao === 'vencido').length,
+          vence30: itens.filter((l) => l.situacao === 'vence_30').length,
+        })
+      }
+    } catch { /* leitura de licença é opcional no cockpit */ }
   }, [consulta, id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
@@ -96,10 +119,15 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   const tempoPct = prazoTotal > 0 && decorridos > 0 ? Math.min(100, decorridos / prazoTotal * 100) : null
   const idp = fisicoPct != null && tempoPct != null ? fisicoPct / tempoPct : null
   const burn = decorridos > 0 && custo > 0 ? custo / decorridos : null
+  // Custo por m² = custo realizado ÷ área construída (da Ficha da obra). Mesmo "custo" do card
+  // "Custo realizado", para a tela não se contradizer. Só aparece com os dois lados do dado (§329 cbde929d).
+  const areaConstruida = info && info.area_construida_m2 != null ? Number(info.area_construida_m2) : null
+  const custoPorM2 = areaConstruida != null && areaConstruida > 0 && custo > 0 ? custo / areaConstruida : null
   const indicadores = [
     { k: 'idc', ajuda: 'projetos.cockpit.idc', l: 'IDC · custo', v: idc == null ? '—' : idc.toFixed(2), sub: idc == null ? 'Precisa de avanço físico, custo previsto e custo lançado' : idc >= 1 ? 'Executando dentro do custo' : 'Custo acima do executado', cor: idc == null ? undefined : idc >= 1 ? VERDE : VERM },
     { k: 'idp', ajuda: 'projetos.cockpit.idp', l: 'IDP · prazo', v: idp == null ? '—' : idp.toFixed(2), sub: idp == null ? 'Precisa de data de início, data prevista e avanço físico' : idp >= 1 ? 'No ritmo ou adiantada' : 'Ritmo abaixo do planejado', cor: idp == null ? undefined : idp >= 1 ? VERDE : VERM },
     { k: 'burn', ajuda: 'projetos.cockpit.burn_rate', l: 'Gasto por dia', v: burn == null ? '—' : brl(burn), sub: burn == null ? 'Precisa de data de início e custo lançado' : `${decorridos} dia(s) desde o início` },
+    { k: 'custo_m2', ajuda: 'projetos.cockpit.custo_m2', l: 'Custo por m²', v: custoPorM2 == null ? '—' : brl(custoPorM2), sub: custoPorM2 == null ? (custo > 0 ? 'Informe a área construída na Ficha da obra' : 'Precisa de custo lançado e área construída') : `Sobre ${areaConstruida!.toLocaleString('pt-BR')} m² construídos` },
   ]
 
   const cards: Card[] = r ? [
@@ -125,6 +153,9 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
       ? 'Margem negativa porque há custo lançado e nenhuma medição — lance a medição da obra.'
       : 'Margem negativa — o custo lançado superou a receita medida; revise custos.')
     if (prazoVencido) pendencias.push(`Prazo vencido em ${prazoBR} — replaneje a entrega ou ajuste a data.`)
+    // Regularização: documento vencido é mais urgente que a vencer; mostra o alerta mais grave (não os dois).
+    if (reg && reg.vencidos > 0) pendencias.push(`${reg.vencidos} documento(s) de regularização vencido(s) (alvará/licença/ART) — regularize em Regularização da obra.`)
+    else if (reg && reg.vence30 > 0) pendencias.push(`${reg.vence30} documento(s) de regularização vence(m) em até 30 dias — renove em Regularização da obra.`)
     // Desvio físico × financeiro: alerta só quando a diferença é relevante (≥ 15 pontos) e há os dois números.
     if (fisicoPct != null && avancoPct != null && Math.abs(fisicoPct - avancoPct) >= 15) {
       pendencias.push(fisicoPct > avancoPct
@@ -141,6 +172,15 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 24, fontWeight: 400, color: ESP, margin: '2px 0 2px' }}>
           Cockpit {r ? `· ${r.numero}${r.nome ? ` — ${r.nome}` : ''}` : ''}
         </h1>
+        {r && (() => {
+          const s = STATUS_OBRA[r.status] ?? { label: r.status || 'Situação não informada', cor: MUT, bg: 'rgba(61,35,20,0.06)' }
+          return (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, margin: '4px 0 2px' }}>
+              <span data-testid="cockpit-status-obra" style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: s.cor, background: s.bg, borderRadius: 999, padding: '2px 10px' }}>{s.label}</span>
+              <AjudaCampo chave="projetos.cockpit.status_obra" rota={ROTA} />
+            </div>
+          )
+        })()}
         {r && (info?.cliente_nome || info?.cidade) && (
           <div style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>{[info?.cliente_nome, info?.cidade].filter(Boolean).join(' · ')}</div>
         )}
