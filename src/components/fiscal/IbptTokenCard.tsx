@@ -133,8 +133,12 @@ export default function IbptTokenCard({ companyId }: { companyId: string }) {
             </div>
           </div>
           <div className="text-[11px] text-[#3D2314]/55 flex items-start gap-1.5"><Info size={12} className="mt-0.5 flex-shrink-0" />
-            O valor só aparece em nota a <strong>consumidor final</strong> (exigência da Lei 12.741). Em nota a contribuinte, não sai.
-            {estado.ehSimples && <> Empresa do Simples: usa o <strong>percentual aproximado cadastrado{estado.pctTributosSn != null ? ` (${pct(estado.pctTributosSn)})` : ''}</strong>, não o token do IBPT.</>}
+            <span>
+              Só aparece em vendas a <strong>consumidor final</strong> — em nota a contribuinte não sai.
+              {estado.ehSimples
+                ? ` No Simples, usa o percentual cadastrado${estado.pctTributosSn != null ? ` (${pct(estado.pctTributosSn)})` : ''}.`
+                : ' No regime normal, usa a tabela/token do IBPT.'}
+            </span>
           </div>
 
           {!estado.ehSimples && (

@@ -43,11 +43,14 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   // Regularização (alvará e licenças) — alerta de documento vencido/a vencer vira pendência do cockpit (tela 314).
   // Dado real de fn_obra_licenca_listar; falha aqui não trava a tela.
   const [reg, setReg] = useState<{ vencidos: number; vence30: number } | null>(null)
+  // Breakdown financeiro do cockpit (§329 cbde929d): orçado × contratado × pago × pendente, lido por fn_obra_cockpit_orcamento
+  // (guarda por empresa). Falha aqui não trava a tela — o bloco cai nos estados vazios.
+  const [orc, setOrc] = useState<{ orcado: number; contratado: number; pago: number; pendente: number } | null>(null)
 
   const consulta = useCallback(async () => await supabase.from('v_obra_resultado_alocado').select('*').eq('obra_id', id).maybeSingle(), [id])
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); setCodigoErro('OBRA-LINK'); return }
-    setLoading(true); setErro(null); setCodigoErro(null)
+    setLoading(true); setErro(null); setCodigoErro(null); setOrc(null)
     let res: Awaited<ReturnType<typeof consulta>>
     try { res = await comPrazo(consulta, { ms: 8000, tentativas: 1, label: 'cockpit-obra' }) } catch { setLoading(false); setErro(MSG_CARREGAMENTO_FALHOU); setCodigoErro('OBRA-REDE'); return }
     const { data, error } = res
@@ -67,6 +70,12 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
     // financeiros seguem aparecendo (não trava a tela).
     const { data: oi } = await supabase.from('projetos_obras').select('pct_conclusao,data_inicio,data_prevista_fim,cliente_nome,cidade,area_construida_m2').eq('id', id).maybeSingle()
     if (oi) setInfo(oi as ObraInfo)
+    // Breakdown financeiro (orçado × contratado × pago × pendente): leitura guardada por empresa. Não trava a tela.
+    try {
+      const { data: od } = await supabase.rpc('fn_obra_cockpit_orcamento', { p_obra_id: id })
+      const j = od as { ok?: boolean; orcado?: number; contratado?: number; pago?: number; pendente?: number } | null
+      if (j && j.ok) setOrc({ orcado: Number(j.orcado ?? 0), contratado: Number(j.contratado ?? 0), pago: Number(j.pago ?? 0), pendente: Number(j.pendente ?? 0) })
+    } catch { /* breakdown é opcional no cockpit */ }
     // Regularização: conta documentos vencidos / a vencer em 30 dias para virar pendência. Não trava a tela.
     try {
       const { data: licData } = await supabase.rpc('fn_obra_licenca_listar', { p_obra_id: id })
@@ -123,6 +132,18 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   // "Custo realizado", para a tela não se contradizer. Só aparece com os dois lados do dado (§329 cbde929d).
   const areaConstruida = info && info.area_construida_m2 != null ? Number(info.area_construida_m2) : null
   const custoPorM2 = areaConstruida != null && areaConstruida > 0 && custo > 0 ? custo / areaConstruida : null
+  // Breakdown financeiro §329 cbde929d. Orçado/contratado/pago/pendente vêm da RPC guardada (orçado cai para o
+  // custo previsto da view enquanto a RPC não responde); saldo e projeção derivam do custo realizado + avanço físico
+  // que o cockpit já calcula, para não duplicar fonte.
+  const orcado = orc ? orc.orcado : custoPrevisto
+  const contratado = orc ? orc.contratado : 0
+  const pago = orc ? orc.pago : 0
+  const pendente = orc ? orc.pendente : 0
+  const temContratado = contratado > 0
+  const pagoPct = temContratado ? (pago / contratado) * 100 : null
+  const saldoOrcado = orcado > 0 ? orcado - custo : null
+  const projecaoCusto = fisicoPct != null && fisicoPct > 0 && custo > 0 ? custo / (fisicoPct / 100) : null
+  const projecaoAcima = projecaoCusto != null && orcado > 0 && projecaoCusto > orcado
   const indicadores = [
     { k: 'idc', ajuda: 'projetos.cockpit.idc', l: 'IDC · custo', v: idc == null ? '—' : idc.toFixed(2), sub: idc == null ? 'Precisa de avanço físico, custo previsto e custo lançado' : idc >= 1 ? 'Executando dentro do custo' : 'Custo acima do executado', cor: idc == null ? undefined : idc >= 1 ? VERDE : VERM },
     { k: 'idp', ajuda: 'projetos.cockpit.idp', l: 'IDP · prazo', v: idp == null ? '—' : idp.toFixed(2), sub: idp == null ? 'Precisa de data de início, data prevista e avanço físico' : idp >= 1 ? 'No ritmo ou adiantada' : 'Ritmo abaixo do planejado', cor: idp == null ? undefined : idp >= 1 ? VERDE : VERM },
@@ -143,6 +164,17 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
     { k: 'avanco_fisico', ajuda: 'projetos.cockpit.avanco_fisico', l: 'Avanço físico', v: fisicoPct == null ? '—' : `${fisicoPct.toFixed(0)}%`, sub: fisicoPct == null ? 'Lance o % no cronograma' : 'Execução em campo', bar: fisicoPct },
     { k: 'avanco', ajuda: 'projetos.cockpit.avanco', l: 'Avanço financeiro', v: avancoPct == null ? '—' : `${avancoPct.toFixed(0)}%`, sub: `Realizado ${brl(receita)} de ${brl(r.receita_prevista)}`, bar: avancoPct },
     { k: 'prazo', ajuda: 'projetos.cockpit.prazo', l: 'Prazo', v: prazoBR ?? '—', sub: prazoSub, cor: prazoVencido ? VERM : undefined, bar: tempoPct },
+  ] : []
+
+  // Bloco "Orçamento × desembolso": o breakdown financeiro do requisito §329 (orçado, contratado, pago, pendente,
+  // saldo e projeção do custo). Cada indicador tem estado vazio próprio quando a obra ainda não tem o dado (critério d).
+  const orcamentoCards: Card[] = r ? [
+    { k: 'orcado', ajuda: 'projetos.cockpit.orcado', l: 'Orçado', v: orcado > 0 ? brl(orcado) : '—', sub: orcado > 0 ? 'Custo previsto no orçamento' : 'Cadastre o orçamento da obra' },
+    { k: 'contratado', ajuda: 'projetos.cockpit.contratado', l: 'Contratado', v: temContratado ? brl(contratado) : '—', sub: temContratado ? 'Comprometido em contas a pagar' : 'Sem contrato ou compra lançada ainda' },
+    { k: 'pago', ajuda: 'projetos.cockpit.pago', l: 'Pago', v: temContratado ? brl(pago) : '—', sub: temContratado ? `${pagoPct!.toFixed(0)}% do contratado` : 'Nada pago ainda', bar: pagoPct },
+    { k: 'pendente', ajuda: 'projetos.cockpit.pendente', l: 'Pendente', v: temContratado ? brl(pendente) : '—', sub: temContratado ? 'A liquidar dos compromissos' : 'Nada a pagar ainda', cor: temContratado && pendente > 0 ? GOLD : undefined },
+    { k: 'saldo_orcado', ajuda: 'projetos.cockpit.saldo_orcado', l: 'Saldo do orçado', v: saldoOrcado == null ? '—' : brl(saldoOrcado), sub: saldoOrcado == null ? 'Precisa do orçamento cadastrado' : saldoOrcado >= 0 ? 'Ainda cabe no orçamento' : 'Custo realizado passou do orçado', cor: saldoOrcado == null ? undefined : saldoOrcado < 0 ? VERM : VERDE },
+    { k: 'projecao_custo', ajuda: 'projetos.cockpit.projecao_custo', l: 'Projeção do custo', v: projecaoCusto == null ? '—' : brl(projecaoCusto), sub: projecaoCusto == null ? 'Precisa de custo lançado e avanço físico' : projecaoAcima ? `Acima do orçado (${brl(orcado)})` : orcado > 0 ? `Dentro do orçado (${brl(orcado)})` : 'Custo projetado ao final', cor: projecaoAcima ? VERM : undefined },
   ] : []
 
   const pendencias: string[] = []
@@ -219,6 +251,21 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
                   </div>
                 ))}
               </div>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700, margin: '2px 0 8px' }}>Orçamento × desembolso</div>
+              <div data-testid="cockpit-orcamento-desembolso" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 14 }}>
+                {orcamentoCards.map((c) => (
+                  <div key={c.k} data-testid={`cockpit-${c.k}`} style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14 }}>
+                    <div style={{ fontSize: 11, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5 }}>{c.l} <AjudaCampo chave={c.ajuda} rota={ROTA} /></div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: c.cor ?? ESP, margin: '4px 0' }}>{c.v}</div>
+                    {c.bar != null && (
+                      <div style={{ height: 6, background: LINE, borderRadius: 999, margin: '2px 0 6px' }}>
+                        <div style={{ width: `${Math.max(0, Math.min(100, c.bar))}%`, height: '100%', background: GOLD, borderRadius: 999 }} />
+                      </div>
+                    )}
+                    <div style={{ fontSize: 11, color: MUT }}>{c.sub}</div>
+                  </div>
+                ))}
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 14 }}>
                 {indicadores.map((c) => (
                   <div key={c.k} data-testid={`cockpit-${c.k}`} style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14 }}>
@@ -262,6 +309,7 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/revisoes?area=hub`} data-testid="link-revisoes-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Revisões de escopo →</Link><AjudaCampo chave="projetos.cockpit.revisoes" rota={ROTA} /></span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/linha-do-tempo?area=hub`} style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Ver linha do tempo →</Link><AjudaCampo chave="projetos.cockpit.linha_tempo" rota={ROTA} /></span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/cronograma?area=hub`} style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Ver cronograma →</Link><AjudaCampo chave="projetos.cockpit.cronograma" rota={ROTA} /></span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/calendario?area=hub`} data-testid="link-calendario-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Calendário da obra →</Link><AjudaCampo chave="projetos.cockpit.calendario" rota={ROTA} /></span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/viagens?obra=${id}&area=hub`} data-testid="link-nova-viagem" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Nova viagem desta obra →</Link><AjudaCampo chave="projetos.cockpit.nova_viagem" rota={ROTA} /></span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/encerramento?area=hub`} data-testid="link-encerramento-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Encerramento da obra →</Link><AjudaCampo chave="projetos.cockpit.encerramento" rota={ROTA} /></span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/materiais?area=hub`} data-testid="link-materiais-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Materiais da obra →</Link><AjudaCampo chave="projetos.cockpit.materiais" rota={ROTA} /></span>
