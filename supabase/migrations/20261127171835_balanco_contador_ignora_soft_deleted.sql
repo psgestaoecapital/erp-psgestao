@@ -152,6 +152,11 @@ DECLARE
   v_despesas_caixa numeric;
   v_periodo_fim date;
 BEGIN
+  -- Isolamento multi-tenant (classe fn__guarda_empresa): SECURITY DEFINER lê financeiro
+  -- a partir do p_company_id vindo do parâmetro, fora do RLS. Fail-open p/ service_role/admin,
+  -- bloqueia usuário autenticado que peça empresa fora do seu vínculo.
+  PERFORM public.fn__guarda_empresa(p_company_id);
+
   v_periodo_fim := (p_mes_competencia + INTERVAL '1 month' - INTERVAL '1 day')::date;
 
   -- Regime competencia
@@ -222,6 +227,13 @@ DECLARE
   v_total_obrigacoes_vencer int := 0;
   v_alertas_criticos jsonb;
 BEGIN
+  -- Isolamento multi-tenant + guarda de escrita (contador_acessos_log): o painel é do próprio
+  -- contador. Fail-open p/ service_role/admin (auth.uid() NULL), bloqueia usuário autenticado
+  -- que não seja o contador dono do painel.
+  IF auth.uid() IS NOT NULL AND NOT public.is_admin() AND auth.uid() IS DISTINCT FROM p_contador_id THEN
+    RAISE EXCEPTION 'acesso negado ao painel do contador' USING ERRCODE = '42501';
+  END IF;
+
   -- Buscar todas as empresas do contador
   WITH empresas_contador AS (
     SELECT cc.company_id, c.razao_social, c.cnpj
@@ -336,3 +348,14 @@ BEGIN
   );
 END;
 $function$;
+
+-- ============================================================================
+-- Guardas estruturais (check_fn_guards · revoke_anon): as funções SECURITY DEFINER
+-- do contador não são rota pública. REVOKE anon/PUBLIC + GRANT explícito.
+-- (fn_psgc_balanco_gerencial é STABLE, NÃO é SECURITY DEFINER → roda sob RLS, sem REVOKE.)
+-- ============================================================================
+REVOKE ALL ON FUNCTION public.fn_contador_resumo_competencia(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_contador_resumo_competencia(uuid, date) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_ge_painel_contador(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_painel_contador(uuid) TO authenticated, service_role;
