@@ -186,6 +186,13 @@ Deno.serve(async (req) => {
       return json({ error: erro }, 500)
     }
     await heartbeat({ fase: 'sucesso', httpStatus: 200, gravados: limpo.length, recebidos, collectorVersion, host, janelaDias, triggerType, dominio, duplicatas })
+    // P0 BI Financeiro: ao fim da importação financeira, refresca a MV tipada (ind_fin_titulo_mv) que o painel
+    // da diretoria lê (sem parse jsonb em tempo de consulta). Best-effort: falha de refresh NÃO falha a ingestão
+    // (os dados já estão gravados; a MV fica stale até o próximo refresh e o painel mostra a última importação).
+    if (limpo.length > 0 && (dominio === 'financeiro_receber' || dominio === 'financeiro_pagar')) {
+      const { error: errRefresh } = await supabase.rpc('fn_ind_fin_titulo_mv_refresh')
+      if (errRefresh) console.error('fn_ind_fin_titulo_mv_refresh falhou (ingestão ok):', errRefresh.message)
+    }
     return json({ ok: true, gravados: limpo.length, duplicatas, dominio })
   }
 
