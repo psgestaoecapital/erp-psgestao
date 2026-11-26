@@ -861,12 +861,15 @@ merges=0
 # O @pos-migration da main roda uma vez para o lote. LOTE_MIG_MAX=1 desliga (comportamento antigo).
 # ESCALA NO ADITIVO, CAUTELA NO CRÍTICO (CEO 23/10): o teto geral do lote (LOTE_MIG_MAX) sobe para drenar o backlog de
 # migrations ADITIVAS mais rápido; a migration CRÍTICA (via revisada) tem um teto PRÓPRIO (LOTE_MIG_CRIT_MAX).
-# LOTE DE CRÍTICAS (CEO 01/11): a fila crítica chegou a 44 com vazão de 2-3/h (cada crítica saía sozinha e esperava ~20 min
-# de @pos). O CEO aprovou batelar até LOTE_MIG_CRIT_MAX=5 migrations CRÍTICAS num MESMO @pos. CARVE-OUT: as categorias
-# perigosas demais (NR-36, fiscal, financeiro de cliente, RLS/permissão/LGPD) e qualquer conserto-main continuam SOZINHAS
-# (1 por @pos) — classificador critica-solo.ts, viés de segurança (dúvida → SOLO). Se o @pos do lote falhar, o guardião
-# (gilberto-esteira) BISSECTA: reverte metade, roda o @pos, repete até isolar a PR culpada, reverte só ela e republica as
-# inocentes (procedimento no AGENTS.md / PROTOCOLO DE MAIN VERMELHA). LOTE_MIG_CRIT_MAX=1 volta ao comportamento antigo.
+# LOTE DE CRÍTICAS (CEO 01/11; teto revisto p/ 10 em CEO 25/11): a fila crítica chegou a 44 com vazão de 2-3/h (cada
+# crítica saía sozinha e esperava ~20 min de @pos). O CEO aprovou batelar até LOTE_MIG_CRIT_MAX migrations CRÍTICAS
+# BATELÁVEIS (não-SOLO) num MESMO @pos — padrão subiu de 5 para 10 (item B, CEO 25/11), para drenar o backlog crítico
+# mais rápido. CARVE-OUT: as categorias perigosas demais (NR-36, fiscal, financeiro de cliente, RLS/permissão/LGPD) e
+# qualquer conserto-main continuam SOZINHAS (1 por @pos) — classificador critica-solo.ts, viés de segurança (dúvida →
+# SOLO). Se o @pos do lote falhar, o guardião (gilberto-esteira) BISSECTA: reverte metade, roda o @pos, repete até isolar
+# a PR culpada, reverte só ela e republica as inocentes (procedimento no AGENTS.md / PROTOCOLO DE MAIN VERMELHA). Com 10,
+# o pior caso da bissecção são ~4 rodadas de @pos para isolar a culpada (ceil(log2(10))). LOTE_MIG_CRIT_MAX=1 volta ao
+# comportamento antigo (1 crítica por @pos).
 # SO-DEMO (CEO 21/11 20:18): migration que SÓ mexe em empresa DEMO (toda escrita guardada por is_demo=true / ids
 # b0700000-…) NÃO deve publicar SOZINHA só por cair no carve-out do critica-solo (travava a fila, 1 por @pos de ~45 min).
 # O gilberto-revisor, DEPOIS de PROVAR na revisão profunda a guarda is_demo e a ausência de DDL de estrutura, põe a label
@@ -875,7 +878,7 @@ merges=0
 # com a label, mantém SOLO se o conteúdo toca risco máximo que is_demo não cobre (fiscal/NR-36/RLS/LGPD/Wealth-CVM) ou faz
 # DDL de estrutura em objeto existente. Gate: check-fila-lote-critico.ts.
 LOTE_MIG_MAX=${LOTE_MIG_MAX:-6}
-LOTE_MIG_CRIT_MAX=${LOTE_MIG_CRIT_MAX:-5}
+LOTE_MIG_CRIT_MAX=${LOTE_MIG_CRIT_MAX:-10}   # item B (CEO 25/11): era 5; sobe p/ 10 (só críticas BATELÁVEIS; SOLO segue 1 por @pos)
 lote_mig_n=0; lote_mig_crit_n=0; lote_mig_sqls=()
 # Eng. Chefe 11/11: PISO de versão RESERVADO na rodada. A renumeração automática calcula a versão nova a partir da
 # última da MAIN, mas a main NÃO reflete as versões que a própria rodada já atribuiu aos ramos de outras PRs. Logo duas
