@@ -102,6 +102,9 @@ export interface NFeBuilderInput {
   // remetente (vendedor PF na compra PF); item/CFOP/CST/natureza do perfil fiscal aprovado (não de erp_produtos).
   entradaVeiculo?: DadosEntradaVeiculo
   onEntradaMontada?: (m: ItemVeiculoEntradaMontado) => void
+  // #9787 · DEVOLUÇÃO ao consignante (consignacao_retorno) — SAÍDA (tpNF=1), destinatário = consignante. Reusa o
+  // montador da entrada (item do perfil), mas a nota é saída. Gated por emite_nfe_autorizada na rota.
+  consignacaoRetorno?: DadosEntradaVeiculo
 }
 
 export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeRequest> {
@@ -151,7 +154,8 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   // que veio do orçamento, ex.: nº da ordem de compra do cliente) — nunca as observações internas.
   let observacoesOrigem: string | undefined
   let veiculoMontado: ItemVeiculoMontado | undefined
-  let entradaMontadoItem: NFeProdutoItem | undefined   // #9787 marco 2 · item da NF-e de entrada (prévia)
+  let entradaMontadoItem: NFeProdutoItem | undefined   // #9787 · item do veículo (entrada OU devolução ao consignante)
+  let tpNFEntrada0 = false                              // #9787 · true só na ENTRADA real (tpNF=0); devolução é saída (tpNF=1)
 
   if (input.pedidoId) {
     // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1
@@ -318,6 +322,28 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
         : undefined,
     }
     const montado = montarItemVeiculoEntrada(ev, ufEmitente, destinatario.endereco?.uf)
+    input.onEntradaMontada?.(montado)
+    entradaMontadoItem = montado.item
+    naturezaOp = montado.naturezaOperacao
+    observacoesOrigem = montado.observacoes
+    finalidade = 'normal'
+    tpNFEntrada0 = true   // entrada real → tpNF=0
+  } else if (input.consignacaoRetorno) {
+    // #9787 · DEVOLUÇÃO ao consignante — SAÍDA (tpNF=1). Destinatário = consignante; item/CFOP/CST/natureza do perfil
+    // (operação 'consignacao_retorno'). Reusa o montador da entrada (item do perfil); NÃO marca tpNF=0 (é saída).
+    const cr = input.consignacaoRetorno
+    const r = cr.remetente
+    const doc = (r.documento ?? '').replace(/\D/g, '')
+    destinatario = {
+      cnpj: doc.length === 14 ? doc : undefined,
+      cpf: doc.length === 11 ? doc : undefined,
+      razaoSocial: r.nome ?? '',
+      indicadorIE: r.tipo === 'pf' ? 9 : undefined,
+      endereco: r.endereco && r.endereco.logradouro
+        ? { logradouro: r.endereco.logradouro, numero: r.endereco.numero ?? undefined, bairro: r.endereco.bairro ?? '', cidade: r.endereco.cidade ?? '', uf: r.endereco.uf ?? '', cep: (r.endereco.cep ?? '').replace(/\D/g, '') }
+        : undefined,
+    }
+    const montado = montarItemVeiculoEntrada(cr, ufEmitente, destinatario.endereco?.uf)
     input.onEntradaMontada?.(montado)
     entradaMontadoItem = montado.item
     naturezaOp = montado.naturezaOperacao
@@ -551,6 +577,8 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     serie: cfg?.serie_nfe_padrao ?? '1',
     naturezaOperacao: naturezaOp,
     finalidade,
+    // #9787 · nota própria de ENTRADA (compra PF/PJ, troca) é tpNF=0; venda, devolução ao consignante e demais saídas seguem 1.
+    ...(tpNFEntrada0 ? { tipoOperacao: 0 as const } : {}),
     consumidorFinal,
     emitente: {
       cnpj: String(emp.cnpj ?? '').replace(/\D/g, ''),
