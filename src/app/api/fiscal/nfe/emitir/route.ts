@@ -5,14 +5,14 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { createFiscalService } from '@/lib/fiscal/service'
 import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-builder'
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
-import { isFiscalError } from '@/lib/fiscal/errors'
+import { isFiscalError, FiscalError } from '@/lib/fiscal/errors'
 import { notaEspelhoDeNFeReq } from '@/lib/fiscal/espelhoNota'
 import { danfeDeNFeRequest } from '@/lib/fiscal/danfeDados'
 import { carregarEmitenteDanfe } from '@/lib/fiscal/danfeEmitente'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { guardarXmlNota } from '@/lib/fiscal/guardarXmlNota'
 import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
-import { carregarVendaVeiculo, carregarEntradaVeiculo, carregarConsignacaoRetorno, type ItemVeiculoMontado, type ItemVeiculoEntradaMontado, type OperacaoEntrada } from '@/lib/fiscal/nfe-veiculo'
+import { carregarVendaVeiculo, carregarEntradaVeiculo, carregarConsignacaoRetorno, camposFaltandoRemetenteEntrada, mensagemRemetenteEntradaIncompleto, type ItemVeiculoMontado, type ItemVeiculoEntradaMontado, type OperacaoEntrada } from '@/lib/fiscal/nfe-veiculo'
 import { LIMITE_INF_CPL, excedeLimiteInfCpl, mensagemLimiteInfCpl, textoInformacoesComplementares } from '@/lib/fiscal/informacoesComplementares'
 
 export const dynamic = 'force-dynamic'
@@ -207,6 +207,16 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       },
     }
     try {
+      // #9787 (ajuste) · ENTRADA/DEVOLUÇÃO: a contraparte (vendedor PF / fornecedor) tem de estar completa. Diz QUAL
+      // campo falta (nome, documento, endereço com município/UF), em vez da mensagem genérica do validador. A prévia
+      // não chega aqui (retorna antes); vale para a emissão real (apenasPrevia=false).
+      const contraparte = entradaVeic ?? retornoVeic
+      if (contraparte) {
+        const faltam = camposFaltandoRemetenteEntrada(contraparte.remetente)
+        if (faltam.length) {
+          throw new FiscalError('PAYLOAD_INVALIDO', mensagemRemetenteEntradaIncompleto(contraparte.operacao, contraparte.remetente.tipo, faltam))
+        }
+      }
       validateNFeRequest(nfeReq)
     } catch (e) {
       if (!body.apenasPrevia) await registrarFalhaEmissaoNFe(ctxEmissao, e)
