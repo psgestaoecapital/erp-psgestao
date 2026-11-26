@@ -120,6 +120,14 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
     const peso = tarefas.reduce((s, t) => s + dias(t.inicio, t.fim), 0)
     return peso > 0 ? tarefas.reduce((s, t) => s + (dias(t.inicio, t.fim) * Number(t.percentual)) / 100, 0) / peso * 100 : 0
   }, [tarefas])
+  // §317 (blueprint essencial): o terceiro avanço lado a lado — executado ponderado pelo CUSTO previsto da tarefa
+  // (os outros dois já existem: "Avanço geral" = por prazo/duração e "Planejado hoje" = previsto pela linha de base).
+  // Sem custo previsto em nenhuma tarefa não há como ponderar: devolve null e a tela mostra "—".
+  const avancoPorCusto = useMemo(() => {
+    const peso = tarefas.reduce((s, t) => s + (Number(t.custo_previsto) || 0), 0)
+    if (peso <= 0) return null
+    return tarefas.reduce((s, t) => s + ((Number(t.custo_previsto) || 0) * Number(t.percentual)) / 100, 0) / peso * 100
+  }, [tarefas])
   const curva = useMemo(() => curvaS(tarefas, hoje()), [tarefas])
   const realizada = useMemo(() => (curva ? curvaRealizada(tarefas, avancos, curva.pontos, hoje()) : []), [tarefas, avancos, curva])
   const ff = useMemo(() => fisicoFinanceiro(tarefas, hoje()), [tarefas])
@@ -332,6 +340,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
                   <Mini label="Tarefas" valor={String(tarefas.length)} ajuda="projetos.cronograma.ind_tarefas" />
                   <Mini label="Avanço geral" valor={`${avancoGeral.toFixed(0)}%`} cor={VERDE} ajuda="projetos.cronograma.ind_avanco" />
+                  <Mini label="Avanço por custo" valor={avancoPorCusto == null ? '—' : `${avancoPorCusto.toFixed(0)}%`} cor={VERDE} ajuda="projetos.cronograma.ind_avanco_custo" />
                   <Mini label="Planejado hoje" valor={curva ? `${curva.planejadoHoje.toFixed(0)}%` : '—'} ajuda="projetos.cronograma.ind_planejado" />
                   <Mini label="Desvio" valor={curva ? `${curva.desvio > 0 ? '+' : ''}${curva.desvio.toFixed(0)} p.p.` : '—'} cor={curva && curva.desvio < -0.5 ? VERM : VERDE} ajuda="projetos.cronograma.ind_desvio" />
                   <Mini label="Fora da linha de base" valor={temBase ? String(atrasadas) : '—'} cor={atrasadas > 0 ? VERM : ESP} ajuda="projetos.cronograma.ind_fora_base" />

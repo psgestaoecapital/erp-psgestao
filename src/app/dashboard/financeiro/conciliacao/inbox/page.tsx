@@ -316,6 +316,9 @@ export default function InboxPage() {
   const [temExtratoApi, setTemExtratoApi] = useState(false)
   const [contas, setContas] = useState<{ id: string; nome: string | null; banco: string | null; banco_codigo: string | null; agencia: string | null; conta: string | null }[]>([])
   const [contaImportId, setContaImportId] = useState<string>('')
+  // Deep-link do Raio-X (caixa do grupo, item #5 go-live): ?conta=<id>&dif=<valor> chega direto nesta conta,
+  // com a diferença sistema×banco a explicar. Lido do window.location (client-only, sem Suspense).
+  const [deepLink, setDeepLink] = useState<{ conta: string; dif: number | null } | null>(null)
   const [arquivoOFX, setArquivoOFX] = useState<File | null>(null)
   const [importando, setImportando] = useState(false)
 
@@ -713,6 +716,23 @@ export default function InboxPage() {
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [empresaUnica])
 
+  // Deep-link do Raio-X: ao abrir com ?conta=<id>, pré-seleciona a conta no importador e abre o painel,
+  // mostrando a diferença a explicar. Só na montagem (client-only); nunca derruba a tela se vier vazio.
+  useEffect(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search)
+      const conta = sp.get('conta')
+      if (!conta) return
+      const difRaw = sp.get('dif')
+      const dif = difRaw != null && difRaw !== '' && Number.isFinite(Number(difRaw)) ? Number(difRaw) : null
+      /* eslint-disable-next-line react-hooks/set-state-in-effect */
+      setDeepLink({ conta, dif })
+      setContaImportId(conta)
+      setShowImport(true)
+    } catch { /* sem window/URL — ignora */ }
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [])
+
   useEffect(() => {
     // quando troca o tipo de extrato, escolher o 1o lote daquele tipo
     if (lotes.length === 0) return
@@ -1107,6 +1127,23 @@ export default function InboxPage() {
             </button>
           )}
         </div>
+
+        {/* Banner do deep-link do Raio-X (item #5 go-live): conta pré-selecionada + diferença a explicar. */}
+        {deepLink && (() => {
+          const c = contas.find((x) => x.id === deepLink.conta)
+          const nomeConta = c ? (c.nome || [c.banco, c.agencia, c.conta].filter(Boolean).join(' · ') || 'conta selecionada') : 'conta selecionada'
+          return (
+            <div data-testid="inbox-deeplink-raiox" role="status" style={{ background: '#FBF1DD', border: '1px solid #E6C78A', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: '#3D2314', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 700 }}>Raio-X financeiro:</span>
+              <span>
+                conta <b>{nomeConta}</b> pré-selecionada.
+                {deepLink.dif != null
+                  ? ` O saldo do sistema diverge do banco em ${Math.abs(deepLink.dif).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}. Importe o extrato desta conta e concilie os lançamentos para explicar a diferença.`
+                  : ' Importe o extrato desta conta e concilie os lançamentos para explicar a diferença entre sistema e banco.'}
+              </span>
+            </div>
+          )
+        })()}
 
         {/* conciliacao-reorg-tela-v1: tabs de modo (Extrato | Sistema) */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
