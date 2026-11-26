@@ -65,6 +65,10 @@ export async function POST(req: NextRequest) {
       getUsuario(u.token).rpc('fn_ia_empresa_pode_gastar', { p_company_id: companyId, p_feature: FEATURE, p_custo_estimado: CUSTO_ESTIMADO }),
       admin.rpc('fn_ia_global_pode_gastar', { p_feature: FEATURE, p_custo_estimado: CUSTO_ESTIMADO }),
     ])
+    // CEO 26/11: empresa de demonstração não gasta crédito de IA — mensagem própria (não é "limite atingido").
+    if ((ge as { motivo?: string } | null)?.motivo === 'empresa_demo') {
+      return NextResponse.json({ ok: true, bloqueado: true, mensagem: 'Na empresa de demonstração o assistente com IA fica desligado (sem custo). Use os atalhos abaixo (Raio-X) — eles funcionam normalmente.' })
+    }
     const okE = (ge as { pode?: boolean } | null)?.pode, okG = (gg as { pode?: boolean } | null)?.pode
     const teto = avaliarTeto(okE, okG)
     if (teto) return NextResponse.json({ ok: true, bloqueado: true, mensagem: teto.mensagem })
