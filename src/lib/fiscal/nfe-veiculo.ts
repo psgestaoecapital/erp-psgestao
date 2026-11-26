@@ -94,6 +94,31 @@ export function fraseReducaoBaseIcms(cst: string, reducaoBasePct: number | null 
   return `Redução da base de cálculo do ICMS de ${String(Number(r.toFixed(2))).replace('.', ',')}%, Cfe art. 8º, II, Anexo 2, do RICMS-SC/01`
 }
 
+// #bug consignação (CST 41) · CSTs do ICMS próprio NÃO tributadas: 40 (isenta), 41 (não tributada), 50 (suspensão),
+// 60 (ICMS cobrado antes por ST). Nelas o grupo ICMS do XML leva SÓ o CST — NUNCA pRedBC (redução) nem cBenef de CST
+// tributada. cBenef/redução são o pacote do CST 20; saírem numa CST não tributada → rejeição SEFAZ ("cBenef
+// incompatível com CST e UF"). Contador (Adriana) confirmou: CST 41 não leva cBenef nem redução.
+export const CST_ICMS_NAO_TRIBUTADA = new Set(['40', '41', '50', '60'])
+export function cstIcmsNaoTributada(cst: string): boolean {
+  return CST_ICMS_NAO_TRIBUTADA.has(String(cst ?? '').trim())
+}
+
+// Grupo ICMS do item do veículo montado ESTRITAMENTE pelo CST (robustez: "com ou sem config, a nota sai válida").
+// CST 20 → base reduzida + aliquota + valor + modBc 3 + reducaoBase + cBenef (quando houver). Qualquer outra CST
+// (41/40/50/60 e demais não tributadas) → só { cst }, mesmo que o perfil traga redução/cBenef sobrando.
+export function icmsVeiculoPorCst(
+  cst: string, valor: number, aliquota: number,
+  reducaoBasePct: number | null | undefined, cbenef: string | null | undefined,
+): NonNullable<NFeProdutoItem['icms']> {
+  const c = String(cst ?? '').trim()
+  if (c === '20') {
+    const reducao = reducaoBasePct ?? 0
+    const base = round2(valor * (1 - reducao / 100))
+    return { cst: c, aliquota, base, valor: round2(base * aliquota / 100), modBc: '3', reducaoBase: reducao, ...(cbenef ? { cBenef: cbenef } : {}) }
+  }
+  return { cst: c }
+}
+
 export function infComplementarVeiculo(v: DadosVendaVeiculo['veiculo'], textoPerfil?: string | null, reducaoFrase?: string | null): string {
   const partes = [
     `Veículo: ${[v.marca, v.modelo, v.versao].filter(Boolean).join(' ')}`.trim(),
@@ -142,17 +167,11 @@ export function montarItemVeiculo(d: DadosVendaVeiculo, ufEmitente: string | und
   const cfop = (interestadual ? op.cfopForaUf : op.cfopDentroUf).trim()
 
   const cst = cstRegimeNormal(op.cstOuCsosn)
-  const reducao = op.reducaoBasePct ?? 0
   const aliq = d.perfil.icmsSaidaPct ?? ALIQUOTA_ICMS_VENDA_VEICULO_PADRAO
-  let icms: NFeProdutoItem['icms']
-  if (cst === '20') {
-    const base = round2(valor * (1 - reducao / 100))
-    icms = { cst, aliquota: aliq, base, valor: round2(base * aliq / 100), modBc: '3', reducaoBase: reducao, ...(op.cbenef ? { cBenef: op.cbenef } : {}) }
-  } else {
-    // Qualquer outro CST do perfil: não calcula nada por conta própria (nem inventa base). A rota barra no validador.
-    icms = { cst, aliquota: aliq, ...(op.cbenef ? { cBenef: op.cbenef } : {}) }
-    avisos.push(`CST ${cst || '(vazio)'} do perfil não é o 20 (redução de base) — ICMS não calculado aqui; confira com o contador.`)
-  }
+  // #bug consignação · grupo ICMS estritamente pelo CST: redução/cBenef só na CST 20; CST não tributada (ex.:
+  // consignacao_venda CST 41) sai só com o CST, mesmo com SC820019/redução sobrando no perfil.
+  const icms = icmsVeiculoPorCst(cst, valor, aliq, op.reducaoBasePct, op.cbenef)
+  if (cst !== '20') avisos.push(`CST ${cst || '(vazio)'} do perfil não é o 20 (redução de base) — ICMS não calculado aqui; confira com o contador.`)
 
   const cbsValor = round2(valor * CBS_ALIQUOTA_TESTE_2026 / 100)
   const ibsUfValor = round2(valor * IBS_UF_ALIQUOTA_TESTE_2026 / 100)
@@ -329,17 +348,10 @@ export function montarItemVeiculoEntrada(d: DadosEntradaVeiculo, ufEmitente: str
   if (!natureza) throw new FiscalError('PAYLOAD_INVALIDO', `Natureza da operação '${d.operacao}' não configurada no perfil fiscal aprovado`)
 
   const cst = cstRegimeNormal(op.cstOuCsosn)
-  let icms: NFeProdutoItem['icms']
-  if (cst === '20') {
-    const reducao = op.reducaoBasePct ?? 0
-    const aliq = ALIQUOTA_ICMS_VENDA_VEICULO_PADRAO
-    const base = round2(valor * (1 - reducao / 100))
-    icms = { cst, aliquota: aliq, base, valor: round2(base * aliq / 100), modBc: '3', reducaoBase: reducao, ...(op.cbenef ? { cBenef: op.cbenef } : {}) }
-  } else {
-    // entrada não tributada pelo ICMS (ex.: compra PF CST 41): segue o CST do perfil, sem calcular base/valor.
-    icms = { cst, ...(op.cbenef ? { cBenef: op.cbenef } : {}) }
-    avisos.push(`ICMS pelo CST ${cst || '(vazio)'} do perfil (entrada) — sem cálculo de base/valor nesta prévia; confira com o contador.`)
-  }
+  // #bug consignação · grupo ICMS estritamente pelo CST: compra PF / consignacao_retorno (CST 41, não tributada) sai
+  // só com o CST — sem cBenef nem redução, mesmo que o perfil traga SC820019/redução (pacote do CST 20) por engano.
+  const icms = icmsVeiculoPorCst(cst, valor, ALIQUOTA_ICMS_VENDA_VEICULO_PADRAO, op.reducaoBasePct, op.cbenef)
+  if (cst !== '20') avisos.push(`ICMS pelo CST ${cst || '(vazio)'} do perfil (entrada) — sem cálculo de base/valor; confira com o contador.`)
 
   const veiculo: NonNullable<NFeProdutoItem['veiculo']> = {
     tipoOperacao: '0', chassi: d.veiculo.chassi,
