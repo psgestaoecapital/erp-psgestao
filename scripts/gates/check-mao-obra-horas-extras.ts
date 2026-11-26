@@ -48,7 +48,7 @@ ok(/he50_horas_padrao numeric NOT NULL DEFAULT 0/.test(mig) && /he100_horas_padr
 ok(/'custo_hora_sem_he'/.test(mig) && /'custo_hora_com_he'/.test(mig) && /mensal \/ \(horas \+ he_h\)/.test(mig) && /x->>'tipo' <> 'hora_extra'/.test(mig), 'banco: o cálculo devolve a hora sem e com HE (mesma conta do TypeScript)')
 ok(/IF f\.custo_hora_usa_he = 'com' THEN/.test(mig) && /\(r\.horas_produtivas_mes \+ v_hx\) \* r\.quantidade_pessoas/.test(mig), 'banco: a média da função usa o custo escolhido; COM pesa pelas horas produtivas + extras')
 ok(/REVOKE ALL ON FUNCTION public\.fn_mao_obra_custo_calcular\(jsonb, jsonb\) FROM PUBLIC, anon;/.test(mig) && /REVOKE ALL ON FUNCTION public\.fn_funcao_custo_hora\(uuid\) FROM PUBLIC, anon;/.test(mig) && /REVOKE ALL ON FUNCTION public\.fn_mao_obra_funcao_salvar\(uuid, uuid, jsonb\) FROM PUBLIC, anon;/.test(mig) && /REVOKE ALL ON FUNCTION public\.fn_mao_obra_listar\(uuid\) FROM PUBLIC, anon;/.test(mig), 'banco: grants das funções iguais aos de antes (sem anon)')
-const tela = readFileSync('src/app/dashboard/projetos/mao-obra/page.tsx', 'utf8')
+const tela = readFileSync('src/app/dashboard/projetos/mao-obra/page.tsx', 'utf8') + '\n' + readFileSync('src/components/maoObra/MaoObraTela.tsx', 'utf8') /* #6168: a tela virou o componente compartilhado MaoObraTela */
 for (const t of ['ficha-he50', 'ficha-he100', 'ficha-he-custo', 'ficha-custo-hora-sem-he', 'ficha-custo-hora-com-he', 'funcao-he50', 'funcao-he100', 'funcao-usa-he'])
   ok(tela.includes(`data-testid="${t}"`), `tela: ${t}`)
 for (const k of ['funcao.he50', 'funcao.he100', 'funcao.usa_he', 'ficha.he50', 'ficha.he100', 'ficha.he_custo', 'resultado.hora_sem_he', 'resultado.hora_com_he']) {

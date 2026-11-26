@@ -1,0 +1,172 @@
+-- Razão Financeiro (blueprint GE tela 124 · T045 — "razão financeiro por conta bancária na GE").
+-- A tela nova /dashboard/financeiro/razao-financeiro é um RELATÓRIO SOMENTE-LEITURA que reutiliza a
+-- RPC já provada fn_ge_extrato_conta (uma chamada por conta) — NÃO cria read-model financeiro novo,
+-- NÃO toca dado de cliente, estrutura, RLS nem semântica. Esta migration só REGISTRA a tela para ela
+-- aparecer ao usuário (system_screens + module_catalog) e semeia os textos de ajuda "?" (RD-95).
+--
+-- Totalmente ADITIVA e IDEMPOTENTE (ON CONFLICT DO UPDATE dos campos de exibição / conteúdo de ajuda).
+-- RD-38 (prova no PR, antes de aplicar):
+--   SELECT count(*) FROM module_catalog  WHERE id='financeiro_razao_ge';            -- esperado: 0 -> 1
+--   SELECT count(*) FROM system_screens  WHERE id='dashboard.financeiro.razao-financeiro'; -- 0 -> 1
+--   SELECT count(*) FROM erp_ajuda_campo WHERE rota='/dashboard/financeiro/razao-financeiro'; -- 0 -> 19
+
+-- 1) Catálogo de módulos (menu data-driven) — ao lado do Extrato (ordem 40), antes da Conciliação (45).
+INSERT INTO public.module_catalog (id, nome, grupo, subgrupo, icone, rota, ordem, ativo, is_shared, layer, so_ps, so_demo, descricao, surface_in_groups)
+VALUES (
+  'financeiro_razao_ge',
+  'Razão Financeiro',
+  'gestao_empresarial',
+  'financeiro',
+  'BookOpen',
+  '/dashboard/financeiro/razao-financeiro',
+  42,
+  true,
+  true,
+  'shared',
+  false,
+  false,
+  'Razão por conta bancária/caixa: todas as contas lado a lado no período — saldo inicial, entradas, saídas e saldo final, com o grupo consolidado e o detalhe de lançamentos.',
+  ARRAY['gestao_empresarial']::text[]
+)
+ON CONFLICT (id) DO UPDATE SET
+  nome = EXCLUDED.nome, grupo = EXCLUDED.grupo, subgrupo = EXCLUDED.subgrupo,
+  icone = EXCLUDED.icone, rota = EXCLUDED.rota, ordem = EXCLUDED.ordem, ativo = EXCLUDED.ativo,
+  is_shared = EXCLUDED.is_shared, layer = EXCLUDED.layer, so_ps = EXCLUDED.so_ps, so_demo = EXCLUDED.so_demo,
+  descricao = EXCLUDED.descricao, surface_in_groups = EXCLUDED.surface_in_groups;
+
+-- 2) Registro da tela para a auditoria/monitoramento (mesma área/módulo do Extrato).
+INSERT INTO public.system_screens (id, rota, area, titulo, descricao_funcional, modulo)
+VALUES (
+  'dashboard.financeiro.razao-financeiro',
+  '/dashboard/financeiro/razao-financeiro',
+  'gestao_empresarial',
+  'Razão Financeiro',
+  'Razão por conta bancária/caixa no período: saldo inicial, entradas, saídas e saldo final por conta, consolidado do grupo e detalhe de lançamentos. Somente leitura (reutiliza fn_ge_extrato_conta).',
+  'financeiro'
+)
+ON CONFLICT (id) DO UPDATE SET
+  rota = EXCLUDED.rota, area = EXCLUDED.area, titulo = EXCLUDED.titulo,
+  descricao_funcional = EXCLUDED.descricao_funcional, modulo = EXCLUDED.modulo;
+
+-- 3) Ajuda de campo "?" (RD-95) — um texto por campo/filtro/indicador/ação/coluna.
+INSERT INTO public.erp_ajuda_campo (id, chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, versao, status)
+VALUES
+  (gen_random_uuid(), 'ge.razao.acao.periodo_rapido', '/dashboard/financeiro/razao-financeiro', 'Filtros', 'Período rápido',
+   'Clique num atalho (7, 30, 90 dias, mês atual, mês passado) para preencher as datas de uma vez.',
+   'Define o intervalo de todos os saldos e totais: cada conta é calculada do início ao fim desse período.',
+   'Clique em "Mês passado" para fechar o razão do mês anterior.',
+   'Comparar saldos de meses diferentes sem trocar o período: todos os números seguem o intervalo escolhido.',
+   'gestao_empresarial', 1, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.filtro.data_inicio', '/dashboard/financeiro/razao-financeiro', 'Filtros', 'De',
+   'Escolha a data inicial do período do razão.',
+   'O "Saldo inicial" de cada conta é o saldo no início deste dia; as entradas e saídas somam a partir daqui.',
+   '01/11/2026 para começar no primeiro dia do mês.',
+   'Deixar a data inicial depois da final: o período fica vazio e os totais zeram.',
+   'gestao_empresarial', 2, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.filtro.data_fim', '/dashboard/financeiro/razao-financeiro', 'Filtros', 'Até',
+   'Escolha a data final do período do razão.',
+   'O "Saldo final" de cada conta é o saldo no fim deste dia.',
+   '30/11/2026 para fechar o mês.',
+   'Usar uma data futura esperando ver lançamentos que ainda não aconteceram.',
+   'gestao_empresarial', 3, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.acao.exportar', '/dashboard/financeiro/razao-financeiro', 'Ações', 'Exportar CSV',
+   'Clique para baixar o resumo por conta (e o total do grupo) em CSV, para abrir no Excel.',
+   'Leva o razão do período para uma planilha — útil para o contador ou para conferência.',
+   'Exportar o fechamento do mês para enviar ao contador.',
+   'Esperar os lançamentos detalhados no CSV: ele traz o resumo por conta; o detalhe aparece ao expandir a conta na tela.',
+   'gestao_empresarial', 4, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.kpi.saldo_inicial', '/dashboard/financeiro/razao-financeiro', 'Saldos', 'Saldo inicial do grupo',
+   'Não preenche — é a soma do saldo inicial de todas as contas no começo do período.',
+   'Mostra com quanto o grupo começou o período somando todas as contas.',
+   'R$ 50.000,00 somando caixa + bancos no dia 01.',
+   'Confundir com a abertura histórica da conta: aqui é o saldo no início do período filtrado.',
+   'gestao_empresarial', 5, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.kpi.entradas', '/dashboard/financeiro/razao-financeiro', 'Saldos', 'Entradas (período)',
+   'Não preenche — é a soma de tudo que entrou nas contas no período.',
+   'Total recebido no grupo no intervalo escolhido.',
+   '+ R$ 120.000,00 de recebimentos no mês.',
+   'Somar entradas de um período e saldo final de outro: os dois seguem o mesmo filtro.',
+   'gestao_empresarial', 6, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.kpi.saidas', '/dashboard/financeiro/razao-financeiro', 'Saldos', 'Saídas (período)',
+   'Não preenche — é a soma de tudo que saiu das contas no período.',
+   'Total pago no grupo no intervalo escolhido.',
+   '− R$ 90.000,00 de pagamentos no mês.',
+   'Achar que inclui contas ainda a pagar: o razão conta só o que já saiu de fato da conta.',
+   'gestao_empresarial', 7, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.kpi.saldo_final', '/dashboard/financeiro/razao-financeiro', 'Saldos', 'Saldo final do grupo',
+   'Não preenche — é saldo inicial + entradas − saídas, somando todas as contas.',
+   'Mostra com quanto o grupo terminou o período. Vermelho quando negativo.',
+   'R$ 80.000,00 ao fim do mês.',
+   'Esperar que bata com o extrato de um banco só: aqui é a soma de todas as contas.',
+   'gestao_empresarial', 8, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.col.conta', '/dashboard/financeiro/razao-financeiro', 'Colunas', 'Conta',
+   'Não preenche — é cada conta bancária ou caixa cadastrada e ativa da empresa.',
+   'Organiza o razão por conta; clique na linha para abrir os lançamentos daquela conta.',
+   'Caixa, Banco do Brasil CC, Itaú CC.',
+   'Procurar uma conta inativa: o razão lista só as contas ativas.',
+   'gestao_empresarial', 9, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.col.saldo_inicial', '/dashboard/financeiro/razao-financeiro', 'Colunas', 'Saldo inicial',
+   'Não preenche — saldo da conta no início do período.',
+   'Ponto de partida de cada conta; somado às entradas e menos as saídas dá o saldo final.',
+   'R$ 12.000,00 no caixa no dia 01.',
+   'Comparar com a abertura da conta: aqui é o saldo no início do período filtrado.',
+   'gestao_empresarial', 10, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.col.entradas', '/dashboard/financeiro/razao-financeiro', 'Colunas', 'Entradas',
+   'Não preenche — total que entrou nesta conta no período.',
+   'Soma dos créditos da conta no intervalo.',
+   '+ R$ 30.000,00 recebidos na conta do Itaú.',
+   'Contar previsões: só entra o que de fato caiu na conta.',
+   'gestao_empresarial', 11, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.col.saidas', '/dashboard/financeiro/razao-financeiro', 'Colunas', 'Saídas',
+   'Não preenche — total que saiu desta conta no período.',
+   'Soma dos débitos da conta no intervalo.',
+   '− R$ 18.000,00 pagos pela conta do Itaú.',
+   'Contar contas a pagar ainda em aberto: só entra o que já foi pago.',
+   'gestao_empresarial', 12, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.col.saldo_final', '/dashboard/financeiro/razao-financeiro', 'Colunas', 'Saldo final',
+   'Não preenche — saldo inicial + entradas − saídas desta conta.',
+   'Com quanto a conta terminou o período. Vermelho quando negativo.',
+   'R$ 24.000,00 no fim do mês.',
+   'Esperar que bata com o app do banco se houver lançamento ainda não conciliado.',
+   'gestao_empresarial', 13, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.col.lancamentos', '/dashboard/financeiro/razao-financeiro', 'Colunas', 'Lançamentos',
+   'Não preenche — quantos lançamentos a conta teve no período.',
+   'Dá a dimensão do movimento de cada conta; clique na linha para ver um a um.',
+   '37 lançamentos no mês.',
+   'Achar que inclui lançamentos de fora do período: conta só os do intervalo filtrado.',
+   'gestao_empresarial', 14, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.acao.expandir', '/dashboard/financeiro/razao-financeiro', 'Ações', 'Expandir conta',
+   'Clique na linha da conta (ou na seta) para abrir e fechar os lançamentos dela.',
+   'Mostra o detalhe de cada movimento com saldo acumulado, sem sair do razão.',
+   'Abrir "Banco do Brasil CC" para conferir um pagamento.',
+   'Esperar editar aqui: esta tela é só de consulta; a edição é nas telas de pagar/receber.',
+   'gestao_empresarial', 15, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.det.data', '/dashboard/financeiro/razao-financeiro', 'Detalhe da conta', 'Data',
+   'Não preenche — data do lançamento na conta.',
+   'Ordena os movimentos e constrói o saldo acumulado.',
+   '15/11/2026.',
+   'Ignorar o período: o detalhe só mostra lançamentos dentro das datas filtradas.',
+   'gestao_empresarial', 16, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.det.descricao', '/dashboard/financeiro/razao-financeiro', 'Detalhe da conta', 'Descrição',
+   'Não preenche — descrição do lançamento (ou pessoa/categoria quando não há descrição).',
+   'Identifica a origem do movimento.',
+   'Pagamento fornecedor ACME; Recebimento cliente XPTO.',
+   'Procurar o número da nota aqui: use as telas de pagar/receber para o documento completo.',
+   'gestao_empresarial', 17, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.det.valor', '/dashboard/financeiro/razao-financeiro', 'Detalhe da conta', 'Valor',
+   'Não preenche — valor do lançamento; verde para entrada, vermelho para saída.',
+   'É o que soma nas colunas Entradas/Saídas da conta.',
+   '+ R$ 1.500,00 (entrada) ou − R$ 800,00 (saída).',
+   'Somar valores de contas diferentes de cabeça: use o total do grupo no topo.',
+   'gestao_empresarial', 18, 1, 'publicado'),
+  (gen_random_uuid(), 'ge.razao.det.saldo', '/dashboard/financeiro/razao-financeiro', 'Detalhe da conta', 'Saldo',
+   'Não preenche — saldo da conta depois deste lançamento (saldo acumulado).',
+   'Mostra como o saldo evoluiu movimento a movimento até o saldo final.',
+   'R$ 24.000,00 após o último lançamento.',
+   'Confundir com o saldo do grupo: aqui é o saldo só desta conta.',
+   'gestao_empresarial', 19, 1, 'publicado')
+ON CONFLICT (chave) DO UPDATE SET
+  rota = EXCLUDED.rota, grupo = EXCLUDED.grupo, rotulo = EXCLUDED.rotulo,
+  o_que_preencher = EXCLUDED.o_que_preencher, para_que_serve = EXCLUDED.para_que_serve,
+  exemplo = EXCLUDED.exemplo, erro_comum = EXCLUDED.erro_comum, vertical = EXCLUDED.vertical,
+  ordem = EXCLUDED.ordem, versao = EXCLUDED.versao, status = EXCLUDED.status;

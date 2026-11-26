@@ -20,7 +20,9 @@ ok(/No roadmap[\s\S]{0,80}?em breve/i.test(tela) && integRoadmap.length === 2, `
 
 const migs = readdirSync('supabase/migrations').filter((f) => f.endsWith('.sql')).sort()
 const sql = migs.map((f) => readFileSync(`supabase/migrations/${f}`, 'utf8')).join('\n')
-const fn = migs.find((f) => /CREATE (OR REPLACE )?FUNCTION public\.fn_projetos_config_salvar/.test(readFileSync(`supabase/migrations/${f}`, 'utf8')))
+// A função evolui por CREATE OR REPLACE em migration NOVA (RD-52: nunca se edita a migration já aplicada).
+// A definição viva é a da ÚLTIMA migration que a (re)cria — não a primeira. migs está em ordem crescente.
+const fn = [...migs].reverse().find((f) => /CREATE (OR REPLACE )?FUNCTION public\.fn_projetos_config_salvar/.test(readFileSync(`supabase/migrations/${f}`, 'utf8')))
 const corpo = fn ? readFileSync(`supabase/migrations/${fn}`, 'utf8') : ''
 ok(!!fn, `migration da RPC presente (${fn ?? 'nenhuma'})`)
 ok(/get_user_company_ids\(\)/.test(corpo) && /42501/.test(corpo), 'a RPC barra empresa de fora do usuário')

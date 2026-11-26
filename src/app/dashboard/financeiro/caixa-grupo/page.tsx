@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { ParaTratarHoje } from "@/components/financeiro/ParaTratarHoje";
+import Link from "next/link";
 
 const ROTA = "/dashboard/financeiro/caixa-grupo";
 const BG = "var(--ps-bg,#FAF7F2)", BG2 = "var(--ps-bg2,#FFFFFF)", BG3 = "var(--ps-bg3,#F0ECE3)";
@@ -42,6 +43,11 @@ const shiftDia = (iso: string, days: number) => { const [y, m, d] = iso.split("-
 // Mês: mantém o dia; se o mês de destino for mais curto, usa o último dia dele (não "vaza" para o mês seguinte).
 const shiftMes = (iso: string, months: number) => { const [y, m, d] = iso.split("-").map(Number); const alvo = new Date(y, m - 1 + months, 1); const ultimo = new Date(alvo.getFullYear(), alvo.getMonth() + 1, 0).getDate(); return isoDe(new Date(alvo.getFullYear(), alvo.getMonth(), Math.min(d, ultimo))); };
 const rotuloDia = (iso: string) => { const dt = new Date(iso + "T00:00:00"); return isNaN(dt.getTime()) ? "" : dt.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }); };
+// Período: dd/mm curto e cálculo dos atalhos (início do mês, segunda da semana, N dias atrás).
+const fmtBR = (iso: string) => (iso && iso.length >= 10 ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : iso);
+const primeiroDoMes = (iso: string) => iso.slice(0, 8) + "01";
+const addDias = (iso: string, n: number) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return isoDe(d); };
+const segundaDaSemana = (iso: string) => { const d = new Date(iso + "T00:00:00"); const dow = (d.getDay() + 6) % 7; d.setDate(d.getDate() - dow); return isoDe(d); };
 
 type Conta = { conta_id: string | null; nome: string; saldo_inicial: number; entradas: number; saidas: number; transf: number; saldo_final: number;
   soma_no_saldo?: boolean; saldo_extrato?: number | null; saldo_extrato_em?: string | null; saldo_extrato_origem?: string | null };
@@ -50,6 +56,14 @@ type Totais = { saldo_inicial: number; entradas: number; saidas: number; transf:
 type Vence = { receber: { hoje: number; atrasado: number; proximos7: number }; pagar: { hoje: number; atrasado: number; proximos7: number } };
 type Resp = { ok: boolean; data: string; empresas: Empresa[]; consolidado: Totais; vence: Vence; atrasados_n: number; resumo: string };
 type Titulo = { id: string; nome: string; descricao: string | null; valor: number; data: string };
+// Recebidos/Pagos BRUTOS do PERÍODO (p_ini → p_fim) — fn_caixa_grupo_periodo (#Pdois/Julia). Soma das baixas, sem líquido.
+type PeriodoVals = { recebido_bruto: number; pago_bruto: number; a_receber_aberto: number; a_pagar_aberto: number };
+type PeriodoEmpresa = PeriodoVals & { company_id: string; nome: string };
+type RespPeriodo = { ok: boolean; ini: string; fim: string; por_empresa: PeriodoEmpresa[]; consolidado: PeriodoVals };
+type PeriodoKey = "hoje" | "d7" | "semana" | "mes" | "custom";
+// Raio-X financeiro (Fase 1) — fn_fin_inconsistencias: diagnóstico SQL barato (sem LLM), escopado à empresa do usuário.
+type Achado = { tipo: string; severidade: "alta" | "media" | "baixa"; empresa?: string; conta?: string; descricao: string; valor?: number; data?: string; ids?: string[]; onboarding?: boolean; como_resolver?: string };
+type RaioX = { ok: boolean; achados: Achado[]; n: number };
 
 export default function CaixaGrupoPage() {
   const { companyIds, selInfo, companies } = useCompanyIds();
@@ -71,22 +85,46 @@ export default function CaixaGrupoPage() {
   const companyIdsKey = useMemo(() => [...effectiveIds].sort().join(","), [effectiveIds]);
   const [data, setData] = useState<string>(hojeISO());
   const [resp, setResp] = useState<Resp | null>(null);
+  const [respPer, setRespPer] = useState<RespPeriodo | null>(null);
+  const [raiox, setRaiox] = useState<RaioX | null>(null);
+  const [periodo, setPeriodo] = useState<PeriodoKey>("mes");
+  const [customIni, setCustomIni] = useState<string>(() => primeiroDoMes(hojeISO()));
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [drill, setDrill] = useState<{ titulo: string; bucket: string; companyId: string | null } | null>(null);
   const [titulos, setTitulos] = useState<Titulo[] | null>(null);
   // Contas de cada empresa ABERTAS por padrão (CEO 12/11): guardamos as empresas COLAPSADAS manualmente.
   const [colapsadas, setColapsadas] = useState<Set<string>>(new Set());
+  // Contas sem movimento no período ficam ESCONDIDAS por padrão (CEO/aud8 26/11): as contas reais da empresa
+  // não podem ficar enterradas no meio de dezenas de contas zeradas. Guardamos as empresas que o usuário EXPANDIU.
+  const [semMovAberta, setSemMovAberta] = useState<Set<string>>(new Set());
+
+  // Intervalo efetivo: "data" é a data FINAL (até); o início sai do atalho escolhido (ou do campo De no personalizado).
+  const fim = data;
+  const ini = useMemo(() => {
+    if (periodo === "custom") return customIni && customIni <= fim ? customIni : fim;
+    if (periodo === "hoje") return fim;
+    if (periodo === "d7") return addDias(fim, -6);
+    if (periodo === "semana") return segundaDaSemana(fim);
+    return primeiroDoMes(fim);
+  }, [periodo, fim, customIni]);
 
   const carregar = useCallback(async () => {
     if (!companyIdsKey) { setResp(null); setLoading(false); return; }
     setLoading(true); setErro(null);
     const ids = companyIdsKey.split(",");
-    const { data: d, error } = await supabase.rpc("fn_caixa_grupo_dia", { p_company_ids: ids, p_data: data });
-    if (error) { setErro("Não foi possível carregar o caixa do dia. Tente de novo."); setResp(null); setLoading(false); return; }
-    setResp(d as Resp);
+    // saldo na data final (fn_caixa_grupo_dia) + fluxo bruto do período (fn_caixa_grupo_periodo) em paralelo.
+    const [diaRes, perRes, rxRes] = await Promise.all([
+      supabase.rpc("fn_caixa_grupo_dia", { p_company_ids: ids, p_data: fim }),
+      supabase.rpc("fn_caixa_grupo_periodo", { p_company_ids: ids, p_ini: ini, p_fim: fim }),
+      supabase.rpc("fn_fin_inconsistencias", { p_company_ids: ids, p_ini: ini, p_fim: fim }), // raio-x (barato, sem LLM)
+    ]);
+    if (diaRes.error) { setErro("Não foi possível carregar o caixa do grupo. Tente de novo."); setResp(null); setRespPer(null); setRaiox(null); setLoading(false); return; }
+    setResp(diaRes.data as Resp);
+    setRespPer(perRes.error ? null : (perRes.data as RespPeriodo));
+    setRaiox(rxRes.error ? null : (rxRes.data as RaioX));
     setLoading(false);
-  }, [companyIdsKey, data]);
+  }, [companyIdsKey, ini, fim]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- busca ao mudar grupo/data; loading é estado de carregamento legítimo.
   useEffect(() => { void carregar(); }, [carregar]);
@@ -109,6 +147,14 @@ export default function CaixaGrupoPage() {
     return base;
   }, [empresas, cons, multi]);
 
+  // Valores do período (bruto) por coluna: empresa → company_id; consolidado → "__cons__".
+  const perPorCol = useMemo<Record<string, PeriodoVals>>(() => {
+    const m: Record<string, PeriodoVals> = {};
+    (respPer?.por_empresa ?? []).forEach((e) => { m[e.company_id] = e; });
+    if (respPer?.consolidado) m["__cons__"] = respPer.consolidado;
+    return m;
+  }, [respPer]);
+
   const linhas: Array<{ chave: keyof Totais; rotulo: string; ajuda: string; cor?: string; clicavel?: "entradas" | "saidas" }> = [
     { chave: "saldo_inicial", rotulo: "Saldo inicial", ajuda: "financeiro.caixa_grupo.saldo_inicial" },
     { chave: "entradas", rotulo: "Entradas do dia", ajuda: "financeiro.caixa_grupo.entradas", cor: VERDE, clicavel: "entradas" },
@@ -125,17 +171,35 @@ export default function CaixaGrupoPage() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: 11, color: TXD, textTransform: "uppercase", letterSpacing: 1 }}>Financeiro · Gestão Empresarial</div>
-          <h1 style={{ fontFamily: "Fraunces, Georgia, serif", fontSize: 25, color: TX, margin: "4px 0 0", fontWeight: 400 }}>Caixa do dia do grupo</h1>
+          <h1 style={{ fontFamily: "Fraunces, Georgia, serif", fontSize: 25, color: TX, margin: "4px 0 0", fontWeight: 400 }}>Caixa do grupo</h1>
           <div style={{ fontSize: 12, color: TXM, marginTop: 2 }}>
             {selInfo?.nome ?? "Grupo"}{empresas.length ? ` · ${empresas.length} empresa${empresas.length > 1 ? "s" : ""}` : ""}
           </div>
+          <div style={{ display: "inline-flex", alignItems: "center", fontSize: 13, color: TX, fontWeight: 600, marginTop: 6 }}>
+            Período: {fmtBR(ini)} a {fmtBR(fim)}<AjudaCampo chave="financeiro.caixa_grupo.intervalo" rota={ROTA} />
+          </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <label style={{ fontSize: 12, color: TXM, marginRight: 2 }}>Dia</label>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+          {/* Seletor de período (atalhos): deixa explícito o intervalo somado — correção central de clareza (Julia). */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {(([["hoje", "Hoje"], ["d7", "Últimos 7 dias"], ["semana", "Esta semana"], ["mes", "Este mês"], ["custom", "Personalizado"]]) as [PeriodoKey, string][]).map(([k, lbl]) => (
+              <button key={k} type="button" aria-pressed={periodo === k} onClick={() => setPeriodo(k)}
+                style={{ padding: "6px 11px", borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: "pointer", border: `1px solid ${periodo === k ? GO : BD}`, background: periodo === k ? `${GO}1A` : BG2, color: periodo === k ? GO : TX }}>{lbl}</button>
+            ))}
+            <AjudaCampo chave="financeiro.caixa_grupo.periodo" rota={ROTA} />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {periodo === "custom" && (
+              <>
+                <label style={{ fontSize: 12, color: TXM }}>De</label>
+                <input type="date" aria-label="Data inicial (De)" value={customIni} max={fim} onChange={(e) => setCustomIni(e.target.value || primeiroDoMes(fim))}
+                  style={{ background: BG2, border: `1px solid ${BD}`, color: TX, borderRadius: 8, padding: "8px 10px", fontSize: 13 }} />
+              </>
+            )}
+            <label style={{ fontSize: 12, color: TXM, marginRight: 2 }}>Até</label>
             <button type="button" aria-label="Mês anterior" title="Mês anterior" onClick={() => setData((d) => shiftMes(d, -1))} style={navBtn}>«</button>
             <button type="button" aria-label="Dia anterior" title="Dia anterior" onClick={() => setData((d) => shiftDia(d, -1))} style={navBtn}>‹</button>
-            <input type="date" value={data} onChange={(e) => setData(e.target.value || hojeISO())}
+            <input type="date" aria-label="Data final (Até)" value={data} onChange={(e) => setData(e.target.value || hojeISO())}
               style={{ background: BG2, border: `1px solid ${BD}`, color: TX, borderRadius: 8, padding: "8px 10px", fontSize: 13 }} />
             <button type="button" aria-label="Próximo dia" title="Próximo dia" onClick={() => setData((d) => shiftDia(d, 1))} style={navBtn}>›</button>
             <button type="button" aria-label="Próximo mês" title="Próximo mês" onClick={() => setData((d) => shiftMes(d, 1))} style={navBtn}>»</button>
@@ -143,7 +207,7 @@ export default function CaixaGrupoPage() {
               style={{ ...navBtn, width: "auto", padding: "0 12px", fontWeight: 600, opacity: data === hojeISO() ? 0.5 : 1, cursor: data === hojeISO() ? "default" : "pointer" }}>Hoje</button>
             <AjudaCampo chave="financeiro.caixa_grupo.data" rota={ROTA} />
           </div>
-          <div style={{ fontSize: 12, color: TXM, textTransform: "capitalize" }}>{rotuloDia(data)}</div>
+          <div style={{ fontSize: 12, color: TXM, textTransform: "capitalize" }}>até {rotuloDia(data)}</div>
         </div>
       </div>
 
@@ -152,48 +216,117 @@ export default function CaixaGrupoPage() {
       {/* Para tratar hoje — o que o financeiro precisa resolver no dia (CEO 12/11) */}
       <ParaTratarHoje companyIds={effectiveIds} data={data} multiEmpresa={multi} />
 
-      {/* Resumo do dia */}
-      {resp?.consolidado && (
-        <div style={{ background: `linear-gradient(90deg, ${GO}14, transparent)`, border: `1px solid ${GO}40`, borderRadius: 12, padding: "14px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span title={resp.resumo} style={{ fontSize: 15, fontWeight: 600, color: TX }}>{montarResumoCompacto(resp.consolidado, resp.atrasados_n)}</span>
-          <AjudaCampo chave="financeiro.caixa_grupo.resumo" rota={ROTA} />
-        </div>
-      )}
+      {/* Resumo do período — "Entrou/saiu" = títulos LIQUIDADOS no intervalo (recebido/pago bruto do período,
+          fn_caixa_grupo_periodo), não só o movimento da data final. Antes usava o consolidado do DIA (fim), que
+          mostrava "Entrou R$ 0,00, saiu R$ 0,00" quando nada era liquidado exatamente na data final, mesmo com
+          movimento no mês (bug go-live 25/11). "Caixa do grupo" segue sendo o saldo na data final (posição). */}
+      {resp?.consolidado && (() => {
+        const entradasPer = Number(respPer?.consolidado?.recebido_bruto ?? resp.consolidado.entradas) || 0;
+        const saidasPer = Number(respPer?.consolidado?.pago_bruto ?? resp.consolidado.saidas) || 0;
+        const consResumo = { ...resp.consolidado, entradas: entradasPer, saidas: saidasPer };
+        const tituloExato = `Entrou ${brl(entradasPer)}, saiu ${brl(saidasPer)}, caixa do grupo ${brl(resp.consolidado.saldo_final)}` +
+          (resp.atrasados_n > 0 ? `, ${resp.atrasados_n} título(s) atrasado(s).` : ", nenhum título atrasado.");
+        return (
+          <div style={{ background: `linear-gradient(90deg, ${GO}14, transparent)`, border: `1px solid ${GO}40`, borderRadius: 12, padding: "14px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span title={tituloExato} style={{ fontSize: 15, fontWeight: 600, color: TX }}>{montarResumoCompacto(consResumo, resp.atrasados_n)}</span>
+            <AjudaCampo chave="financeiro.caixa_grupo.resumo" rota={ROTA} />
+          </div>
+        );
+      })()}
 
       {loading ? (
-        <div style={{ padding: 50, textAlign: "center", color: TXD }}>Carregando o caixa do dia…</div>
+        <div style={{ padding: 50, textAlign: "center", color: TXD }}>Carregando o caixa do grupo…</div>
       ) : empresas.length === 0 ? (
         <div style={{ background: BG2, borderRadius: 12, padding: 50, textAlign: "center", color: TXM, border: `1px solid ${BD}` }}>
           Nenhuma empresa do seu acesso neste grupo. Selecione o grupo (ou consolidado) no seletor de empresa do topo.
         </div>
       ) : (
         <>
-          {/* Faixa de cartões — headline do grupo (v2 fatia 2, cd8f31c5): Recebido/Pago do dia, Saldo,
-              A receber/A pagar em aberto e o líquido a realizar. Só leitura, do mesmo fn_caixa_grupo_dia (RD-26). */}
+          {/* Raio-X financeiro (Fase 1): diagnóstico barato (SQL, sem LLM) das inconsistências do período. */}
+          {raiox && (() => {
+            const corSev = (s: string) => (s === "alta" ? VERM : s === "media" ? GO : TXD);
+            const ajudaTipo = (t: string) => t === "saldo_divergente" ? "financeiro.raiox.saldo_divergente"
+              : t.startsWith("baixa_sem_conta") ? "financeiro.raiox.baixa_sem_conta"
+              : t.endsWith("vencido_antigo") ? "financeiro.raiox.vencido_antigo" : "financeiro.raiox.bloco";
+            return (
+              <div data-testid="raiox" style={{ background: BG2, border: `1px solid ${raiox.n > 0 ? GO : BD}`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
+                <div style={{ display: "inline-flex", alignItems: "center", fontSize: 13, fontWeight: 700, color: TX }}>
+                  Raio-X financeiro{raiox.n > 0 ? ` — ${raiox.n} inconsistência${raiox.n > 1 ? "s" : ""}` : ""}<AjudaCampo chave="financeiro.raiox.bloco" rota={ROTA} />
+                </div>
+                {raiox.n === 0 ? (
+                  <div style={{ fontSize: 13, color: VERDE, marginTop: 6 }}>✓ Nada divergente no período.</div>
+                ) : (
+                  <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                    {[...raiox.achados].sort((a, b) => ({ alta: 0, media: 1, baixa: 2 }[a.severidade] - { alta: 0, media: 1, baixa: 2 }[b.severidade])).map((a, i) => (
+                      <div key={i} style={{ borderLeft: `3px solid ${corSev(a.severidade)}`, background: BG, borderRadius: 8, padding: "8px 12px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: corSev(a.severidade) }}>{a.severidade}</span>
+                          {(a.conta || a.empresa) && <b style={{ fontSize: 13, color: TX }}>{a.conta || a.empresa}</b>}
+                          <span style={{ fontSize: 13, color: TX }}>{a.descricao}</span>
+                          {a.valor != null && <span style={{ fontSize: 13, fontWeight: 700, color: corSev(a.severidade), fontVariantNumeric: "tabular-nums" }}>{brl(a.valor)}</span>}
+                          {a.onboarding && <span style={{ fontSize: 10, color: TXD }}>(saldo inicial lançado no período)</span>}
+                          <AjudaCampo chave={ajudaTipo(a.tipo)} rota={ROTA} />
+                        </div>
+                        {a.como_resolver && <div style={{ fontSize: 11.5, color: TXM, marginTop: 3 }}>{a.como_resolver}{a.tipo !== "saldo_divergente" && a.ids && a.ids.length ? ` · ${a.ids.length} lançamento(s)` : ""}</div>}
+                        {/* Item #5 go-live (CEO 25/11): saldo divergente → botão direto à conciliação DAQUELA conta,
+                            com a diferença (a.valor) explicada. O conta_id vem em a.ids[0] (fn_fin_inconsistencias). */}
+                        {a.tipo === "saldo_divergente" && a.ids && a.ids.length > 0 && (
+                          <Link
+                            href={`/dashboard/financeiro/conciliacao/inbox?conta=${encodeURIComponent(a.ids[0])}${a.valor != null ? `&dif=${encodeURIComponent(String(a.valor))}` : ""}`}
+                            data-testid="raiox-conciliar-conta"
+                            style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 6, fontSize: 12, fontWeight: 700, color: GO, textDecoration: "none" }}
+                          >
+                            Conciliar esta conta →
+                          </Link>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          {/* Dois blocos (RD-96): Fluxo do período (acumulado no intervalo) × Posição em aberto (saldo na data final). */}
           {cons && (() => {
             const vR = resp?.vence?.receber, vP = resp?.vence?.pagar;
             const aReceber = (Number(vR?.atrasado) || 0) + (Number(vR?.hoje) || 0) + (Number(vR?.proximos7) || 0);
             const aPagar = (Number(vP?.atrasado) || 0) + (Number(vP?.hoje) || 0) + (Number(vP?.proximos7) || 0);
             const emAberto = aReceber - aPagar;
-            const cards = [
-              { lbl: "Recebido no dia", v: cons.entradas, cor: VERDE, ajuda: "financeiro.caixa_grupo.entradas" },
-              { lbl: "Pago no dia", v: cons.saidas, cor: VERM, ajuda: "financeiro.caixa_grupo.saidas" },
-              { lbl: "Saldo do grupo", v: cons.saldo_final, cor: Number(cons.saldo_final) < 0 ? VERM : TX, ajuda: "financeiro.caixa_grupo.saldo_final" },
-              { lbl: "A receber em aberto", v: aReceber, cor: VERDE, ajuda: "financeiro.caixa_grupo.vence" },
-              { lbl: "A pagar em aberto", v: aPagar, cor: GO, ajuda: "financeiro.caixa_grupo.vence" },
-              { lbl: "Em aberto (líquido)", v: emAberto, cor: emAberto < 0 ? VERM : VERDE, ajuda: "financeiro.caixa_grupo.vence" },
-            ];
-            return (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 16 }}>
-                {cards.map((c) => (
-                  <div key={c.lbl} style={{ background: BG2, border: `1px solid ${BD}`, borderRadius: 12, padding: "14px 16px", minWidth: 0 }}>
-                    <div style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, color: TXD, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                      {c.lbl}<AjudaCampo chave={c.ajuda} rota={ROTA} />
+            const per = respPer?.consolidado;
+            const recebido = Number(per?.recebido_bruto) || 0;
+            const pago = Number(per?.pago_bruto) || 0;
+            const resultado = recebido - pago;
+            const bloco = (titulo: string, ajudaTitulo: string, cards: { lbl: string; v: number; cor: string; ajuda: string }[]) => (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: "inline-flex", alignItems: "center", fontSize: 11, color: TXD, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 700, marginBottom: 8 }}>
+                  {titulo}<AjudaCampo chave={ajudaTitulo} rota={ROTA} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
+                  {cards.map((c) => (
+                    <div key={c.lbl} style={{ background: BG2, border: `1px solid ${BD}`, borderRadius: 12, padding: "14px 16px", minWidth: 0 }}>
+                      <div style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, color: TXD, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                        {c.lbl}<AjudaCampo chave={c.ajuda} rota={ROTA} />
+                      </div>
+                      <div title={brl(c.v)} style={{ fontSize: 20, fontWeight: 700, color: c.cor, fontVariantNumeric: "tabular-nums", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{brlCompacto(c.v)}</div>
                     </div>
-                    <div title={brl(c.v)} style={{ fontSize: 20, fontWeight: 700, color: c.cor, fontVariantNumeric: "tabular-nums", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{brlCompacto(c.v)}</div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
+            );
+            return (
+              <>
+                {bloco(`Fluxo do período · ${fmtBR(ini)} a ${fmtBR(fim)}`, "financeiro.caixa_grupo.intervalo", [
+                  { lbl: "Recebidos no período", v: recebido, cor: VERDE, ajuda: "financeiro.caixa_grupo.recebido_periodo" },
+                  { lbl: "Pagos no período", v: pago, cor: VERM, ajuda: "financeiro.caixa_grupo.pago_periodo" },
+                  { lbl: "Resultado do período", v: resultado, cor: resultado < 0 ? VERM : VERDE, ajuda: "financeiro.caixa_grupo.resultado_periodo" },
+                ])}
+                {bloco(`Posição em aberto · em ${fmtBR(fim)}`, "financeiro.caixa_grupo.posicao_aberto", [
+                  { lbl: "Saldo do grupo", v: cons.saldo_final, cor: Number(cons.saldo_final) < 0 ? VERM : TX, ajuda: "financeiro.caixa_grupo.saldo_final" },
+                  { lbl: "A receber em aberto", v: aReceber, cor: VERDE, ajuda: "financeiro.caixa_grupo.vence" },
+                  { lbl: "A pagar em aberto", v: aPagar, cor: GO, ajuda: "financeiro.caixa_grupo.vence" },
+                  { lbl: "Em aberto (líquido)", v: emAberto, cor: emAberto < 0 ? VERM : VERDE, ajuda: "financeiro.caixa_grupo.vence" },
+                ])}
+              </>
             );
           })()}
 
@@ -232,6 +365,24 @@ export default function CaixaGrupoPage() {
                     })}
                   </tr>
                 ))}
+                {/* Recebidos/Pagos BRUTOS do período (p_ini → p_fim) — Pdois/Julia. Soma das baixas, sem líquido. */}
+                {respPer && ([
+                  { k: "recebido_bruto" as const, rotulo: "Recebidos no período", ajuda: "financeiro.caixa_grupo.recebido_periodo", cor: VERDE },
+                  { k: "pago_bruto" as const, rotulo: "Pagos no período", ajuda: "financeiro.caixa_grupo.pago_periodo", cor: VERM },
+                ]).map((ln) => (
+                  <tr key={ln.k} style={{ borderBottom: `0.5px solid ${BD}`, background: `${GO}0D` }}>
+                    <td style={{ padding: "10px 12px", fontSize: 12, color: TXM, textAlign: "left" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center" }}>{ln.rotulo}<AjudaCampo chave={ln.ajuda} rota={ROTA} /></span>
+                      <div style={{ fontSize: 10, color: TXD }}>{fmtBR(ini)} a {fmtBR(fim)}</div>
+                    </td>
+                    {colunas.map((c) => {
+                      const mv = perPorCol[c.id];
+                      return (
+                        <td key={c.id} style={{ ...td, color: ln.cor, fontWeight: 600 }}>{mv ? brl(mv[ln.k]) : "—"}</td>
+                      );
+                    })}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -246,7 +397,18 @@ export default function CaixaGrupoPage() {
                 const aberta = !colapsadas.has(e.company_id);
                 // Contas que SOMAM no caixa (soma_no_saldo != false, exclui a linha sintética "Sem conta"),
                 // contas de CONTROLE (soma_no_saldo === false, não entram no caixa) e o aviso "Sem conta".
-                const somam = e.contas.filter((c) => c.conta_id && c.soma_no_saldo !== false);
+                const somamTodas = e.contas.filter((c) => c.conta_id && c.soma_no_saldo !== false);
+                // "Com movimento no período" = tem saldo (inicial/final), entrada, saída OU extrato. As contas
+                // totalmente zeradas e sem extrato (ex.: contas de revenda que nunca movimentaram) ficam escondidas
+                // atrás do botão "mostrar N contas sem movimento" para o usuário achar as próprias contas.
+                const temMov = (c: Conta) =>
+                  Math.abs(Number(c.saldo_inicial)) > 0.005 || Math.abs(Number(c.entradas)) > 0.005 ||
+                  Math.abs(Number(c.saidas)) > 0.005 || Math.abs(Number(c.saldo_final)) > 0.005 ||
+                  (c.saldo_extrato !== null && c.saldo_extrato !== undefined);
+                const somam = somamTodas.filter(temMov);
+                const semMov = somamTodas.filter((c) => !temMov(c));
+                const mostrarSemMov = semMovAberta.has(e.company_id);
+                const visiveis = mostrarSemMov ? [...somam, ...semMov] : somam;
                 const controle = e.contas.filter((c) => c.soma_no_saldo === false);
                 const semN = Number(e.sem_conta_n) || 0;
                 return (
@@ -270,9 +432,11 @@ export default function CaixaGrupoPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {somam.length === 0 ? (
+                          {somamTodas.length === 0 ? (
                             <tr><td colSpan={7} style={{ padding: 16, textAlign: "center", color: TXD, fontSize: 12 }}>Sem conta bancária que some no caixa nesta empresa.</td></tr>
-                          ) : somam.map((ct, i) => {
+                          ) : visiveis.length === 0 ? (
+                            <tr><td colSpan={7} style={{ padding: 16, textAlign: "center", color: TXD, fontSize: 12 }}>Nenhuma conta com movimento no período.</td></tr>
+                          ) : visiveis.map((ct, i) => {
                             const temExtrato = ct.saldo_extrato !== null && ct.saldo_extrato !== undefined;
                             const velho = temExtrato && diasAtras(ct.saldo_extrato_em) > 3;
                             const dif = temExtrato ? Number(ct.saldo_final) - Number(ct.saldo_extrato) : 0;
@@ -303,6 +467,18 @@ export default function CaixaGrupoPage() {
                         </tbody>
                       </table>
                       </div>
+
+                      {/* Contas sem movimento no período: escondidas por padrão para não enterrar as contas reais */}
+                      {semMov.length > 0 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", borderTop: `0.5px solid ${BD}` }}>
+                          <button type="button"
+                            onClick={() => setSemMovAberta((prev) => { const n = new Set(prev); if (n.has(e.company_id)) n.delete(e.company_id); else n.add(e.company_id); return n; })}
+                            style={{ background: "transparent", border: "none", color: TXM, fontSize: 12, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>
+                            {mostrarSemMov ? "▾ Ocultar" : "▸ Mostrar"} {semMov.length} conta{semMov.length > 1 ? "s" : ""} sem movimento no período
+                          </button>
+                          <AjudaCampo chave="financeiro.caixa_grupo.sem_movimento" rota={ROTA} />
+                        </div>
+                      )}
 
                       {/* Lançamentos sem conta: aviso clicável para atribuir a conta certa */}
                       {semN > 0 && (

@@ -87,7 +87,7 @@ const ETAPA_CONTRATO: Record<string, string> = {
 const etapaContrato = (s: string | null) => (s ? ETAPA_CONTRATO[s] ?? s : 'pedido')
 
 // PM-1 PR-D · id = linha estável em agency_proposta_itens (a fonte); preco_catalogo p/ o selo "preço ajustado"
-type Item = { id?: string | null; tipo_servico: string; descricao: string; quantidade: number; unidade: string; valor_unitario: number; valor_total: number; servico_id?: string | null; entregaveis?: string[]; periodicidade?: string | null; preco_catalogo?: number | null }
+type Item = { id?: string | null; tipo_servico: string; descricao: string; quantidade: number; unidade: string; valor_unitario: number; valor_total: number; servico_id?: string | null; entregaveis?: string[]; periodicidade?: string | null; horas_estimadas?: number | null; preco_catalogo?: number | null }
 type ServicoOpt = { id: string; nome: string; tipo: string; modelo_preco: string | null; area: string | null; valor_base: number | null; unidade: string | null; periodicidade: string | null; horas_estimadas: number | null; entregaveis: string[] | null }
 type Proposta = {
   id: string; company_id: string; cliente_id: string | null; briefing_id: string | null; numero: string | null
@@ -139,13 +139,24 @@ export default function PropostasPage() {
   // destaque de uma proposta vinda do card do lead (?proposta=<id>)
   const [destaque, setDestaque] = useState<string | null>(null)
   // CEO 14/10 (Pdois) · pedido de contrato por proposta (criado na aprovação). O botão vira "Ver pedido de contrato".
-  const [feeMap, setFeeMap] = useState<Record<string, { id: string; numero: string | null; status: string | null }>>({})
+  const [feeMap, setFeeMap] = useState<Record<string, { id: string; numero: string | null; status: string | null; paradoDias: number | null }>>({})
   // PM-2 · veio do CRM (?from=leads): abre a proposta DIRETO no editor e, ao salvar, volta ao kanban
   const [voltarCrm, setVoltarCrm] = useState(false)
   const abriuDestaque = useRef(false)
   // aprovação → contrato recorrente na GE + comissão
   const [apr, setApr] = useState<Proposta | null>(null)
   const [aprForm, setAprForm] = useState({ fee: '', dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica', nParcelas: '', dataFim: '', primeiroVenc: '', clienteEmail: '', clienteTelefone: '', clienteCnpj: '' })
+  // GO-LIVE agência piloto (CEO 25/11, item 11): % padrão de comissão do comercial (Configurações › Comissões).
+  // Pré-preenche o campo de comissão na aprovação — sem isso toda comissão prevista nascia com 0%.
+  const [comPadrao, setComPadrao] = useState('')
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => {
+    if (!empresa) { setComPadrao(''); return }
+    void supabase.rpc('fn_agency_comissao_config_listar', { p_company_id: empresa }).then(({ data }) => {
+      const pct = ((data ?? []) as { papel: string; percentual: number | null }[]).find((p) => p.papel === 'comercial')?.percentual
+      setComPadrao(pct ? String(pct) : '')
+    })
+  }, [empresa])
 
   const carregar = async () => {
     if (!empresa) { setPropostas([]); setLoading(false); return }
@@ -160,15 +171,22 @@ export default function PropostasPage() {
     // #59 PDOIS · contrato de fee ligado à proposta (erp_contratos.proposta_id). Se existe, o botão vira
     // "Ver contrato" (abre a aba Fee no contrato). Mapa por proposta_id (1º = mais recente).
     const pIds = propRows.map((x) => x.id)
-    const fm: Record<string, { id: string; numero: string | null; status: string | null }> = {}
+    const fm: Record<string, { id: string; numero: string | null; status: string | null; paradoDias: number | null }> = {}
     if (pIds.length) {
       const { data: cts } = await supabase.from('erp_contratos')
-        .select('id, numero, status, proposta_id, created_at')
+        .select('id, numero, status, proposta_id, created_at, updated_at')
         .eq('company_id', empresa).in('proposta_id', pIds)
         .in('status', ['solicitado', 'em_elaboracao', 'aguardando_info', 'em_revisao', 'aguardando_aprovacao', 'ativo'])
         .order('created_at', { ascending: false })
-      for (const ct of (cts ?? []) as { id: string; numero: string | null; proposta_id: string | null; status: string | null }[]) {
-        if (ct.proposta_id && !fm[ct.proposta_id]) fm[ct.proposta_id] = { id: ct.id, numero: ct.numero, status: ct.status }
+      // "dias parado" (CEO 25/11, go-live item 5): pedido de contrato ainda não ativo, medido desde a última
+      // mudança (updated_at, ou created_at se faltar). Só pending — contrato 'ativo' não fica "parado".
+      const hoje = Date.now()
+      for (const ct of (cts ?? []) as { id: string; numero: string | null; proposta_id: string | null; status: string | null; created_at: string | null; updated_at: string | null }[]) {
+        if (ct.proposta_id && !fm[ct.proposta_id]) {
+          const ref = ct.updated_at ?? ct.created_at
+          const paradoDias = ct.status !== 'ativo' && ref ? Math.max(0, Math.floor((hoje - new Date(ref).getTime()) / 86400000)) : null
+          fm[ct.proposta_id] = { id: ct.id, numero: ct.numero, status: ct.status, paradoDias }
+        }
       }
     }
     setFeeMap(fm)
@@ -210,13 +228,14 @@ export default function PropostasPage() {
     setNovo(true)
     // PM-1 PR-D · itens vêm da TABELA (a fonte), com id estável — é o que permite editar/soft-delete
     const { data: its } = await supabase.from('agency_proposta_itens')
-      .select('id, servico_id, descricao, tipo_servico, unidade, periodicidade, quantidade, valor_unitario, valor_total, entregaveis')
+      .select('id, servico_id, descricao, tipo_servico, unidade, periodicidade, quantidade, valor_unitario, valor_total, horas_estimadas, entregaveis')
       .eq('proposta_id', p.id).is('excluido_em', null).order('ordem')
     const rows = (its ?? []) as Record<string, unknown>[]
     setItens(rows.length ? rows.map((r) => ({
       id: r.id as string, servico_id: (r.servico_id as string | null) ?? null,
       tipo_servico: (r.tipo_servico as string | null) ?? '', descricao: (r.descricao as string | null) ?? '',
       unidade: (r.unidade as string | null) ?? 'un', periodicidade: (r.periodicidade as string | null) ?? null,
+      horas_estimadas: r.horas_estimadas != null ? num(r.horas_estimadas) : null,
       quantidade: num(r.quantidade), valor_unitario: num(r.valor_unitario), valor_total: num(r.valor_total),
       entregaveis: Array.isArray(r.entregaveis) ? (r.entregaveis as string[]) : undefined,
       preco_catalogo: r.servico_id ? (catalogo.find((s) => s.id === r.servico_id)?.valor_base ?? null) : null,
@@ -247,6 +266,8 @@ export default function PropostasPage() {
       .map((it) => ({ ...it, quantidade: num(it.quantidade), valor_unitario: num(it.valor_unitario), valor_total: num(it.valor_total) }))
     // PM-1 · nunca salvar proposta com valor e sem item (o vazamento dos R$ 3.000)
     if (itensLimpos.length === 0) { setBusy(false); setToast('Adicione ao menos um item à proposta.'); return }
+    // §4 · total sempre recalculado dos itens, sem proposta R$ 0: bloqueia item só com descrição (qtd/valor zerados)
+    if (somaItens <= 0) { setBusy(false); setToast('A proposta precisa ter valor maior que zero. Informe quantidade e valor unitário dos itens.'); return }
     if (propCfg?.exigir_item_catalogo && itensLimpos.some((it) => !it.servico_id)) { setBusy(false); setToast('Esta empresa exige itens do catálogo. Vincule ou remova os itens avulsos.'); return }
     if (propCfg?.desconto_max_pct != null && somaItens > 0 && (descNum / somaItens) * 100 > propCfg.desconto_max_pct) { setBusy(false); setToast(`Desconto acima do máximo permitido (${propCfg.desconto_max_pct}%).`); return }
     const { data, error } = await supabase.rpc('fn_agency_proposta_editar', {
@@ -365,6 +386,8 @@ export default function PropostasPage() {
       .map((it) => ({ ...it, quantidade: num(it.quantidade), valor_unitario: num(it.valor_unitario), valor_total: num(it.valor_total) }))
     // PM-1 · nunca criar proposta com valor e sem item (o vazamento dos R$ 3.000)
     if (itensLimpos.length === 0) { setBusy(false); setToast('Adicione ao menos um item à proposta.'); return }
+    // §4 · total sempre recalculado dos itens, sem proposta R$ 0: bloqueia item só com descrição (qtd/valor zerados)
+    if (somaItens <= 0) { setBusy(false); setToast('A proposta precisa ter valor maior que zero. Informe quantidade e valor unitário dos itens.'); return }
     if (propCfg?.exigir_item_catalogo && itensLimpos.some((it) => !it.servico_id)) { setBusy(false); setToast('Esta empresa exige itens do catálogo. Vincule ou remova os itens avulsos.'); return }
     if (propCfg?.desconto_max_pct != null && somaItens > 0 && (descNum / somaItens) * 100 > propCfg.desconto_max_pct) { setBusy(false); setToast(`Desconto acima do máximo permitido (${propCfg.desconto_max_pct}%).`); return }
     const { data, error } = await supabase.rpc('fn_agency_proposta_criar', {
@@ -397,6 +420,8 @@ export default function PropostasPage() {
   }
 
   async function mudarStatus(p: Proposta, status: string) {
+    // CEO 25/11 (go-live P&M, tela 4): cliente obrigatório para ENVIAR — a proposta vira contrato e precisa do cliente.
+    if (status === 'enviada' && !(p.cliente_id || p.erp_cliente_id)) { setToast('Selecione o cliente da proposta antes de enviar.'); return }
     const patch: Record<string, unknown> = { status, updated_at: new Date().toISOString() }
     if (status === 'enviada') patch.data_envio = new Date().toISOString()
     await supabase.from('agency_propostas').update(patch).eq('id', p.id)
@@ -412,7 +437,7 @@ export default function PropostasPage() {
   }
 
   function abrirAprovar(p: Proposta) {
-    setAprForm({ fee: numeroParaMoeda(p.valor_final ?? p.valor_total), dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica', nParcelas: '', dataFim: '', primeiroVenc: proximoVenc(10), clienteEmail: '', clienteTelefone: '', clienteCnpj: '' })
+    setAprForm({ fee: numeroParaMoeda(p.valor_final ?? p.valor_total), dia: '10', periodicidade: 'mensal', comPct: comPadrao, comBase: 'fee', comTipo: 'unica', nParcelas: '', dataFim: '', primeiroVenc: proximoVenc(10), clienteEmail: '', clienteTelefone: '', clienteCnpj: '' })
     setApr(p)
     // SPEC 4.1 + §3: puxa contato E CNPJ do cadastro do cliente para o bloco "Dados para o financeiro".
     // O CNPJ é obrigatório quando nasce contrato (fail-closed no banco) — se faltar, o comercial corrige o cadastro.
@@ -429,6 +454,9 @@ export default function PropostasPage() {
 
   async function confirmarAprovar() {
     if (!apr) return
+    // CEO 25/11 (go-live P&M, tela 4): nunca aprovar sem cliente nem com valor final R$ 0 (a aprovação gera contrato).
+    if (!(apr.cliente_id || apr.erp_cliente_id)) { setToast('Selecione o cliente da proposta antes de aprovar — a proposta vira contrato e precisa de um cliente.'); return }
+    if (num(apr.valor_final ?? apr.valor_total) <= 0) { setToast('Não dá para aprovar uma proposta de valor R$ 0. Informe os itens e o valor antes de aprovar.'); return }
     // SPEC Master §3 (Júlia) · obrigatórios do comercial amarrados NOS DOIS LADOS. O front bloqueia antes
     // (lista "falta X" + impacto); o banco (fn_agency_proposta_aprovar) é fail-closed e recusa de verdade.
     const falta = aprovarObrigatoriosFaltando(aprForm)
@@ -517,6 +545,9 @@ export default function PropostasPage() {
                       {feeMap[p.id] && (
                         <button onClick={() => router.push(`/dashboard/contratos?tab=fee&c=${feeMap[p.id]!.id}`)} style={btnGanhar}><Receipt size={14} strokeWidth={1.5} style={{ verticalAlign: 'middle', marginRight: 4 }} />Ver pedido de contrato · {etapaContrato(feeMap[p.id]!.status)}</button>
                       )}
+                      {feeMap[p.id] && (feeMap[p.id]!.paradoDias ?? 0) >= 2 && (
+                        <span title="Pedido de contrato sem movimento há vários dias — cobre o financeiro." style={{ alignSelf: 'center', fontSize: 11, fontWeight: 700, color: '#92400e', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 999, padding: '3px 10px' }}>⏳ parado há {feeMap[p.id]!.paradoDias} dias</span>
+                      )}
                       {p.status === 'aprovada' && p.contrato_id && (
                         <a href="/dashboard/pm/contratos" style={{ ...btnSec, textDecoration: 'none' }}>→ Contrato recorrente</a>
                       )}
@@ -594,7 +625,7 @@ export default function PropostasPage() {
                       onChange={(e) => {
                         const s = catalogo.find((x) => x.id === e.target.value)
                         if (!s) { setItem(i, { servico_id: null, preco_catalogo: null }); return }
-                        setItem(i, { servico_id: s.id, tipo_servico: s.nome, descricao: it.descricao || (s.area ?? ''), unidade: s.unidade ?? it.unidade, valor_unitario: s.valor_base ?? 0, entregaveis: s.entregaveis ?? [], preco_catalogo: s.valor_base ?? null, periodicidade: s.periodicidade })
+                        setItem(i, { servico_id: s.id, tipo_servico: s.nome, descricao: it.descricao || (s.area ?? ''), unidade: s.unidade ?? it.unidade, valor_unitario: s.valor_base ?? 0, entregaveis: s.entregaveis ?? [], preco_catalogo: s.valor_base ?? null, periodicidade: s.periodicidade, horas_estimadas: s.horas_estimadas })
                       }}
                     >
                       <option value="">Do catálogo… (ou digite abaixo)</option>
@@ -612,6 +643,23 @@ export default function PropostasPage() {
                     <CampoMoeda style={inp} value={numeroParaMoeda(it.valor_unitario)} onChange={(v) => setItem(i, { valor_unitario: moedaParaNumero(v) ?? 0 })} placeholder="Valor unit." />
                     <div style={{ fontSize: 13, fontWeight: 700, textAlign: 'right', color: ESPRESSO }}>{brl(it.valor_total)}</div>
                     <button onClick={() => rmItem(i)} disabled={itens.length === 1} title="Remover" style={{ ...btnSec, borderColor: RED, color: RED, opacity: itens.length === 1 ? 0.4 : 1 }}>✕</button>
+                  </div>
+                  {/* P&M tela 4 (go-live) · periodicidade e horas estimadas por item — base para margem/preço (P6/P7). Persistidos por fn_agency_proposta_itens_sync. */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                    <label style={lbl}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: TEXTM }}>Periodicidade<AjudaCampo chave="pm.servico.periodicidade" /></span>
+                      <select style={inp} value={it.periodicidade ?? ''} onChange={(e) => setItem(i, { periodicidade: e.target.value || null })}>
+                        <option value="">Pontual / avulso</option>
+                        <option value="mensal">Mensal</option>
+                        <option value="trimestral">Trimestral</option>
+                        <option value="semestral">Semestral</option>
+                        <option value="anual">Anual</option>
+                      </select>
+                    </label>
+                    <label style={lbl}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: TEXTM }}>Horas estimadas<AjudaCampo chave="pm.servico.horas" /></span>
+                      <CampoDecimal style={inp} min={0} value={it.horas_estimadas ?? undefined} onChange={(n) => setItem(i, { horas_estimadas: n ?? null })} placeholder="h" />
+                    </label>
                   </div>
                 </div>
               ))}
