@@ -13,6 +13,12 @@ interface Props {
   tipo: 'cliente' | 'fornecedor'
 }
 
+// #5451: normaliza o termo de busca igual à coluna gerada `busca_norm` do banco
+// (minúsculo e sem acento), para a pesquisa achar com ou sem acento.
+function semAcento(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
+
 function fmtCNPJ(s: string | null): string {
   if (!s) return '—'
   const d = s.replace(/\D/g, '')
@@ -70,7 +76,10 @@ export default function PessoasList({ companyId, tipo }: Props) {
       const texto = termo.replace(/[,()*%]/g, ' ').trim()
       const digitos = termo.replace(/\D/g, '')
       const ors: string[] = []
-      if (texto) { ors.push(`nome_fantasia.ilike.*${texto}*`); ors.push(`razao_social.ilike.*${texto}*`) }
+      // #5451: ILIKE ignora maiúsculas mas NÃO ignora acento — "Romario" não achava "Romário".
+      // Filtra a coluna gerada `busca_norm` (nome+razão, minúsculo e sem acento) com o termo
+      // também normalizado no cliente. Assim "romario", "ROMÁRIO" e "Romário" acham o mesmo cadastro.
+      if (texto) { ors.push(`busca_norm.ilike.*${semAcento(texto)}*`) }
       if (digitos) {
         if (tabela === 'erp_clientes') {
           // Busca por documento acha 100%: a coluna GERADA documento_digitos guarda só os
