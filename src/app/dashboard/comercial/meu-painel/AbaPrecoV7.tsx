@@ -232,7 +232,7 @@ export function AbaPrecoV7({ preco }: Props) {
                 <YAxis type="category" dataKey="nome" width={130} tick={{ fontSize: 12, fill: C.esp }} />
                 <ReferenceLine x={0} stroke={C.m} />
                 <Tooltip allowEscapeViewBox={{ x: false, y: false }} labelFormatter={(l) => String(l)} formatter={(_v, _n, p) => {
-                  const d = (p as any)?.payload
+                  const d = (p as { payload?: { idx: number | null; idxS: number | null } } | undefined)?.payload
                   return [`índice ${idx1(d?.idx)} (simples ${idx1(d?.idxS)})`, 'Vendedor']
                 }} />
                 <Bar dataKey="desvio" radius={[0, 4, 4, 0]}>
