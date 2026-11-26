@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { ParaTratarHoje } from "@/components/financeiro/ParaTratarHoje";
+import Link from "next/link";
 
 const ROTA = "/dashboard/financeiro/caixa-grupo";
 const BG = "var(--ps-bg,#FAF7F2)", BG2 = "var(--ps-bg2,#FFFFFF)", BG3 = "var(--ps-bg3,#F0ECE3)";
@@ -212,13 +213,23 @@ export default function CaixaGrupoPage() {
       {/* Para tratar hoje — o que o financeiro precisa resolver no dia (CEO 12/11) */}
       <ParaTratarHoje companyIds={effectiveIds} data={data} multiEmpresa={multi} />
 
-      {/* Resumo do dia */}
-      {resp?.consolidado && (
-        <div style={{ background: `linear-gradient(90deg, ${GO}14, transparent)`, border: `1px solid ${GO}40`, borderRadius: 12, padding: "14px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span title={resp.resumo} style={{ fontSize: 15, fontWeight: 600, color: TX }}>{montarResumoCompacto(resp.consolidado, resp.atrasados_n)}</span>
-          <AjudaCampo chave="financeiro.caixa_grupo.resumo" rota={ROTA} />
-        </div>
-      )}
+      {/* Resumo do período — "Entrou/saiu" = títulos LIQUIDADOS no intervalo (recebido/pago bruto do período,
+          fn_caixa_grupo_periodo), não só o movimento da data final. Antes usava o consolidado do DIA (fim), que
+          mostrava "Entrou R$ 0,00, saiu R$ 0,00" quando nada era liquidado exatamente na data final, mesmo com
+          movimento no mês (bug go-live 25/11). "Caixa do grupo" segue sendo o saldo na data final (posição). */}
+      {resp?.consolidado && (() => {
+        const entradasPer = Number(respPer?.consolidado?.recebido_bruto ?? resp.consolidado.entradas) || 0;
+        const saidasPer = Number(respPer?.consolidado?.pago_bruto ?? resp.consolidado.saidas) || 0;
+        const consResumo = { ...resp.consolidado, entradas: entradasPer, saidas: saidasPer };
+        const tituloExato = `Entrou ${brl(entradasPer)}, saiu ${brl(saidasPer)}, caixa do grupo ${brl(resp.consolidado.saldo_final)}` +
+          (resp.atrasados_n > 0 ? `, ${resp.atrasados_n} título(s) atrasado(s).` : ", nenhum título atrasado.");
+        return (
+          <div style={{ background: `linear-gradient(90deg, ${GO}14, transparent)`, border: `1px solid ${GO}40`, borderRadius: 12, padding: "14px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span title={tituloExato} style={{ fontSize: 15, fontWeight: 600, color: TX }}>{montarResumoCompacto(consResumo, resp.atrasados_n)}</span>
+            <AjudaCampo chave="financeiro.caixa_grupo.resumo" rota={ROTA} />
+          </div>
+        );
+      })()}
 
       {loading ? (
         <div style={{ padding: 50, textAlign: "center", color: TXD }}>Carregando o caixa do grupo…</div>
@@ -253,7 +264,18 @@ export default function CaixaGrupoPage() {
                           {a.onboarding && <span style={{ fontSize: 10, color: TXD }}>(saldo inicial lançado no período)</span>}
                           <AjudaCampo chave={ajudaTipo(a.tipo)} rota={ROTA} />
                         </div>
-                        {a.como_resolver && <div style={{ fontSize: 11.5, color: TXM, marginTop: 3 }}>{a.como_resolver}{a.ids && a.ids.length ? ` · ${a.ids.length} lançamento(s)` : ""}</div>}
+                        {a.como_resolver && <div style={{ fontSize: 11.5, color: TXM, marginTop: 3 }}>{a.como_resolver}{a.tipo !== "saldo_divergente" && a.ids && a.ids.length ? ` · ${a.ids.length} lançamento(s)` : ""}</div>}
+                        {/* Item #5 go-live (CEO 25/11): saldo divergente → botão direto à conciliação DAQUELA conta,
+                            com a diferença (a.valor) explicada. O conta_id vem em a.ids[0] (fn_fin_inconsistencias). */}
+                        {a.tipo === "saldo_divergente" && a.ids && a.ids.length > 0 && (
+                          <Link
+                            href={`/dashboard/financeiro/conciliacao/inbox?conta=${encodeURIComponent(a.ids[0])}${a.valor != null ? `&dif=${encodeURIComponent(String(a.valor))}` : ""}`}
+                            data-testid="raiox-conciliar-conta"
+                            style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 6, fontSize: 12, fontWeight: 700, color: GO, textDecoration: "none" }}
+                          >
+                            Conciliar esta conta →
+                          </Link>
+                        )}
                       </div>
                     ))}
                   </div>

@@ -218,6 +218,45 @@ function Inner() {
     }
   }
 
+  // #9787 · emite a NF-e de ENTRADA (transmite) pelo fluxo normal — igual à venda. Sem gate: o ambiente fiscal
+  // configurado (homologação × produção) é o que define se a nota vale; teste primeiro em homologação.
+  const [emitEntBusy, setEmitEntBusy] = useState(false)
+  async function emitirEntradaAutorizada() {
+    if (!v) return
+    const operacao = OP_ENTRADA_POR_ORIGEM[v.origem ?? '']
+    if (!operacao) return
+    if (!window.confirm('Emitir a NF-e de ENTRADA? Isso TRANSMITE a nota no ambiente fiscal configurado — teste primeiro em homologação. Confirmar?')) return
+    setErro(null); setMsg(null); setEmitEntBusy(true)
+    try {
+      const res = await authFetch('/api/fiscal/nfe/emitir', { method: 'POST', body: JSON.stringify({ companyId: v.company_id, entradaVeiculoId: id, operacaoEntrada: operacao, apenasPrevia: false }) })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || j?.ok === false) { setErro(j?.mensagem ?? j?.message ?? `Não foi possível emitir a nota de entrada (erro ${res.status}).`); return }
+      setMsg(`NF-e de entrada ${j?.status ?? 'enviada'}${j?.chave ? ` · chave ${j.chave}` : ''}.`); void carregar()
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falha ao emitir a nota de entrada')
+    } finally {
+      setEmitEntBusy(false)
+    }
+  }
+
+  // #9787 · devolução ao consignante (consignacao_retorno) — SAÍDA, gated por emite_nfe_autorizada no perfil.
+  const [retBusy, setRetBusy] = useState(false)
+  async function devolverAoConsignante() {
+    if (!v) return
+    if (!window.confirm('Emitir a NF-e de DEVOLUÇÃO ao consignante? Isso TRANSMITE a nota no ambiente fiscal configurado — teste primeiro em homologação. Confirmar?')) return
+    setErro(null); setMsg(null); setRetBusy(true)
+    try {
+      const res = await authFetch('/api/fiscal/nfe/emitir', { method: 'POST', body: JSON.stringify({ companyId: v.company_id, consignacaoRetornoVeiculoId: id, apenasPrevia: false }) })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || j?.ok === false) { setErro(j?.mensagem ?? j?.message ?? `Não foi possível emitir a devolução (erro ${res.status}).`); return }
+      setMsg(`NF-e de devolução ao consignante ${j?.status ?? 'enviada'}${j?.chave ? ` · chave ${j.chave}` : ''}.`); void carregar()
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falha ao emitir a devolução ao consignante')
+    } finally {
+      setRetBusy(false)
+    }
+  }
+
   if (!v) return <div style={{ padding: 28, color: C.espM, background: C.bg, minHeight: '100vh' }}>{erro ?? 'Carregando veículo…'}</div>
   // #115 (Fábio/Alliance): consignado não tem custo de aquisição nem preço mínimo — só valor de venda.
   const consignado = v.origem === 'consignacao'
@@ -420,8 +459,27 @@ function Inner() {
           <div style={{ fontSize: 12, color: C.espM, marginBottom: 8 }}>
             Gere o espelho (prévia — <b>sem valor fiscal</b>) da nota de entrada desta compra para conferir destinatário, CFOP, CST e natureza (que vêm do perfil fiscal aprovado) antes de emitir. A emissão em homologação é feita por você, na tela, com o certificado da empresa.
           </div>
-          <button onClick={() => void gerarPreviaEntrada()} disabled={previaEnt?.loading} style={{ padding: '8px 14px', border: `1px solid ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, cursor: previaEnt?.loading ? 'wait' : 'pointer' }}>
-            {previaEnt?.loading ? 'Montando…' : 'Prévia da nota de entrada'}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button onClick={() => void gerarPreviaEntrada()} disabled={previaEnt?.loading} style={{ padding: '8px 14px', border: `1px solid ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, cursor: previaEnt?.loading ? 'wait' : 'pointer' }}>
+              {previaEnt?.loading ? 'Montando…' : 'Prévia da nota de entrada'}
+            </button>
+            {/* #9787 · emissão autorizada (transmite). Gated no perfil fiscal (emite_nfe_autorizada) — a rota bloqueia com mensagem se a operação não estiver liberada. */}
+            <button onClick={() => void emitirEntradaAutorizada()} disabled={emitEntBusy} style={{ padding: '8px 14px', border: 'none', borderRadius: 8, background: emitEntBusy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: emitEntBusy ? 'wait' : 'pointer' }}>
+              {emitEntBusy ? 'Emitindo…' : 'Emitir NF-e de entrada'}
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>A emissão transmite à SEFAZ no ambiente fiscal configurado (homologação × produção). Teste primeiro em homologação.</div>
+        </Bloco>
+      )}
+
+      {/* #9787 · devolução ao consignante (saída) — só para veículo consignado; gated pelo perfil fiscal. */}
+      {v.origem === 'consignacao' && (
+        <Bloco titulo="Devolução ao consignante">
+          <div style={{ fontSize: 12, color: C.espM, marginBottom: 8 }}>
+            Emite a NF-e de <b>saída</b> (devolução) do veículo não vendido ao consignante. CFOP/CST, natureza e valor vêm do perfil fiscal (operação <code>consignacao_retorno</code>); o valor espelha a aquisição (entrada em consignação). Transmite no ambiente fiscal configurado — teste primeiro em homologação.
+          </div>
+          <button onClick={() => void devolverAoConsignante()} disabled={retBusy} style={{ padding: '8px 14px', border: 'none', borderRadius: 8, background: retBusy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: retBusy ? 'wait' : 'pointer' }}>
+            {retBusy ? 'Emitindo…' : 'Devolver ao consignante (NF-e)'}
           </button>
         </Bloco>
       )}
@@ -1623,11 +1681,26 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
       valor = n
     }
     setConsBusy(true)
-    const { error } = await supabase.from('veic_veiculo').update(cons.consignado
-      ? { consignado: true, consignante_nome: cons.nome.trim(), consignante_documento: doc || null, consignante_valor_combinado: valor }
-      : { consignado: false, consignante_nome: null, consignante_documento: null, consignante_valor_combinado: null }).eq('id', v.id)
+    // #11475: persiste pela função (campos próprios + evento), não por UPDATE direto do cliente que não fechava o fluxo.
+    const { data: { session } } = await supabase.auth.getSession()
+    const { data, error } = await supabase.rpc('fn_veic_consignacao_salvar', {
+      p_veiculo_id: v.id,
+      p_consignado: cons.consignado,
+      p_nome: cons.consignado ? cons.nome.trim() : null,
+      p_documento: cons.consignado ? (doc || null) : null,
+      p_valor: cons.consignado ? valor : null,
+      p_user: session?.user?.id ?? null,
+    })
     setConsBusy(false)
-    if (error) { setConsMsg({ ok: false, t: 'Não foi possível salvar a consignação agora. Tente de novo em instantes.' }); return }
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) {
+      const t = r?.erro === 'nome_obrigatorio' ? 'Informe o nome do consignante.'
+        : r?.erro === 'documento_invalido' ? 'CPF/CNPJ inválido — use 11 ou 14 dígitos.'
+        : r?.erro === 'valor_invalido' ? 'Valor combinado inválido — ex.: 58000 ou 58.000,00.'
+        : r?.erro === 'sem_acesso' ? 'Você não tem acesso a este veículo.'
+        : 'Não foi possível salvar a consignação agora. Tente de novo em instantes.'
+      setConsMsg({ ok: false, t }); return
+    }
     setConsMsg({ ok: true, t: 'Consignação salva.' }); onSaved()
   }
   const [busy, setBusy] = useState(false)
@@ -1785,7 +1858,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
       </div>
       {/* #5662: um único Salvar no fim do card — grava dados do veículo e campos fiscais */}
       <div style={{ borderTop: `1px solid ${C.cream}`, marginTop: 10, paddingTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy ? 'Abrindo…' : 'Abrir OS'}</button>
+        <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy ? 'Salvando…' : 'Salvar dados do veículo'}</button>
         {sujo && <span style={{ fontSize: 12, color: '#8A4B08' }}>Há alterações não salvas.</span>}
         {erroLocal && <div style={{ background: C.redBg, color: C.red, padding: '6px 10px', borderRadius: 7, fontSize: 12 }}>{erroLocal}</div>}
       </div>

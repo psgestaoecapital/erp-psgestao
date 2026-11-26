@@ -81,6 +81,9 @@ export default function MeuPainelV6() {
   const [semVinculo, setSemVinculo] = useState(false)
   // Filtro de devoluções salvo por empresa no banco (com_devolucao_config): o que conta no indicador considerado.
   const [devCfg, setDevCfg] = useState<DevFiltro>({ produtosFora: [], linhasFora: [] })
+  // Último refresh da MV (lê fn_bi_comercial_atualizado_em) e falha real de carga (mostra "tentar de novo").
+  const [atualizadoEm, setAtualizadoEm] = useState<string | null>(null)
+  const [falhouCarga, setFalhouCarga] = useState(false)
 
   // Chassi: período, abas e seletores. O período recarrega a base (fn_bi_comercial_base com p_de/p_ate);
   // vendedor e linha filtram o motor (estado.ven e estado.lin), então todas as abas recalculam juntas.
@@ -113,18 +116,24 @@ export default function MeuPainelV6() {
 
   const carregar = useCallback(async () => {
     if (!empresa) return
-    setCarregando(true); setErro(null)
-    const { data, error } = await supabase.rpc('fn_bi_comercial_base', { p_company_id: empresa, p_de: intervalo.de, p_ate: intervalo.ate })
+    setCarregando(true); setErro(null); setFalhouCarga(false)
+    const chamar = () => supabase.rpc('fn_bi_comercial_base', { p_company_id: empresa, p_de: intervalo.de, p_ate: intervalo.ate })
+    const ehSemAcesso = (e: { message?: string; details?: string } | null) => /sem_acesso_comercial|sem_acesso/.test(`${e?.message ?? ''} ${e?.details ?? ''}`)
+    let { data, error } = await chamar()
+    // primeira carga não falha em silêncio: em erro/timeout (que não seja de escopo), tenta 1 vez sozinho
+    if (error && !ehSemAcesso(error)) { const r2 = await chamar(); data = r2.data; error = r2.error }
     setCarregando(false)
     if (error) {
       // Escopo fail-closed: sem vínculo de vendedor → estado próprio, nunca a empresa inteira (ef00dac6).
-      const alvo = `${error.message ?? ''} ${(error as { details?: string }).details ?? ''}`
-      const semAcesso = /sem_acesso_comercial|sem_acesso/.test(alvo)
-      setSemVinculo(semAcesso)
-      setErro(semAcesso ? null : erroAmigavel(error)); setBase(null); return
+      const semAcesso = ehSemAcesso(error)
+      setSemVinculo(semAcesso); setBase(null); setErro(null)
+      setFalhouCarga(!semAcesso)   // falha real → mostra o cartão "tentar de novo"
+      return
     }
-    setSemVinculo(false)
+    setSemVinculo(false); setFalhouCarga(false)
     setBase(data as BaseV5)
+    // horário do último refresh da MV, para "dados atualizados às HH:MM"
+    void supabase.rpc('fn_bi_comercial_atualizado_em', { p_company_id: empresa }).then(({ data: a }) => setAtualizadoEm(typeof a === 'string' ? a : null))
   }, [empresa, intervalo])
   useEffect(() => { void carregar() }, [carregar])
   // Filtro de devoluções salvo no banco (por empresa). Falha silenciosa: sem config, tudo conta (bruta = considerada).
@@ -527,13 +536,21 @@ export default function MeuPainelV6() {
               </a>
               <AjudaCampo chave="com.painel.app_celular" rota={ROTA} />
             </span>
-            <div style={{ fontSize: 12, color: C.m, whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: 12, color: C.m, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
               {base ? <>De {dataBR(base.de)} a {dataBR(base.ate)}</> : null}
               {carregando ? ' · Carregando…' : null}
               {erro ? <span style={{ color: '#C0392B' }}> · {erro}</span> : null}
+              {atualizadoEm ? <> · dados atualizados às {new Date(atualizadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}<AjudaCampo chave="com.painel.atualizado" rota={ROTA} /></> : null}
             </div>
           </div>
         </div>
+
+        {falhouCarga && (
+          <div role="alert" style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, border: '1px solid #E7C6C1', background: '#FBEEEC', color: '#8A2A1C', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+            Não consegui carregar agora — tentar de novo
+            <button type="button" onClick={() => void carregar()} style={{ padding: '4px 12px', borderRadius: 999, border: '1px solid #C0392B', background: '#fff', color: '#C0392B', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Tentar de novo</button>
+          </div>
+        )}
 
         {/* Abas na mesma barra, logo abaixo, altura menor; rolam de lado no celular. */}
         <nav aria-label="Abas" style={{ display: 'flex', gap: 4, overflowX: 'auto' }}>

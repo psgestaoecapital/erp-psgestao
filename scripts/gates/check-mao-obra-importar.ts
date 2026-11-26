@@ -46,7 +46,7 @@ const modal = readFileSync('src/components/projetos/ImportarMaoObraModal.tsx', '
 ok(/fn_mao_obra_ficha_salvar/.test(modal) && /fn_mao_obra_funcao_salvar/.test(modal) && /fn_mao_obra_encargos_salvar/.test(modal) && /fn_mao_obra_ficha_reajustar/.test(modal), 'grava pelas RPCs existentes (RD-65/RD-71)')
 ok(!/\.from\("(erp_mao_obra_custo|compliance_funcionarios)"\)\s*\.(insert|update|upsert)/.test(modal), 'nenhuma escrita direta nas tabelas')
 ok(/fn_mao_obra_importacao_registrar/.test(modal), 'registra quem importou')
-const pg = readFileSync('src/app/dashboard/projetos/mao-obra/page.tsx', 'utf8')
+const pg = readFileSync('src/app/dashboard/projetos/mao-obra/page.tsx', 'utf8') + '\n' + readFileSync('src/components/maoObra/MaoObraTela.tsx', 'utf8') /* #6168: a tela virou o componente compartilhado MaoObraTela */
 ok(/mao-obra-baixar-modelo/.test(pg) && /mao-obra-importar"/.test(pg) && /\{pode && \(\s*<div className="flex flex-wrap gap-2">/.test(pg), 'botões Baixar modelo / Importar planilha só para quem vê salário')
 const rota = readFileSync('src/app/api/mao-obra/modelo/route.ts', 'utf8')
 ok(/gerarModeloMaoObra/.test(rota) && !/supabase|createClient|auth/i.test(rota), 'link público do modelo: rota sem login e sem acesso a dado de cliente')
