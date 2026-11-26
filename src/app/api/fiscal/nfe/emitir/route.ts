@@ -12,7 +12,7 @@ import { carregarEmitenteDanfe } from '@/lib/fiscal/danfeEmitente'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { guardarXmlNota } from '@/lib/fiscal/guardarXmlNota'
 import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
-import { carregarVendaVeiculo, carregarEntradaVeiculo, type ItemVeiculoMontado, type ItemVeiculoEntradaMontado, type OperacaoEntrada } from '@/lib/fiscal/nfe-veiculo'
+import { carregarVendaVeiculo, carregarEntradaVeiculo, carregarConsignacaoRetorno, type ItemVeiculoMontado, type ItemVeiculoEntradaMontado, type OperacaoEntrada } from '@/lib/fiscal/nfe-veiculo'
 import { LIMITE_INF_CPL, excedeLimiteInfCpl, mensagemLimiteInfCpl, textoInformacoesComplementares } from '@/lib/fiscal/informacoesComplementares'
 
 export const dynamic = 'force-dynamic'
@@ -28,6 +28,8 @@ interface EmitirNFeBody {
   // #9787 marco 2 · ENTRADA do veículo (compra PF/PJ, troca) — SÓ prévia (não transmite). operacaoEntrada = a operação do perfil.
   entradaVeiculoId?: string
   operacaoEntrada?: OperacaoEntrada
+  // #9787 · DEVOLUÇÃO ao consignante (consignacao_retorno) — SAÍDA (tpNF=1), gated por emite_nfe_autorizada.
+  consignacaoRetornoVeiculoId?: string
   // chamado #20 Fase 3 · NF-e de peça a partir da OS: vincula a nota à OS e guarda a justificativa
   // de divergência de valor NO registro (recuperável depois — §8.1 detalhe #1 do CEO).
   osId?: string
@@ -108,6 +110,13 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       if (vendaVeic.nfeStatusAtual === 'autorizada' || vendaVeic.nfeStatusAtual === 'processando') {
         return NextResponse.json({ ok: false, mensagem: `Esta venda já tem NF-e ${vendaVeic.nfeStatusAtual} — não emita de novo.` }, { status: 409 })
       }
+      // #9787 · a venda comum ('venda') transmite como hoje (não gated). As SAÍDAS novas por origem
+      // (ex.: consignacao_venda, CFOP 5949) são gated por operação (emite_nfe_autorizada, default false):
+      // a prévia/card já mostra o CFOP correto, mas transmitir só depois da contadora liberar em homologação.
+      if (!body.apenasPrevia && vendaVeic.operacaoNome && vendaVeic.operacaoNome !== 'venda'
+          && vendaVeic.perfil.operacao.emiteNfeAutorizada !== true) {
+        return NextResponse.json({ ok: false, mensagem: `A emissão autorizada da operação '${vendaVeic.operacaoNome}' ainda não está liberada no perfil fiscal. Gere a prévia (card de conferência) para conferir o CFOP, ou habilite a emissão com o contador (após homologação).` }, { status: 400 })
+      }
       // Nota ligada ao título da venda (sem criar título novo): vai no registro como erp_receber_id.
       body.erpReceberId = vendaVeic.receberId ?? undefined
     }
@@ -119,10 +128,23 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       if (!body.operacaoEntrada) {
         return NextResponse.json({ ok: false, mensagem: 'operacaoEntrada obrigatória (compra_pf | compra_pj | troca_entrada)' }, { status: 400 })
       }
-      if (!body.apenasPrevia) {
-        return NextResponse.json({ ok: false, mensagem: 'Entrada do veículo: apenas PRÉVIA neste marco (sem transmitir). A emissão real depende de homologação supervisionada com o certificado da empresa.' }, { status: 400 })
-      }
       entradaVeic = await carregarEntradaVeiculo(body.companyId, body.entradaVeiculoId, body.operacaoEntrada)
+      // #9787 · a emissão AUTORIZADA (transmite à SEFAZ, tpNF=0) só roda quando a operação está LIBERADA no perfil
+      // fiscal (emite_nfe_autorizada=true — a contadora liga por operação após validar em homologação supervisionada).
+      // Default (não liberada) = comportamento atual: só prévia/espelho. Nunca transmite por conta própria.
+      if (!body.apenasPrevia && entradaVeic.perfil.operacao.emiteNfeAutorizada !== true) {
+        return NextResponse.json({ ok: false, mensagem: `A emissão autorizada da operação '${body.operacaoEntrada}' ainda não está liberada no perfil fiscal. Gere a prévia para conferir, ou habilite a emissão autorizada com o contador (após homologação).` }, { status: 400 })
+      }
+    }
+
+    // #9787 · DEVOLUÇÃO ao consignante (consignacao_retorno) — SAÍDA (tpNF=1). Mesma trava: só transmite com a
+    // operação liberada no perfil (emite_nfe_autorizada); senão só prévia (card de conferência).
+    let retornoVeic: Awaited<ReturnType<typeof carregarConsignacaoRetorno>> | undefined
+    if (body.consignacaoRetornoVeiculoId) {
+      retornoVeic = await carregarConsignacaoRetorno(body.companyId, body.consignacaoRetornoVeiculoId)
+      if (!body.apenasPrevia && retornoVeic.perfil.operacao.emiteNfeAutorizada !== true) {
+        return NextResponse.json({ ok: false, mensagem: "A emissão autorizada da operação 'consignacao_retorno' ainda não está liberada no perfil fiscal. Gere a prévia para conferir, ou habilite com o contador (após homologação)." }, { status: 400 })
+      }
     }
 
     const nfeReq = await buildNFeRequest({
@@ -131,6 +153,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       onVeiculoMontado: (m) => { veicMontado = m },
       entradaVeiculo: entradaVeic,
       onEntradaMontada: (m) => { entradaMontado = m },
+      consignacaoRetorno: retornoVeic,
       erpReceberId: vendaVeic ? undefined : body.erpReceberId,
       pedidoId: body.pedidoId,
       osId: body.osId,
@@ -139,10 +162,10 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       consumidorFinal: body.consumidorFinal,
     })
 
-    // #9787 marco 2 · ENTRADA: devolve só o ESPELHO para conferência (sem validar como saída, sem Lei 12.741,
-    // sem transmitir, sem gravar). A estrutura (tpNF=0, PIS/COFINS da entrada, remetente/destinatário da nota
-    // própria de entrada) é validada na emissão REAL em homologação supervisionada — fora desta prévia.
-    if (entradaVeic) {
+    // #9787 · ENTRADA em PRÉVIA: devolve só o ESPELHO para conferência (sem transmitir, sem gravar). Quando a
+    // operação está liberada (emite_nfe_autorizada) e apenasPrevia=false, NÃO retorna aqui — cai no caminho de
+    // validação + transmissão abaixo (o mesmo motor da venda), agora com tpNF=0 e PIS/COFINS do perfil.
+    if (entradaVeic && body.apenasPrevia) {
       const d = nfeReq.destinatario
       const end = d.endereco
       const valorProdutosEntrada = nfeReq.itens.reduce((acc, i) => acc + i.valorTotal, 0)
