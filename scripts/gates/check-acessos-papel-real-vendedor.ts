@@ -25,7 +25,20 @@ ok(/rpc\("fn_acessos_papeis_rbac"/.test(acessos), 'acessos: papéis reais vêm d
 ok(/<SeletorPapelReal[^>]*value=\{papelSlug\}/.test(acessos) && (acessos.match(/<SeletorPapelReal/g) || []).length >= 2, 'acessos: seletor de papel real no editar E no adicionar pessoa')
 ok(/<optgroup/.test(seletor) && /propriedade[\s\S]*direcao[\s\S]*gerencia[\s\S]*supervisao[\s\S]*especialista[\s\S]*operacao/.test(seletor), 'seletor: agrupado por camada (Propriedade → Operação)')
 ok(/secoes/.test(seletor) && /itens/.test(seletor), 'seletor: mostra seções/itens que a função libera')
-ok((acessos.match(/rpc\("fn_acessos_definir_papel_rbac"/g) || []).length >= 2, 'acessos: salvar/adicionar gravam a função por fn_acessos_definir_papel_rbac (user_scope.papel_slug)')
+ok(/rpc\("fn_acessos_definir_papel_rbac"/.test(acessos), 'acessos: adicionar (pessoa já com login) aplica a função por fn_acessos_definir_papel_rbac')
+// Spec CEO 26/11 (raiz do "menu aberto"): o Salvar da pessoa manda papel + código do vendedor NA MESMA chamada.
+ok(/p_papel_slug: papelSlug \|\| null/.test(acessos) && /p_vendedor_codigo: codigoVend/.test(acessos), 'acessos: Salvar manda papel e código do vendedor no mesmo fn_acessos_salvar_pessoa')
+ok(/PAPEL_VENDEDOR = "industria_comercial"/.test(acessos) && /data-testid="vendedor-codigo"/.test(acessos) && /ehVendedor && !codigoVend/.test(acessos), 'acessos: Vendedor Comercial mostra e exige o "Código do vendedor"')
+{
+  const m = migs.filter((f) => f.endsWith('_acessos_salvar_pessoa_papel_codigo_vendedor.sql'))
+  const s2 = m.length ? readFileSync(`supabase/migrations/${m[0]}`, 'utf8') : ''
+  ok(m.length === 1, 'migration do salvar com papel + código presente')
+  ok(/p_papel_slug text DEFAULT '<manter>'/.test(s2) && /p_vendedor_codigo text DEFAULT NULL/.test(s2), 'salvar_pessoa: papel opcional (omitido = mantém) e código opcional')
+  ok(/fn_acessos_definir_papel_rbac\(p_company_id, p_user_id, v_slug, NULL\)/.test(s2) && /fn_com_vendedor_acesso_salvar\(p_company_id, v_cod, p_user_id\)/.test(s2), 'salvar_pessoa: reusa as RPCs com guarda (papel e código), sem recriar')
+  ok(/RAISE EXCEPTION/.test(s2), 'salvar_pessoa: recusa do papel/código desfaz o salvar inteiro')
+  ok(/'adm','admin','acesso_total','ps_admin'/.test(s2), 'salvar_pessoa: continua barrando nível admin')
+  ok(/REVOKE ALL ON FUNCTION public\.fn_acessos_salvar_pessoa\([^)]*\) FROM PUBLIC, anon/.test(s2), 'salvar_pessoa: sem EXECUTE para anon')
+}
 ok(/rpc\("fn_acessos_salvar_pessoa"/.test(acessos), 'acessos: áreas, plantas, horário e nível seguem em fn_acessos_salvar_pessoa (compatibilidade)')
 const niveis = acessos.match(/const PAPEIS(?:_AGENCIA)?: [\s\S]*?\n\];/g)?.join('\n') ?? ''
 ok(niveis.length > 0 && !/role: "(adm|admin|acesso_total|ps_admin)"/.test(niveis), 'níveis oferecidos nunca incluem admin (sem escalação)')
