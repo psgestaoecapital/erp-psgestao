@@ -218,8 +218,8 @@ function Inner() {
     }
   }
 
-  // #9787 · emite a NF-e de ENTRADA AUTORIZADA (transmite). Só funciona quando a operação está liberada no perfil
-  // fiscal (emite_nfe_autorizada) — a contadora liga após homologação; senão a rota devolve a mensagem de bloqueio.
+  // #9787 · emite a NF-e de ENTRADA (transmite) pelo fluxo normal — igual à venda. Sem gate: o ambiente fiscal
+  // configurado (homologação × produção) é o que define se a nota vale; teste primeiro em homologação.
   const [emitEntBusy, setEmitEntBusy] = useState(false)
   async function emitirEntradaAutorizada() {
     if (!v) return
@@ -468,7 +468,7 @@ function Inner() {
               {emitEntBusy ? 'Emitindo…' : 'Emitir NF-e de entrada'}
             </button>
           </div>
-          <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>A emissão autorizada transmite à SEFAZ no ambiente configurado e só é liberada por operação no perfil fiscal (contador), após homologação. Teste primeiro em homologação.</div>
+          <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>A emissão transmite à SEFAZ no ambiente fiscal configurado (homologação × produção). Teste primeiro em homologação.</div>
         </Bloco>
       )}
 
@@ -476,7 +476,7 @@ function Inner() {
       {v.origem === 'consignacao' && (
         <Bloco titulo="Devolução ao consignante">
           <div style={{ fontSize: 12, color: C.espM, marginBottom: 8 }}>
-            Emite a NF-e de <b>saída</b> (devolução) do veículo não vendido ao consignante. CFOP/CST, natureza e valor vêm do perfil fiscal (operação <code>consignacao_retorno</code>); o valor espelha a aquisição (entrada em consignação). Só transmite quando a operação está liberada no perfil (contador, após homologação). Teste primeiro em homologação.
+            Emite a NF-e de <b>saída</b> (devolução) do veículo não vendido ao consignante. CFOP/CST, natureza e valor vêm do perfil fiscal (operação <code>consignacao_retorno</code>); o valor espelha a aquisição (entrada em consignação). Transmite no ambiente fiscal configurado — teste primeiro em homologação.
           </div>
           <button onClick={() => void devolverAoConsignante()} disabled={retBusy} style={{ padding: '8px 14px', border: 'none', borderRadius: 8, background: retBusy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: retBusy ? 'wait' : 'pointer' }}>
             {retBusy ? 'Emitindo…' : 'Devolver ao consignante (NF-e)'}
