@@ -319,6 +319,19 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       return NextResponse.json({ ok: false, mensagem: mensagemLimiteInfCpl(tamanhoInfCpl) }, { status: 400 })
     }
 
+    // #11424 (revisão) · opção (b): se a empresa pediu BLOQUEIO (credito_sn_bloqueia_sem_mes) e o crédito do MÊS não
+    // foi lançado, NÃO transmite — devolve o alerta como erro para o operador lançar o mês. Default (coluna false) =
+    // opção (a): emite com o último valor conhecido e o avisoCreditoSN é só informativo (surfado na resposta e na tela).
+    if (nfeReq.creditoMesFaltante) {
+      const { data: cfgBloq } = await supabaseAdmin
+        .from('erp_fiscal_provider_config')
+        .select('credito_sn_bloqueia_sem_mes')
+        .eq('company_id', body.companyId).eq('provider', 'focusnfe').eq('ativo', true).maybeSingle()
+      if ((cfgBloq as { credito_sn_bloqueia_sem_mes?: boolean } | null)?.credito_sn_bloqueia_sem_mes === true) {
+        return NextResponse.json({ ok: false, mensagem: nfeReq.avisoCreditoSN ?? 'Crédito de ICMS do Simples do mês não lançado — lance a competência antes de emitir.', avisoCreditoSN: nfeReq.avisoCreditoSN ?? null }, { status: 400 })
+      }
+    }
+
     const svc = await createFiscalService(body.companyId, { ambienteOverride: body.ambiente, tipo: 'nfe' })
     let resposta
     try {
@@ -445,6 +458,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       danfeUrl: resposta.danfeUrl,
       motivoRejeicao: resposta.motivoRejeicao,
       providerReference: resposta.providerReference,
+      // #11424 (revisão) · alerta VISÍVEL: emitida com o último valor conhecido do crédito (mês não lançado). A tela mostra.
+      avisoCreditoSN: nfeReq.avisoCreditoSN ?? null,
       ambiente: svc.ambiente,
       ...(avisoIbpt ? { avisoIbpt } : {}),
       ...(veicMontado?.avisos.length ? { avisosVeiculo: veicMontado.avisos } : {}),

@@ -3,7 +3,7 @@
  * Travas do CEO: só emitente do Simples com alíquota cadastrada · só destinatário contribuinte que não é consumidor
  * final · nota normal (devolução fora) · sem alíquota = nada muda.
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import {
   aplicaCreditoSN, csosnDoItem, empresaComCreditoSN, faltaCreditoCompetenciaSN, observacoesComSimples,
   valorCreditoSN, textoCreditoSN, TEXTO_SIMPLES, type CondicaoCreditoSN,
@@ -56,21 +56,28 @@ ok(/icms_aliquota_credito_simples: item\.icms\.creditoSN\.aliquota/.test(focus) 
 // #11424 · a emissão passa a LER o crédito da COMPETÊNCIA da nota; opt-in (flag) separado do valor do mês; alerta.
 ok(/from\('erp_fiscal_credito_sn'\)/.test(builder), 'builder lê o crédito do MÊS da nota (erp_fiscal_credito_sn)')
 ok(/optouCredito:/.test(builder), 'builder separa o opt-in (flag) do valor da competência')
-ok(/faltaCreditoCompetenciaSN\(/.test(builder), 'builder calcula o alerta de desatualização do crédito')
+// #11424 (revisão) · empresa que optou NUNCA cai pra 102 em silêncio: sem o mês lançado, usa o último valor conhecido.
+ok(/creditoMesFaltante/.test(builder) && /\.lte\('competencia'/.test(builder), 'builder: fallback ao último valor conhecido + creditoMesFaltante (não cai pra 102 em silêncio)')
 const rotaEmitir = readFileSync('src/app/api/fiscal/nfe/emitir/route.ts', 'utf8')
-ok(/avisoCreditoSN/.test(rotaEmitir), 'emissão devolve o alerta (soft-gate) na prévia, sem bloquear')
+ok(/avisoCreditoSN/.test(rotaEmitir), 'emissão devolve o alerta do crédito (prévia e resposta final)')
+ok(/credito_sn_bloqueia_sem_mes/.test(rotaEmitir), 'rota: opção (b) — bloqueia quando o perfil pede e o mês não foi lançado')
+const modalNfe = readFileSync('src/components/fiscal/NFePreviewModal.tsx', 'utf8')
+ok(/avisoCreditoSN/.test(modalNfe), 'tela de emissão: alerta do crédito VISÍVEL (não só nos dados da prévia)')
 
 const mig = readFileSync('supabase/migrations/20261017022020_fiscal_credito_icms_simples.sql', 'utf8')
 ok(/ADD COLUMN IF NOT EXISTS aliquota_credito_icms_sn numeric/.test(mig) && !/DEFAULT\s+\d/.test(mig.split('aliquota_credito_icms_sn numeric')[1]?.slice(0, 20) ?? ''), 'coluna do opt-in nula por padrão (ninguém muda sem cadastrar)')
 ok(/fn__guarda_empresa\(p_company_id\)/.test(mig) && /fn_pagar_usuario_master\(p_company_id\)/.test(mig), 'gravação do opt-in com guarda de empresa e de Master')
 ok(/REVOKE EXECUTE ON FUNCTION public\.fn_fiscal_credito_icms_sn_salvar\(uuid, numeric\) FROM anon, public/.test(mig), 'função do opt-in sem acesso anônimo')
 
-// #11424 · migração do crédito por competência (mensal).
-const migComp = readFileSync('supabase/migrations/20261127110030_fiscal_credito_icms_sn_competencia.sql', 'utf8')
+// #11424 · migração do crédito por competência — achada por SUFIXO (robusta à renumeração da fila de merge).
+const migCompNome = readdirSync('supabase/migrations').find((f) => /_fiscal_credito_icms_sn_competencia\.sql$/.test(f))
+const migComp = migCompNome ? readFileSync(`supabase/migrations/${migCompNome}`, 'utf8') : ''
 ok(/CREATE TABLE IF NOT EXISTS public\.erp_fiscal_credito_sn/.test(migComp) && /UNIQUE \(company_id, competencia\)/.test(migComp), 'tabela do crédito por competência (uma linha por empresa × mês)')
 ok(/ENABLE ROW LEVEL SECURITY/.test(migComp) && /REVOKE ALL ON public\.erp_fiscal_credito_sn FROM anon/.test(migComp), 'RLS ligada e sem acesso anônimo')
 ok(/fn__guarda_empresa\(p_company_id\)/.test(migComp) && /fn_pagar_usuario_master\(p_company_id\)/.test(migComp), 'gravação mensal com guarda de empresa e de Master')
 ok(/REVOKE EXECUTE ON FUNCTION public\.fn_fiscal_credito_sn_salvar\(uuid, date, numeric\) FROM anon, public/.test(migComp), 'função mensal sem acesso anônimo')
+ok(/ADD COLUMN IF NOT EXISTS credito_sn_bloqueia_sem_mes boolean NOT NULL DEFAULT false/.test(migComp), 'migração: flag de bloqueio (opção b), default false')
+ok(/INSERT INTO public\.erp_fiscal_credito_sn[\s\S]*FROM public\.erp_fiscal_provider_config[\s\S]*aliquota_credito_icms_sn[\s\S]*ON CONFLICT \(company_id, competencia\) DO NOTHING/.test(migComp), 'migração: SEED idempotente preserva o status quo (flat>0 → competência corrente)')
 
 const card = readFileSync('src/components/fiscal/ConfigFiscalEditCard.tsx', 'utf8')
 for (const c of [...card.matchAll(/<AjudaCampo chave="([^"]+credito[^"]*)"/g)].map((m) => m[1])) ok(mig.includes(`'${c}'`) || migComp.includes(`'${c}'`), `"?" cadastrado: ${c}`)

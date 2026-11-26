@@ -57,6 +57,8 @@ interface RespostaEmissao {
   motivoRejeicao?: string
   ambiente?: string
   mensagem?: string
+  // #11424 (revisão) · alerta VISÍVEL do crédito de ICMS do Simples (mês não lançado → usou o último valor conhecido).
+  avisoCreditoSN?: string | null
 }
 
 // NFE-EMISSAO: 'processando' é um estado PRÓPRIO (não é rejeição) — a Focus é assíncrona e a nota
@@ -434,6 +436,12 @@ export default function NFePreviewModal(props: Props) {
 
               {erro && (
                 <div className="text-[12px] text-[#791F1F] bg-[#FCEBEB] p-2.5 rounded-lg">{erro}</div>
+              )}
+
+              {/* #11424 (revisão) · alerta VISÍVEL do crédito de ICMS do Simples: mês não lançado → nota emitida com o
+                  último valor conhecido. O operador vê aqui, na própria tela de emissão (não só nos dados da prévia). */}
+              {resposta?.avisoCreditoSN && (
+                <div className="text-[12px] text-[#8A5A08] bg-[#FDF6E3] border border-[#C8941A]/40 p-2.5 rounded-lg">⚠️ {resposta.avisoCreditoSN}</div>
               )}
 
               <div className="flex gap-2 pt-2">
