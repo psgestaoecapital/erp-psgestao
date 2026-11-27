@@ -9,6 +9,7 @@ import { linkTelefone } from '@/lib/crm/oportunidadeCliente'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import OportunidadeFormModal, { type OportunidadeRow } from './OportunidadeFormModal'
+import KanbanConfigPanel from './KanbanConfigPanel'
 
 type UsuarioOpt = { id: string; email: string | null; full_name?: string | null }
 type Fechada = {
@@ -398,9 +399,10 @@ export default function OportunidadesKanban({
       carregar() // sincroniza com a verdade
       return
     }
-    const r = data as { ok?: boolean; erro?: string } | null
+    const r = data as { ok?: boolean; erro?: string; orientacao?: string } | null
     if (r && r.ok === false) {
-      onError(`Erro ao mover: ${r.erro ?? 'falha'}`)
+      // Trava de coluna (CEO 27/11): mostra a orientação amigável; carregar() devolve o card à coluna.
+      onError(r.orientacao ?? `Erro ao mover: ${r.erro ?? 'falha'}`)
       carregar()
       return
     }
@@ -476,6 +478,8 @@ export default function OportunidadesKanban({
 
   return (
     <div>
+      {/* Config das regras das colunas (CEO 27/11) — acima do Kanban; só o dono edita. */}
+      <KanbanConfigPanel companyId={companyId} etapas={ETAPAS_OPS.map((e) => ({ v: e.v, l: e.l }))} />
       {/* Resumo lateral ganho/perdido (V1 — colunas terminais como tiles) */}
       <div className="flex gap-2 mb-3 flex-wrap">
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ResumoTile titulo="Ganhas" qtd={ganhos.qtd} valor={ganhos.total} variante="ganho" onClick={() => void abrirFechadas('ganho')} /><AjudaCampo chave="projetos.oportunidades.resumo_ganhas" /></span>
