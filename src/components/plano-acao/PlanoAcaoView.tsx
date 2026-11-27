@@ -53,11 +53,12 @@ type Reuniao = {
   id: string; codigo: string; titulo: string; data_hora: string | null; local: string | null
   dono_user_id: string | null; dono_nome: string | null; participantes: string | null; pauta: string | null
   ata: string | null; status: StatusReuniao
+  obra_id: string | null; obra_numero: string | null; obra_nome: string | null
   acoes_total: number; acoes_abertas: number; acoes_atrasadas: number; acoes_concluidas: number
 }
-type FormReuniao = { titulo: string; data_hora: string; local: string; dono_nome: string; participantes: string; pauta: string; ata: string; status: StatusReuniao }
+type FormReuniao = { titulo: string; data_hora: string; local: string; dono_nome: string; participantes: string; pauta: string; ata: string; status: StatusReuniao; obra_id: string }
 const STATUS_REUNIAO: Record<StatusReuniao, string> = { agendada: 'Agendada', realizada: 'Realizada', cancelada: 'Cancelada' }
-const FORM_REUNIAO_VAZIO: FormReuniao = { titulo: '', data_hora: '', local: '', dono_nome: '', participantes: '', pauta: '', ata: '', status: 'agendada' }
+const FORM_REUNIAO_VAZIO: FormReuniao = { titulo: '', data_hora: '', local: '', dono_nome: '', participantes: '', pauta: '', ata: '', status: 'agendada', obra_id: '' }
 type Form = {
   titulo: string; o_que: string; por_que: string; onde: string; setor_id: string; quando: string
   responsavel_nome: string; como: string; custo_estimado: string; custo_real: string
@@ -280,6 +281,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
     setReuniaoForm({
       titulo: r.titulo, data_hora: r.data_hora ? r.data_hora.slice(0, 16) : '', local: r.local ?? '',
       dono_nome: r.dono_nome ?? '', participantes: r.participantes ?? '', pauta: r.pauta ?? '', ata: r.ata ?? '', status: r.status,
+      obra_id: r.obra_id ?? '',
     })
     setReuniaoFormAberto(true)
   }
@@ -290,6 +292,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
     const payload = {
       titulo: reuniaoForm.titulo, data_hora: reuniaoForm.data_hora, local: reuniaoForm.local, dono_nome: reuniaoForm.dono_nome,
       participantes: reuniaoForm.participantes, pauta: reuniaoForm.pauta, ata: reuniaoForm.ata, status: reuniaoForm.status,
+      ...(isHub ? { obra_id: reuniaoForm.obra_id } : {}),
     }
     const { data, error } = await supabase.rpc('fn_plano_acao_reuniao_salvar', { p_company_id: companyId, p_reuniao: payload, p_id: reuniaoEditId })
     setSalvandoReuniao(false)
@@ -679,6 +682,15 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
                 <span style={rotulo}>Local<AjudaCampo chave="industrial.plano_acao.reuniao_local" rota={ROTA} /></span>
                 <input data-testid="reuniao-local" value={reuniaoForm.local} onChange={(e) => setReuniaoForm({ ...reuniaoForm, local: e.target.value })} placeholder="Ex.: Sala de reuniões" style={inp} />
               </label>
+              {isHub && (
+                <label>
+                  <span style={rotulo}>Obra da reunião (opcional)<AjudaCampo chave="plano_acao.reuniao_obra" rota={ROTA} /></span>
+                  <select data-testid="reuniao-obra" value={reuniaoForm.obra_id} onChange={(e) => setReuniaoForm({ ...reuniaoForm, obra_id: e.target.value })} style={{ ...inp, padding: '8px 10px' }}>
+                    <option value="">—</option>
+                    {obras.map((o) => <option key={o.id} value={o.id}>{o.numero ? `${o.numero} · ` : ''}{o.nome}</option>)}
+                  </select>
+                </label>
+              )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
               <label>

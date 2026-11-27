@@ -150,3 +150,103 @@ SELECT 'plano_acao.obra', '/dashboard/hub/plano-acao', 'Plano de Ação 5W2H', '
        'Ligar a uma obra de outra empresa — a lista só mostra as obras da empresa selecionada.',
        'hub', 60, 1, 'publicado'
 WHERE NOT EXISTS (SELECT 1 FROM public.erp_ajuda_campo WHERE chave = 'plano_acao.obra');
+
+-- 4) GRAVAÇÃO da reunião: aceita e valida obra_id (opcional) — "Onde" sugere a obra da reunião
+CREATE OR REPLACE FUNCTION public.fn_plano_acao_reuniao_salvar(p_company_id uuid, p_reuniao jsonb, p_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_id uuid; v_ano int := extract(year from now())::int; v_seq int; v_codigo text;
+  v_titulo text := nullif(btrim(p_reuniao->>'titulo'),'');
+  v_status text := coalesce(nullif(p_reuniao->>'status',''),'agendada');
+  v_data timestamptz := nullif(p_reuniao->>'data_hora','')::timestamptz;
+  v_dono uuid := nullif(p_reuniao->>'dono_user_id','')::uuid;
+  v_dono_nome text := nullif(btrim(p_reuniao->>'dono_nome'),'');
+  v_obra uuid := nullif(p_reuniao->>'obra_id','')::uuid;
+  v_old record;
+BEGIN
+  IF auth.uid() IS NULL THEN RETURN jsonb_build_object('ok',false,'erro','nao_autenticado'); END IF;
+  IF NOT (p_company_id IN (SELECT get_user_company_ids()) OR is_admin()) THEN RETURN jsonb_build_object('ok',false,'erro','sem_acesso'); END IF;
+  IF v_titulo IS NULL THEN RETURN jsonb_build_object('ok',false,'erro','titulo_obrigatorio'); END IF;
+  IF v_status NOT IN ('agendada','realizada','cancelada') THEN RETURN jsonb_build_object('ok',false,'erro','status_invalido'); END IF;
+  IF v_obra IS NOT NULL THEN
+    IF NOT EXISTS (SELECT 1 FROM projetos_obras WHERE id = v_obra AND company_id = p_company_id AND deleted_at IS NULL) THEN
+      RETURN jsonb_build_object('ok',false,'erro','obra_invalida'); END IF;
+  END IF;
+
+  IF p_id IS NULL THEN
+    PERFORM pg_advisory_xact_lock(hashtext('plano_reuniao_num:'||p_company_id::text||':'||v_ano::text));
+    SELECT coalesce(max(seq),0)+1 INTO v_seq FROM erp_plano_acao_reuniao WHERE company_id = p_company_id AND ano = v_ano;
+    v_codigo := 'RE-'||v_ano::text||'-'||lpad(v_seq::text,4,'0');
+    INSERT INTO erp_plano_acao_reuniao (company_id, ano, seq, codigo, titulo, data_hora, local, dono_user_id, dono_nome,
+        participantes, pauta, ata, status, obra_id, criado_por, criado_em, atualizado_em)
+    VALUES (p_company_id, v_ano, v_seq, v_codigo, v_titulo, v_data, nullif(p_reuniao->>'local',''), v_dono, v_dono_nome,
+        nullif(p_reuniao->>'participantes',''), nullif(p_reuniao->>'pauta',''), nullif(p_reuniao->>'ata',''), v_status,
+        v_obra, auth.uid(), now(), now())
+    RETURNING id INTO v_id;
+    RETURN jsonb_build_object('ok',true,'id',v_id,'codigo',v_codigo);
+  END IF;
+
+  SELECT * INTO v_old FROM erp_plano_acao_reuniao WHERE id = p_id AND company_id = p_company_id AND excluido_em IS NULL;
+  IF NOT FOUND THEN RETURN jsonb_build_object('ok',false,'erro','nao_encontrado'); END IF;
+  UPDATE erp_plano_acao_reuniao SET
+    titulo = v_titulo, data_hora = v_data, local = nullif(p_reuniao->>'local',''),
+    dono_user_id = v_dono, dono_nome = v_dono_nome, participantes = nullif(p_reuniao->>'participantes',''),
+    pauta = nullif(p_reuniao->>'pauta',''), ata = nullif(p_reuniao->>'ata',''), status = v_status,
+    obra_id = CASE WHEN p_reuniao ? 'obra_id' THEN v_obra ELSE obra_id END, atualizado_em = now()
+  WHERE id = p_id;
+  IF coalesce(v_old.titulo,'') <> v_titulo THEN
+    INSERT INTO erp_plano_acao_reuniao_historico (reuniao_id, company_id, campo, de, para, por, em)
+    VALUES (p_id, p_company_id, 'titulo', v_old.titulo, v_titulo, auth.uid(), now()); END IF;
+  IF coalesce(v_old.data_hora::text,'') <> coalesce(v_data::text,'') THEN
+    INSERT INTO erp_plano_acao_reuniao_historico (reuniao_id, company_id, campo, de, para, por, em)
+    VALUES (p_id, p_company_id, 'data', v_old.data_hora::text, v_data::text, auth.uid(), now()); END IF;
+  IF coalesce(v_old.dono_user_id::text, v_old.dono_nome,'') <> coalesce(v_dono::text, v_dono_nome,'') THEN
+    INSERT INTO erp_plano_acao_reuniao_historico (reuniao_id, company_id, campo, de, para, por, em)
+    VALUES (p_id, p_company_id, 'dono', coalesce(v_old.dono_nome, v_old.dono_user_id::text), coalesce(v_dono_nome, v_dono::text), auth.uid(), now()); END IF;
+  IF coalesce(v_old.status,'') <> v_status THEN
+    INSERT INTO erp_plano_acao_reuniao_historico (reuniao_id, company_id, campo, de, para, por, em)
+    VALUES (p_id, p_company_id, 'status', v_old.status, v_status, auth.uid(), now()); END IF;
+  RETURN jsonb_build_object('ok',true,'id',p_id,'codigo',v_old.codigo);
+END $function$;
+
+-- 5) LEITURA das reuniões: devolve o elo com a obra (obra_id/obra_numero/obra_nome)
+CREATE OR REPLACE FUNCTION public.fn_plano_acao_reuniao_listar(p_company_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE v jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN RETURN jsonb_build_object('ok',false,'erro','nao_autenticado'); END IF;
+  IF NOT (p_company_id IN (SELECT get_user_company_ids()) OR is_admin()) THEN RETURN jsonb_build_object('ok',false,'erro','sem_acesso'); END IF;
+  SELECT jsonb_agg(row_to_json(r) ORDER BY r.data_ord DESC NULLS LAST, r.criado_em DESC) INTO v FROM (
+    SELECT re.id, re.codigo, re.titulo, re.data_hora, re.local, re.dono_user_id, re.dono_nome, re.participantes,
+           re.pauta, re.ata, re.status, re.criado_em,
+           re.obra_id, ob.numero AS obra_numero, ob.nome AS obra_nome,
+           coalesce(re.data_hora, re.criado_em) AS data_ord,
+           (SELECT count(*) FROM erp_plano_acao a WHERE a.reuniao_id = re.id AND a.excluido_em IS NULL) AS acoes_total,
+           (SELECT count(*) FROM erp_plano_acao a WHERE a.reuniao_id = re.id AND a.excluido_em IS NULL AND a.status = 'aberta') AS acoes_abertas,
+           (SELECT count(*) FROM erp_plano_acao a WHERE a.reuniao_id = re.id AND a.excluido_em IS NULL
+              AND a.quando IS NOT NULL AND a.quando < current_date AND a.status NOT IN ('concluida','cancelada')) AS acoes_atrasadas,
+           (SELECT count(*) FROM erp_plano_acao a WHERE a.reuniao_id = re.id AND a.excluido_em IS NULL AND a.status = 'concluida') AS acoes_concluidas
+    FROM erp_plano_acao_reuniao re
+    LEFT JOIN projetos_obras ob ON ob.id = re.obra_id
+    WHERE re.company_id = p_company_id AND re.excluido_em IS NULL
+  ) r;
+  RETURN jsonb_build_object('ok',true,'reunioes',coalesce(v,'[]'::jsonb));
+END $function$;
+
+-- 6) RD-95: "?" do campo "Obra" da reunião na tela do Hub. Idempotente por chave única.
+INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, versao, status)
+SELECT 'plano_acao.reuniao_obra', '/dashboard/hub/plano-acao', 'Plano de Ação 5W2H', 'Obra da reunião (opcional)',
+       'Selecione a obra do Hub tratada nesta reunião. Deixe em branco para uma reunião geral, não ligada a uma obra.',
+       'Liga a reunião à obra e sugere a mesma obra nas ações criadas a partir dela.',
+       'Ex.: 001 · Residencial Jardins',
+       'Ligar a uma obra de outra empresa — a lista só mostra as obras da empresa selecionada.',
+       'hub', 61, 1, 'publicado'
+WHERE NOT EXISTS (SELECT 1 FROM public.erp_ajuda_campo WHERE chave = 'plano_acao.reuniao_obra');
