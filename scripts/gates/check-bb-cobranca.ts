@@ -1,7 +1,7 @@
 // Gate #5404 (FC Pisos) parte (b): boleto do Banco do Brasil (Cobrança v2). Funções puras + ligação nas rotas/telas.
 // Sem rede, sem banco.
 import { readFileSync, existsSync } from 'node:fs'
-import { dataBb, faltasCobrancaBb, modalidadeBb, montarCorpoRegistroBb, normalizarCarteiraBb, nossoNumeroBb, nossoNumeroJaIncluidoBb, sequencialHomologacaoBb, seuNumeroBb } from '../../src/lib/banco/bb/cobrancaPura'
+import { convenioDoNossoNumeroBb, dataBb, faltasCobrancaBb, modalidadeBb, montarCorpoRegistroBb, normalizarCarteiraBb, nossoNumeroBb, nossoNumeroDoConvenioBb, nossoNumeroJaIncluidoBb, sequencialHomologacaoBb, seuNumeroBb } from '../../src/lib/banco/bb/cobrancaPura'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
@@ -19,6 +19,16 @@ ok(faltasCobrancaBb({ convenio: '2923830', carteira: '17/01-9', variacao_carteir
 // nosso número: 000 + convênio(7) + sequencial(10) = 20
 ok(nossoNumeroBb('3128557', '2600000001') === '00031285572600000001', 'nosso número BB = 000 + convênio + sequencial (20 posições)')
 ok(nossoNumeroBb('3128557', '2600000001').length === 20, 'nosso número com 20 posições')
+
+// #9976 (FC Pisos): convênio embutido no nosso número e filtro por convênio da credencial de consulta
+ok(convenioDoNossoNumeroBb('00031285572631685402') === '3128557', 'convênio embutido = posições 4..10 (homologação 3128557)')
+ok(convenioDoNossoNumeroBb('00029238302600000004') === '2923830', 'convênio embutido = posições 4..10 (produção 2923830)')
+ok(convenioDoNossoNumeroBb('123') === null && convenioDoNossoNumeroBb(null) === null, 'nosso número curto/nulo → null (não reconhecível)')
+ok(convenioDoNossoNumeroBb('99929238302600000004') === null, 'sem prefixo 000 → null (não reconhecível)')
+ok(nossoNumeroDoConvenioBb('00029238302600000004', '2923830') === true, 'boleto do convênio da credencial → consulta')
+ok(nossoNumeroDoConvenioBb('00031285572631685402', '2923830') === false, 'boleto de OUTRO convênio (homologação 3128557) → pula na produção (2923830)')
+ok(nossoNumeroDoConvenioBb('00031285572631685402', '3128557') === true, 'mesmo boleto NO ambiente do seu convênio → consulta')
+ok(nossoNumeroDoConvenioBb('xyz', '2923830') === true && nossoNumeroDoConvenioBb('00029238302600000004', null) === true, 'formato desconhecido ou credencial sem convênio → não bloqueia')
 ok(dataBb('2026-10-30') === '30.10.2026', 'data no formato do BB (dd.mm.aaaa)')
 
 // corpo do registro com os dados de teste

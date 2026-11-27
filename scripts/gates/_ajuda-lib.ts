@@ -33,6 +33,11 @@ export function camposSemAjuda(arquivo: string): { linha: number; total: number;
         primeiro = false
         if (temAttr(p, 'ajuda') || temAttr(p, 'data-ajuda')) return true
         const t = tag(p)
+        // Componente-invólucro de campo (tag capitalizada) que recebe `chave` renderiza o "?"
+        // internamente a partir dela (ex.: <Campo label chave="…">, <Filtro label chave="…">,
+        // padrão repetido nas telas P&M). Antes só <AjudaCampo> literal como filho contava, então
+        // esses campos — que TÊM o "?" na tela — apareciam como falso-positivo RD-95.
+        if (/^[A-Z]/.test(t) && temAttr(p, 'chave')) return true
         if (t === 'label' || t === 'table' || t === 'Campo') return contemAjuda(p)
       }
       if (ts.isFunctionDeclaration(p) || (ts.isFunctionLike(p) && p.parent && ts.isVariableDeclaration(p.parent))) return false

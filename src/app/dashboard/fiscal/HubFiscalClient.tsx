@@ -193,6 +193,11 @@ export default function HubFiscalClient() {
                       : 'text-[#3F7012]'
                 }
               />
+              {totalPendencias > 0 && (
+                <span className="text-[10px] text-[#3D2314]/55 flex items-center gap-1">
+                  RESOLVER <ArrowRight size={11} />
+                </span>
+              )}
             </div>
             <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.8px] font-medium mb-1 flex items-center">
               Pendências<AjudaCampo chave="ge.fiscal.hub.pendencias" rota={ROTA} />
@@ -200,12 +205,52 @@ export default function HubFiscalClient() {
             <div className="text-[28px] font-medium text-[#3D2314] leading-none mb-2">
               {totalPendencias}
             </div>
-            <div className="text-[11.5px] text-[#3D2314]/70 space-y-0.5">
-              <div>{pendencias.total_processando ?? 0} processando</div>
-              <div className={(pendencias.total_erros ?? 0) > 0 ? 'text-[#791F1F] font-medium' : ''}>
-                {pendencias.total_erros ?? 0} com erro
+            {totalPendencias === 0 ? (
+              <div className="text-[11.5px] text-[#1B3608] flex items-center gap-1.5">
+                <CheckCircle2 size={13} /> Nenhuma nota rejeitada ou pendente
               </div>
-            </div>
+            ) : (
+              <div className="text-[11.5px] space-y-1">
+                {(nfse.erros ?? 0) > 0 && (
+                  <Link
+                    href="/dashboard/fiscal/nfse?status=rejeitada"
+                    data-testid="hub-fiscal-pendencias-nfse"
+                    className="flex items-center justify-between text-[#791F1F] font-medium hover:underline"
+                  >
+                    <span>{nfse.erros} NFS-e a resolver</span>
+                    <ArrowRight size={12} className="flex-shrink-0" />
+                  </Link>
+                )}
+                {(nfe.erros ?? 0) > 0 && (
+                  <Link
+                    href="/dashboard/fiscal/nfe?status=rejeitada"
+                    data-testid="hub-fiscal-pendencias-nfe"
+                    className="flex items-center justify-between text-[#791F1F] font-medium hover:underline"
+                  >
+                    <span>{nfe.erros} NF-e a resolver</span>
+                    <ArrowRight size={12} className="flex-shrink-0" />
+                  </Link>
+                )}
+                {(nfse.processando ?? 0) > 0 && (
+                  <Link
+                    href="/dashboard/fiscal/nfse?status=processando"
+                    className="flex items-center justify-between text-[#633806] hover:underline"
+                  >
+                    <span>{nfse.processando} NFS-e processando</span>
+                    <ArrowRight size={12} className="flex-shrink-0" />
+                  </Link>
+                )}
+                {(nfe.processando ?? 0) > 0 && (
+                  <Link
+                    href="/dashboard/fiscal/nfe?status=processando"
+                    className="flex items-center justify-between text-[#633806] hover:underline"
+                  >
+                    <span>{nfe.processando} NF-e processando</span>
+                    <ArrowRight size={12} className="flex-shrink-0" />
+                  </Link>
+                )}
+              </div>
+            )}
           </div>
 
           <Link

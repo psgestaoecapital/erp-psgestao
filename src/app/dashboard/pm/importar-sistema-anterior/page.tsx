@@ -1,6 +1,6 @@
 "use client";
 // P&M · Importar jobs do sistema anterior (PM-J, CEO 02/10). 1) escolher a planilha; 2) conferir o mapa das colunas (o sistema
-// sugere pelo cabeçalho); 3) prévia: quantos entram pela regra do CEO (últimos 60 dias + em aberto, sem os "em aprovação"
+// sugere pelo cabeçalho); 3) prévia: quantos entram pela regra do CEO (últimos 180 dias + em aberto, sem os "em aprovação"
 // antigos), quantos ficam de fora e por quê; o banco confere de novo (já existe, cliente e responsável não achados);
 // 4) importar. Nada é gravado sem a prévia; rodar de novo não duplica. Todo campo tem o "?".
 
@@ -90,7 +90,7 @@ export default function ImportarSigaPage() {
         <header>
           <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#C8941A]"><FileSpreadsheet size={13} /> P&amp;M · Implantação</div>
           <h1 className="text-[26px] font-medium leading-tight">Importar jobs do sistema anterior</h1>
-          <p className="text-[13px] text-[#3D2314]/60">Entram os jobs dos últimos 60 dias e todos os que estão em aberto. Os &ldquo;em aprovação&rdquo; parados há mais de 60 dias ficam de fora. Nada é gravado antes da prévia.</p>
+          <p className="text-[13px] text-[#3D2314]/60">Entram os jobs dos últimos 180 dias e todos os que estão em aberto. Os &ldquo;em aprovação&rdquo; parados há mais de 180 dias ficam de fora. Nada é gravado antes da prévia.</p>
         </header>
 
         <section className={card}>

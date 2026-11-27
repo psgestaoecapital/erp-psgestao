@@ -82,8 +82,10 @@ export const PROVEDORES_LIQUIDACAO: Record<string, ProvedorLiquidacao> = {
       const { bb, convenio } = cred as CredBb
       const r = await consultarBoletoBb(bb, nn, convenio)
       if (r.status < 200 || r.status >= 300) {
+        // #9976: registrar sempre o status HTTP na mensagem (vai para erp_boleto_liquidacao_execucao.erros), para dar
+        // para saber o que o BB respondeu a cada boleto consultado — não só o texto do erro.
         const msg = extractBankMessage(r.raw)
-        throw new Error(msg ? `Banco do Brasil: ${msg}` : `Banco do Brasil não respondeu a consulta (status ${r.status})`)
+        throw new Error(msg ? `Banco do Brasil (HTTP ${r.status}): ${msg}` : `Banco do Brasil não respondeu a consulta (status ${r.status})`)
       }
       const situacao = r.liquidado ? 'LIQUIDADO' : r.baixado ? 'BAIXADO' : 'NORMAL'
       return { situacao, dataLiquidacao: r.dataPagamento ?? null, valorPago: r.valorPago ?? null, raw: r.raw }

@@ -6,11 +6,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Package, HardHat, Wrench, ChevronDown, ChevronRight, Loader2, Info } from "lucide-react";
+import { Package, HardHat, Wrench, ShieldCheck, Hammer, ChevronDown, ChevronRight, Loader2, Info, AlertTriangle } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
-type Tipo = "material" | "mao_obra" | "equipamento";
+type Tipo = "material" | "mao_obra" | "equipamento" | "epi" | "ferramentas";
 interface CpuItem {
   tipo: Tipo;
   codigo: string | null;
@@ -29,6 +29,8 @@ interface CpuHeader {
   custo_material: number;
   custo_mao_obra: number;
   custo_equipamento: number;
+  custo_epi: number;
+  custo_ferramentas: number;
   custo_total: number;
   preco_venda: number | null;
   margem_rs: number | null;
@@ -78,6 +80,8 @@ const TIPO_META: Record<Tipo, { label: string; icon: typeof Package; chip: strin
   material: { label: "Material", icon: Package, chip: "bg-emerald-50 text-emerald-700" },
   mao_obra: { label: "Mão de obra", icon: HardHat, chip: "bg-blue-50 text-blue-700" },
   equipamento: { label: "Equipamento", icon: Wrench, chip: "bg-purple-50 text-purple-700" },
+  epi: { label: "EPI", icon: ShieldCheck, chip: "bg-amber-50 text-amber-700" },
+  ferramentas: { label: "Ferramentas", icon: Hammer, chip: "bg-orange-50 text-orange-700" },
 };
 
 export function ComposicaoCpu({
@@ -172,6 +176,26 @@ export function ComposicaoCpu({
         </div>
       ) : (
         <>
+          {(() => {
+            // Chamado #11474/#11274: material/equipamento/EPI/ferramenta sem custo unitário entra como R$ 0,00
+            // e "some" do custo total — o usuário acha que o material não está somando. Avisa de forma visível.
+            const semCusto = data.itens.filter(
+              (it) => it.tipo !== "mao_obra" && (it.custo_unitario ?? 0) <= 0,
+            ).length;
+            if (semCusto === 0) return null;
+            return (
+              <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <span>
+                  {semCusto === 1
+                    ? "1 item sem custo unitário"
+                    : `${semCusto} itens sem custo unitário`}{" "}
+                  — entram como R$ 0,00 e não somam no custo de material. Informe o custo do item no cadastro
+                  (estoque/insumo) ou no custo manual do BOM para o preço refletir o material.
+                </span>
+              </div>
+            );
+          })()}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-sm">
               <thead>
@@ -195,7 +219,7 @@ export function ComposicaoCpu({
               </thead>
               <tbody>
                 {data.itens.map((it, i) => {
-                  const meta = TIPO_META[it.tipo];
+                  const meta = TIPO_META[it.tipo] ?? TIPO_META.material;
                   const Icon = meta.icon;
                   return (
                     <tr key={i} className="border-b border-[#3D2314]/6 last:border-0">
@@ -213,7 +237,15 @@ export function ComposicaoCpu({
                           <span className="ml-1 text-[10px] text-[#3D2314]/45">+{it.perda_pct}%</span>
                         )}
                       </td>
-                      <td className="py-2 pr-3 text-right font-mono text-[#3D2314]/80">{brl(it.custo_unitario, it.custo_unitario < 1 ? 4 : 2)}</td>
+                      <td className="py-2 pr-3 text-right font-mono text-[#3D2314]/80">
+                        {it.tipo !== "mao_obra" && (it.custo_unitario ?? 0) <= 0 ? (
+                          <span className="inline-flex items-center gap-1 text-amber-700" title="Sem custo unitário — não soma no custo de material">
+                            <AlertTriangle size={11} /> R$ 0,00
+                          </span>
+                        ) : (
+                          brl(it.custo_unitario, it.custo_unitario < 1 ? 4 : 2)
+                        )}
+                      </td>
                       <td className="py-2 pr-3 text-right font-mono font-medium text-[#3D2314]">{brl(it.custo_no_servico)}</td>
                       {verImpostos && (
                         <>
@@ -236,6 +268,8 @@ export function ComposicaoCpu({
               <Rodape label="Custo material" valor={data.header.custo_material} chave="projetos.catalogo.cpu.custo_material" rota={rotaAjuda} />
               <Rodape label="Custo mão de obra" valor={data.header.custo_mao_obra} chave="projetos.catalogo.cpu.custo_mao_obra" rota={rotaAjuda} />
               <Rodape label="Custo equipamento" valor={data.header.custo_equipamento} chave="projetos.catalogo.cpu.custo_equipamento" rota={rotaAjuda} />
+              <Rodape label="Custo ferramentas" valor={data.header.custo_ferramentas ?? 0} chave="projetos.catalogo.cpu.custo_ferramentas" rota={rotaAjuda} />
+              <Rodape label="Custo EPI" valor={data.header.custo_epi ?? 0} chave="projetos.catalogo.cpu.custo_epi" rota={rotaAjuda} />
               <div className="flex items-center justify-between border-t border-[#3D2314]/8 pt-1.5">
                 <span className="inline-flex items-center gap-1 text-sm font-medium text-[#3D2314]">Custo total (direto) <AjudaCampo chave="projetos.catalogo.cpu.custo_total" rota={rotaAjuda} /></span>
                 <span className="font-mono text-base font-medium text-[#3D2314]">{brl(data.header.custo_total)}</span>

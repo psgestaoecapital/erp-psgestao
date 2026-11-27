@@ -9,11 +9,17 @@
 //  - Reflete exatamente o que SERIA transmitido (destinatário, itens, impostos, totais),
 //    reaproveitando o payload do emissor do GE — sem cálculo paralelo.
 //
+// #11234 · NF-e (modelo 55): o espelho sai no leiaute OFICIAL do DANFE (src/lib/fiscal/danfePdf.ts — canhoto, cabeçalho com
+// emitente/DANFE/chave, cálculo do imposto, produtos, dados adicionais), com a marca d'água "NF-e CONFERÊNCIA — SEM VALOR
+// FISCAL — FALTA PROTOCOLO DE APROVAÇÃO DA SEFAZ". Só a NFS-e segue no formato de lista abaixo.
+//
 // Renderer puro e reutilizável: cada ponto de emissão (OS, venda/pedido, faturamento,
 // nota avulsa, revenda, NFS-e) chama `baixarEspelhoNFePdf` com a nota montada daquele ponto.
 // Stack: pdf-lib (fontes Helvetica built-in, serverless-friendly), igual ao resto do repo.
 
 import { PDFDocument, StandardFonts, rgb, degrees, type PDFFont, type PDFPage } from 'pdf-lib'
+import { gerarDanfePdf, type DanfeDados } from './danfePdf'
+import { isoBrasilia } from './dataBrasil'
 
 // Mesmo formato do `previa.nota` do emissor (NF-e 55). Mantido estrutural para que
 // qualquer ponto de emissão possa passar o objeto que já recebe, sem adaptar.
@@ -56,6 +62,9 @@ export type EspelhoNota = {
   }
   itens: EspelhoItem[]
   totais: { produtos: number; ibsCbs?: { base: number; cbs: number; ibs: number } | null }
+  // #11234 · dados completos do DANFE (a rota monta com src/lib/fiscal/danfeDados.ts). Ausente → o leiaute oficial sai com o
+  // que houver no resumo acima (campos que o resumo não traz ficam em branco).
+  danfe?: DanfeDados
 }
 export type EspelhoMeta = {
   empresa?: string | null   // razão social / nome do emitente (cabeçalho); ausente → rótulo neutro
@@ -91,8 +100,37 @@ function corta(s: string, font: PDFFont, size: number, maxW: number): string {
   return out + '...'
 }
 
+/** NF-e 55: dados do DANFE a partir do resumo (quando a rota não mandou `danfe`). Sempre SEM chave e SEM protocolo. */
+function danfeDoResumo(nota: EspelhoNota, meta: EspelhoMeta): DanfeDados {
+  const base: DanfeDados = nota.danfe ?? {
+    emitente: { razaoSocial: (meta.empresa || '').trim() || '—', cnpj: null, ie: null },
+    serie: nota.serie ?? null,
+    tipoOperacao: meta.papelContraparte === 'remetente' ? 0 : 1,
+    naturezaOperacao: nota.naturezaOperacao,
+    dataEmissaoISO: meta.emitidoEmISO ? isoBrasilia(new Date(meta.emitidoEmISO)).slice(0, 16) : null,
+    destinatario: { nome: nota.destinatario.razaoSocial, documento: nota.destinatario.documento, endereco: nota.destinatario.endereco },
+    totais: { valorProdutos: nota.totais.produtos },
+    itens: nota.itens.map((it) => ({
+      codigo: null, descricao: it.descricao, ncm: it.ncm, cst: it.cst, cfop: it.cfop, un: null, quantidade: null, valorUnitario: null,
+      valorTotal: it.valorTotal, baseIcms: it.icmsBase, valorIcms: it.icmsValor, valorIpi: null, aliqIcms: null, aliqIpi: null, chassi: it.chassi,
+    })),
+  }
+  const info = (meta.informacoesComplementares ?? '').trim()
+  return {
+    ...base,
+    // o espelho nunca tem chave nem protocolo; o nome do emitente da tela (quando houver) completa o que a rota não trouxe
+    chave: null, protocolo: null, protocoloDataISO: null,
+    emitente: { ...base.emitente, razaoSocial: base.emitente.razaoSocial || (meta.empresa || '').trim() },
+    informacoesComplementares: info || base.informacoesComplementares || '',
+  }
+}
+
 /** Monta o PDF do espelho e devolve os bytes (Uint8Array). Não baixa nada. */
 export async function gerarEspelhoNFePdf(nota: EspelhoNota, meta: EspelhoMeta): Promise<Uint8Array> {
+  if (meta.modelo !== 'nfse') {
+    // #11234 · NF-e: leiaute oficial do DANFE com marca d'água de conferência (hora da impressão em Brasília)
+    return gerarDanfePdf(danfeDoResumo(nota, meta), { impressoEmISO: isoBrasilia(meta.emitidoEmISO ? new Date(meta.emitidoEmISO) : new Date()).slice(0, 16) })
+  }
   const doc = await PDFDocument.create()
   const font = await doc.embedFont(StandardFonts.Helvetica)
   const bold = await doc.embedFont(StandardFonts.HelveticaBold)
