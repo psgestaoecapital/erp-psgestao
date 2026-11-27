@@ -244,13 +244,11 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved, 
       .from(tabela)
       .select('nome_fantasia, razao_social')
       .eq('company_id', companyId)
-    // erp_clientes tem a coluna canônica `documento_digitos` (gerada, só dígitos): casa mesmo quando a base
-    // guarda o documento FORMATADO (~metade dos cadastros). O pré-check batia na coluna CRUA com .eq.<dígitos>
-    // e não disparava o aviso amigável para esses — o usuário só era barrado pelo trigger no save (#5848, item 5).
-    // Fornecedor ainda não tem a coluna gerada → mantém a conferência nas duas colunas cruas.
-    const comDoc = ehCliente
-      ? base.eq('documento_digitos', d)
-      : base.or(`cnpj_cpf.eq.${d},cpf_cnpj.eq.${d}`)
+    // erp_clientes e erp_fornecedores têm a coluna canônica `documento_digitos` (gerada, só dígitos):
+    // casa mesmo quando a base guarda o documento FORMATADO (~metade dos cadastros). Antes o pré-check batia
+    // na coluna CRUA com .eq.<dígitos> e não disparava o aviso amigável para esses — o usuário só era barrado
+    // pelo trigger no save (#5848 item 5 para clientes; RD-38 3.053/4.601 fornecedores com doc pontuado).
+    const comDoc = base.eq('documento_digitos', d)
     const { data: dup } = await comDoc
       .neq('id', pessoa?.id ?? '00000000-0000-0000-0000-000000000000')
       .eq('ativo', true)
@@ -316,12 +314,10 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved, 
         .from(tabela)
         .select('id, nome_fantasia, razao_social')
         .eq('company_id', companyId)
-      // erp_clientes: casa pela coluna canônica de dígitos (pega também documento guardado FORMATADO); fornecedor
-      // segue nas colunas cruas (ainda sem a coluna gerada). Mesmo fix do item 5 (#5848) — o pré-check amigável
-      // "já existe, abrir?" passa a disparar para os ~50% de clientes com documento pontuado, não só o trigger.
-      const dupComDoc = ehCliente
-        ? baseDup.eq('documento_digitos', cnpjLimpo)
-        : baseDup.or(`cnpj_cpf.eq.${cnpjLimpo},cpf_cnpj.eq.${cnpjLimpo}`)
+      // Casa pela coluna canônica de dígitos (pega também documento guardado FORMATADO) em clientes E
+      // fornecedores. Mesmo fix do item 5 (#5848) — o pré-check amigável "já existe, abrir?" passa a disparar
+      // para os ~50% de clientes e ~66% de fornecedores com documento pontuado, não só o trigger do banco.
+      const dupComDoc = baseDup.eq('documento_digitos', cnpjLimpo)
       const { data: dup } = await dupComDoc
         .neq('id', pessoa?.id ?? '00000000-0000-0000-0000-000000000000')
         // Chamados #129/#130 (Jordana · KGF/Gean): a checagem de duplicidade só considera cadastros ATIVOS.
