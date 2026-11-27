@@ -68,3 +68,8 @@ BEGIN
                              'operacoes', COALESCE(v_ops, '[]'::jsonb)));
   RETURN jsonb_build_object('ok', true, 'status', 'aprovado', 'vigente_desde', v_vig, 'versao', v_versao);
 END $function$;
+
+-- Guarda da função (check:fn-guards · REVOKE anon): SECURITY DEFINER recriada → fecha anon/PUBLIC e abre só para
+-- logado/serviço, com a assinatura exata. A função já exige CLIENT_OWNER/CLIENT_MANAGER (ou PS) no corpo.
+REVOKE ALL ON FUNCTION public.fn_veic_perfil_fiscal_aprovar(uuid, uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_veic_perfil_fiscal_aprovar(uuid, uuid, date) TO authenticated, service_role;
