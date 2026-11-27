@@ -100,7 +100,9 @@ export default function PipelinePage() {
         )}
       </div>
 
-      {carregando || !quadro ? <div style={{ padding: 40, textAlign: 'center', color: C.TEXTM }}>Carregando…</div>
+      {carregando ? <div style={{ padding: 40, textAlign: 'center', color: C.TEXTM }}>Carregando…</div>
+        : funis.length === 0 ? <Vazio texto="Você ainda não tem um funil de vendas. Crie o seu para definir as colunas do quadro (ex.: Visita feita · Orçando · Proposta enviada · Aprovado · Reprovado) — você escolhe os nomes e a ordem das etapas." acao={<Link href="/dashboard/crm/funis" style={{ ...btnPri, textDecoration: 'none', display: 'inline-block' }}>Criar meu funil</Link>} />
+        : !quadro ? <div style={{ padding: 40, textAlign: 'center', color: C.TEXTM }}>Carregando…</div>
         : etapas.length === 0 ? <Vazio texto="Este funil ainda não tem etapas." acao={<Link href="/dashboard/crm/funis" style={{ ...btnPri, textDecoration: 'none', display: 'inline-block' }}>Cadastrar etapas</Link>} />
         : (
           <>
