@@ -47,6 +47,10 @@ export interface Produto {
   fornecedor_padrao_nome?: string | null
   unidade_compra?: string | null
   fator_conversao?: number | null
+  // Tipo de uso (tela 143 · releitura 21/11): é vendido / é comprado / é produzido internamente.
+  uso_venda?: boolean | null
+  uso_compra?: boolean | null
+  uso_producao?: boolean | null
   controla_lote?: boolean | null
   controla_validade?: boolean | null
   // marca da edição fiscal em massa (ex.: "regra provisória 30/09 — confirmar com o contador")
@@ -98,6 +102,10 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
   const [fatorConv, setFatorConv] = useState(base?.fator_conversao != null ? String(base.fator_conversao) : '')
   const [controlaLote, setControlaLote] = useState(!!base?.controla_lote)
   const [controlaValidade, setControlaValidade] = useState(!!base?.controla_validade)
+  // Tipo de uso · default: todo produto é vendido e comprado (não some de nenhuma tela), não é produzido.
+  const [usoVenda, setUsoVenda] = useState(base?.uso_venda ?? true)
+  const [usoCompra, setUsoCompra] = useState(base?.uso_compra ?? true)
+  const [usoProducao, setUsoProducao] = useState(base?.uso_producao ?? false)
   const ehNovo = !produto
 
   // Produto novo (#3255): sugere o próximo código a partir dos últimos cadastrados da empresa (o usuário pode trocar).
@@ -178,6 +186,9 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
         fator_conversao: numOuNulo(fatorConv),
         controla_lote: controlaLote,
         controla_validade: controlaValidade,
+        uso_venda: usoVenda,
+        uso_compra: usoCompra,
+        uso_producao: usoProducao,
         preco_venda: parseFloat(precoVenda.replace(',', '.')) || 0,
         preco_custo: parseFloat(precoCusto.replace(',', '.')) || 0,
         ncm: ncmLimpo || null,
@@ -301,6 +312,16 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
                 ajuda="cadastros.produtos.descricao"
               />
               <Campo label="Unidade *" value={unidade} onChange={setUnidade} placeholder="UN · KG · M · L · CX" ajuda="cadastros.produtos.unidade" />
+              <div>
+                <div className="text-[12px] font-semibold text-[#3D2314] mb-1 flex items-center gap-1">
+                  Tipo de uso <AjudaCampo chave="cadastros.produtos.tipo_uso" />
+                </div>
+                <div className="flex flex-wrap gap-4 text-[12px] text-[#3D2314]">
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={usoVenda} onChange={(e) => setUsoVenda(e.target.checked)} data-testid="produto-uso-venda" /> É vendido <AjudaCampo chave="cadastros.produtos.uso_venda" /></label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={usoCompra} onChange={(e) => setUsoCompra(e.target.checked)} data-testid="produto-uso-compra" /> É comprado <AjudaCampo chave="cadastros.produtos.uso_compra" /></label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={usoProducao} onChange={(e) => setUsoProducao(e.target.checked)} data-testid="produto-uso-producao" /> É produzido internamente <AjudaCampo chave="cadastros.produtos.uso_producao" /></label>
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <Campo label="Local de armazenagem" value={localizacao} onChange={setLocalizacao} placeholder="ex: Galpão B · Prat. 3" testId="produto-localizacao" ajuda="cadastros.produtos.localizacao" />
                 <Campo label="Codigo de barras (EAN)" value={codigoBarras} onChange={setCodigoBarras} placeholder="vazio = etiqueta usa o codigo interno" mono ajuda="cadastros.produtos.codigo_barras" />
