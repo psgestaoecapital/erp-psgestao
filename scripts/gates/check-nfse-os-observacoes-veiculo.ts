@@ -26,7 +26,10 @@ const modal = readFileSync('src/components/fiscal/NFSeEmitirGovModal.tsx', 'utf8
 ok(/select\('cliente_id, numero, marca, modelo, placa, veic_veiculo_id'\)/.test(botao), 'botão da OS lê cliente_id, numero/modelo/placa e o id do veículo')
 ok(!/veiculo:veic_veiculo\(/.test(botao), 'select da OS sem embed do veículo (o tomador não depende dele)')
 ok(botao.includes('buscarVeiculoLigado(osDados.veic_veiculo_id'), 'veículo ligado em consulta própria')
-ok(botao.includes('setObsOS(montarObservacoesNfseOS(osDados ? { ...osDados, veiculo: await buscarVeiculoLigado(') && botao.includes('observacoesIniciais={obsOS}'), 'botão monta o texto e passa ao modal')
+ok(botao.includes('setObsOS(montarObservacoesNfseOS(osDados ? { ...osDados, veiculo: await buscarVeiculoLigado('), 'botão monta o texto da OS (numero/modelo/placa + veículo ligado)')
+// CEO 27/11 alinhado por gilberto-esteira (RD-105 caso 6): o texto montado (obsOS) chega ao modal via modalObs,
+// que usa a observação já existente da OS quando há e cai no obsOS montado quando não há — o fio obsOS→modal segue intacto.
+ok(/observacoesIniciais=\{modalObs\}/.test(botao) && /modalObs\s*=\s*atual\?\.observacoes\s*\?\?\s*obsOS/.test(botao), 'o texto montado (obsOS) chega ao modal (modalObs = atual?.observacoes ?? obsOS)')
 ok(modal.includes('observacoesIniciais?: string') && modal.includes("setObservacoes(observacoesIniciais?.trim() || '')"), 'modal: semeia as informações complementares com o texto inicial')
 
 // 5) busca do veículo falha (erro do PostgREST ou exceção) → só fica sem o veículo; cliente_id da OS segue lido
