@@ -122,8 +122,8 @@ export default function PermissoesTrabalhoPage() {
         .order('criado_em', { ascending: false })
       if (error) throw error
       setLista((data || []) as PT[])
-    } catch (e: any) {
-      setErro(e?.message || 'Falha ao carregar as permissões de trabalho')
+    } catch {
+      setErro('Não foi possível carregar as permissões de trabalho agora. Verifique a conexão e tente novamente.')
     } finally {
       setLoading(false)
     }
@@ -145,14 +145,13 @@ export default function PermissoesTrabalhoPage() {
     if (motivo === null) return
     if (!motivo.trim()) { alert('Informe o motivo para desativar.'); return }
     try {
-      const { error } = await supabase
-        .from('ehs_permissao_trabalho')
-        .update({ ativo: false, observacoes: ((p.observacoes ? p.observacoes + ' ' : '') + `[desativada: ${motivo.trim()}]`).slice(0, 2000), atualizado_em: new Date().toISOString() })
-        .eq('id', p.id)
+      // RD-98 p3/p4: soft-delete rastreável via RPC com guarda (nunca escrita direta na tabela)
+      const { data, error } = await supabase.rpc('fn_ehs_pt_desativar', { p_id: p.id, p_motivo: motivo.trim() })
       if (error) throw error
+      if (data && data.ok === false) { alert(data.erro || 'Não foi possível desativar a permissão.'); return }
       carregar()
-    } catch (e: any) {
-      alert(e?.message || 'Falha ao desativar')
+    } catch {
+      alert('Não foi possível desativar a permissão agora. Tente novamente em instantes.')
     }
   }
 
@@ -316,41 +315,30 @@ function PTFormModal({ companyId, pt, onClose, onSaved }: { companyId: string; p
     setSalvando(true)
     setErro(null)
     try {
-      const campos = {
-        numero: numero.trim() || null,
-        tipo,
-        titulo: titulo.trim(),
-        descricao: descricao.trim() || null,
-        local: local.trim() || null,
-        setor: setor.trim() || null,
-        data_inicio: dataInicio ? new Date(dataInicio).toISOString() : null,
-        data_fim: dataFim ? new Date(dataFim).toISOString() : null,
-        responsavel_emissao: responsavel.trim() || null,
-        executantes: executantes.trim() || null,
-        status,
-        observacoes: observacoes.trim() || null,
-      }
-      let ptId = pt?.id
-      if (ptId) {
-        const { error } = await supabase.from('ehs_permissao_trabalho')
-          .update({ ...campos, atualizado_em: new Date().toISOString() }).eq('id', ptId)
-        if (error) throw error
-        const { error: delErr } = await supabase.from('ehs_pt_medida').delete().eq('pt_id', ptId)
-        if (delErr) throw delErr
-      } else {
-        const { data, error } = await supabase.from('ehs_permissao_trabalho')
-          .insert({ company_id: companyId, ...campos }).select('id').single()
-        if (error) throw error
-        ptId = data!.id
-      }
-      if (linhas.length > 0) {
-        const payload = linhas.map((m, i) => ({ company_id: companyId, pt_id: ptId, ordem: i + 1, descricao: m.descricao, atendido: m.atendido }))
-        const { error: insErr } = await supabase.from('ehs_pt_medida').insert(payload)
-        if (insErr) throw insErr
-      }
+      // RD-98 p3/p4: criar/atualizar PT + medidas via RPC com guarda.
+      // As medidas removidas viram soft-delete rastreável (nunca DELETE físico).
+      const { data, error } = await supabase.rpc('fn_ehs_pt_salvar', {
+        p_company_id: companyId,
+        p_id: pt?.id ?? null,
+        p_numero: numero.trim() || null,
+        p_tipo: tipo,
+        p_titulo: titulo.trim(),
+        p_descricao: descricao.trim() || null,
+        p_local: local.trim() || null,
+        p_setor: setor.trim() || null,
+        p_data_inicio: dataInicio ? new Date(dataInicio).toISOString() : null,
+        p_data_fim: dataFim ? new Date(dataFim).toISOString() : null,
+        p_responsavel_emissao: responsavel.trim() || null,
+        p_executantes: executantes.trim() || null,
+        p_status: status,
+        p_observacoes: observacoes.trim() || null,
+        p_medidas: linhas.map((m, i) => ({ descricao: m.descricao, atendido: m.atendido, ordem: i + 1 })),
+      })
+      if (error) throw error
+      if (data && data.ok === false) { setErro(data.erro || 'Não foi possível salvar a permissão.'); setSalvando(false); return }
       onSaved()
-    } catch (e: any) {
-      setErro(e?.message || 'Falha ao salvar a permissão')
+    } catch {
+      setErro('Não foi possível salvar a permissão agora. Tente novamente em instantes.')
       setSalvando(false)
     }
   }
