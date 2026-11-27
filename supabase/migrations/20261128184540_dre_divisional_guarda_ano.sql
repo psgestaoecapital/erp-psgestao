@@ -11,6 +11,7 @@
 -- Observação operacional (fora desta PR): reprocessar os jobs em erro e limpar o título de ano-lixo da DEMO
 -- (so-demo) são passos separados; esta PR estanca a RAIZ do abandono do pipeline por ano absurdo.
 -- Code: code-desenvolvedor-3
+-- ci-sem-guarda: fn_popular_dre_divisional_from_psgc — escritor de pipeline chamado só por service_role (job popular_dre_divisional), sem auth.uid de usuário; ACL restrita a service_role
 
 CREATE OR REPLACE FUNCTION public.fn_popular_dre_divisional_from_psgc(p_company_id uuid, p_ano integer, p_mes integer)
  RETURNS jsonb
