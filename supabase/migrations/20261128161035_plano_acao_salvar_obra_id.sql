@@ -88,3 +88,8 @@ BEGIN
   END IF;
   RETURN jsonb_build_object('ok',true,'id',p_id,'codigo',v_old.codigo);
 END $function$;
+
+-- Guarda RD: SECURITY DEFINER nunca aberta a anônimo (a função já confere a empresa do
+-- registro via p_company_id ∈ get_user_company_ids()/is_admin() e auth.uid()).
+REVOKE ALL ON FUNCTION public.fn_plano_acao_salvar(uuid, jsonb, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_plano_acao_salvar(uuid, jsonb, uuid) TO authenticated, service_role;
