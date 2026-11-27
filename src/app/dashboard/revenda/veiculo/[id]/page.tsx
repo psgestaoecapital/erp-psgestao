@@ -30,6 +30,7 @@ import { parseNumBR } from '@/lib/num'
 import { baixarEspelhoNFePdf } from '@/lib/fiscal/espelhoPdf'
 import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
 import { INTERMEDIACAO_CODIGO_TRIBUTACAO_NACIONAL, INTERMEDIACAO_CODIGO_LC116, INTERMEDIACAO_DESCRICAO_PADRAO } from '@/lib/fiscal/govNfseNacional'
+import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -86,6 +87,10 @@ function Inner() {
   const [nfseAberto, setNfseAberto] = useState(false)   // #NFS-e · modal de emissão da nota de serviço (intermediação)
   const [nfses, setNfses] = useState<NotaServico[]>([])  // #bug NFS-e · notas de serviço deste veículo
   const [nfseBusy, setNfseBusy] = useState<string | null>(null)  // id da NFS-e sendo acompanhada
+  // #bug ambiente NFS-e · o modal usa o ambiente da NFS-e (config.ambiente), via carregarProducaoDisponivel.
+  // Sem isto o modal caía no default 'homologacao' (banner "Homologação") enquanto a emissão vai pelo config.ambiente
+  // (producao) — banner mentiroso sobre nota REAL. carregarProducaoDisponivel lê o campo da NFS-e, nunca ambiente_nfe.
+  const [nfseProducao, setNfseProducao] = useState(false)
   const [compl, setCompl] = useState<Compl | null>(null)
   const [comp, setComp] = useState<Composicao | null>(null)
   const [margem, setMargem] = useState(20)
@@ -162,6 +167,13 @@ function Inner() {
   }
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
+  // #bug ambiente NFS-e · resolve o ambiente da NFS-e (config.ambiente) para o modal/banner refletirem a verdade.
+  useEffect(() => {
+    if (!v?.company_id) { setNfseProducao(false); return }
+    let vivo = true
+    void carregarProducaoDisponivel(v.company_id).then((p) => { if (vivo) setNfseProducao(p) })
+    return () => { vivo = false }
+  }, [v?.company_id])
 
   // Composição real do negócio: só existe quando há venda. RPC de leitura (fn_veic_venda_composicao).
   // setComp só é chamado dentro do IIFE async (nunca síncrono no corpo do efeito).
@@ -551,6 +563,7 @@ function Inner() {
         <NFSeEmitirGovModal
           companyId={v.company_id}
           aberto={nfseAberto}
+          producaoDisponivel={nfseProducao}
           onFechar={() => setNfseAberto(false)}
           onEmitida={() => { setNfseAberto(false); void carregar() }}
           descricaoServico={`${INTERMEDIACAO_DESCRICAO_PADRAO}${[v.marca, v.modelo].filter(Boolean).length ? ` — ${[v.marca, v.modelo].filter(Boolean).join(' ')}` : ''}${v.placa ? ` · ${v.placa}` : ''}`}
