@@ -44,9 +44,9 @@ const enderecoCompleto = (o: Obra) => {
 type Os = { id: string; numero: string | null; descricao: string | null; status: string }
 type Rdo = {
   id: string; os_id: string; data: string; clima: Clima; praticavel: boolean; efetivo: number
-  atividades: string | null; ocorrencias: string | null; quantidade_executada: number | null; fotos: string[]; criado_em: string
+  atividades: string | null; ocorrencias: string | null; equipamentos: string | null; quantidade_executada: number | null; fotos: string[]; criado_em: string
 }
-const VAZIO = { os_id: '', data: '', clima: 'sol' as Clima, praticavel: true, efetivo: '', quantidade: '', atividades: '', ocorrencias: '', fotos: [] as string[] }
+const VAZIO = { os_id: '', data: '', clima: 'sol' as Clima, praticavel: true, efetivo: '', quantidade: '', atividades: '', ocorrencias: '', equipamentos: '', fotos: [] as string[] }
 
 export default function RdoObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -72,7 +72,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
       const [o, os, rd] = await comPrazo(async () => await Promise.all([
         supabase.from('projetos_obras').select('company_id,numero,nome,cliente_nome,cidade,endereco,numero_endereco,bairro,uf,cep,responsavel_nome').eq('id', id).maybeSingle(),
         supabase.from('projetos_obra_os').select('id,numero,descricao,status').eq('obra_id', id).is('excluido_em', null).order('numero', { ascending: true }),
-        supabase.from('projetos_obra_rdo').select('id,os_id,data,clima,praticavel,efetivo,atividades,ocorrencias,quantidade_executada,fotos,criado_em')
+        supabase.from('projetos_obra_rdo').select('id,os_id,data,clima,praticavel,efetivo,atividades,ocorrencias,equipamentos,quantidade_executada,fotos,criado_em')
           .eq('obra_id', id).is('excluido_em', null).order('data', { ascending: false }).order('criado_em', { ascending: false }),
       ]), { ms: 9000, tentativas: 1, label: 'obra-rdo' })
       if (o.error) { setLoading(false); setErro(erroAmigavel(o.error, 'Não foi possível carregar a obra. Tente de novo.')); return }
@@ -127,7 +127,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
     setErro(null); setNovasFotos([])
     setFr({ os_id: r.os_id, data: r.data, clima: r.clima, praticavel: r.praticavel, efetivo: String(r.efetivo),
       quantidade: r.quantidade_executada == null ? '' : String(r.quantidade_executada).replace('.', ','),
-      atividades: r.atividades ?? '', ocorrencias: r.ocorrencias ?? '', fotos: r.fotos })
+      atividades: r.atividades ?? '', ocorrencias: r.ocorrencias ?? '', equipamentos: r.equipamentos ?? '', fotos: r.fotos })
     setEditando(r.id)
   }
   const fechar = () => { setEditando(null); setFr({ ...VAZIO }); setNovasFotos([]) }
@@ -158,7 +158,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
     }
     const { error } = await supabase.rpc('fn_obra_rdo_salvar', { p_os_id: fr.os_id, p_dados: {
       data: fr.data, clima: fr.clima, praticavel: fr.praticavel, efetivo: fr.efetivo === '' ? 0 : Number(fr.efetivo),
-      quantidade_executada: qtd, atividades: fr.atividades, ocorrencias: fr.ocorrencias, fotos: [...fr.fotos, ...enviadas] } })
+      quantidade_executada: qtd, atividades: fr.atividades, ocorrencias: fr.ocorrencias, equipamentos: fr.equipamentos, fotos: [...fr.fotos, ...enviadas] } })
     setOcupado(false)
     if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar o diário.')); return }
     fechar(); void carregar()
@@ -290,6 +290,10 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
                   <textarea value={fr.ocorrencias} onChange={(e) => setFr({ ...fr, ocorrencias: e.target.value })} rows={2} placeholder="Ex.: faltou perfil de 3 m; chuva parou o serviço às 14h" style={{ ...inp, resize: 'vertical' }} data-testid="obra-rdo-ocorrencias" />
                 </label>
                 <label style={{ ...lab, gridColumn: '1 / -1' }}>
+                  <span style={rot}>Equipamentos utilizados <AjudaCampo chave="projetos.os_obra.rdo_equipamentos" rota={ROTA_OS} /></span>
+                  <input value={fr.equipamentos} onChange={(e) => setFr({ ...fr, equipamentos: e.target.value })} placeholder="Ex.: betoneira, andaime fachadeiro, serra circular" style={inp} data-testid="obra-rdo-equipamentos" />
+                </label>
+                <label style={{ ...lab, gridColumn: '1 / -1' }}>
                   <span style={rot}>Fotos ({fr.fotos.length + novasFotos.length}/10) <AjudaCampo chave="projetos.os_obra.rdo_fotos" rota={ROTA_OS} /></span>
                   <input type="file" accept="image/*" capture="environment" multiple onChange={(e) => setNovasFotos(Array.from(e.target.files ?? []))} style={{ ...inp, padding: 8 }} data-testid="obra-rdo-fotos" />
                 </label>
@@ -339,6 +343,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
                         </div>
                         {r.atividades && <p style={{ margin: '4px 0', fontSize: 14 }}><span style={{ color: MUT }}>Feito: </span>{r.atividades}</p>}
                         {r.ocorrencias && <p style={{ margin: '4px 0', fontSize: 14 }}><span style={{ color: MUT }}>Ocorrências: </span>{r.ocorrencias}</p>}
+                        {r.equipamentos && <p style={{ margin: '4px 0', fontSize: 14 }}><span style={{ color: MUT }}>Equipamentos: </span>{r.equipamentos}</p>}
                         {r.fotos.length > 0 && (
                           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '6px 0' }}>
                             {r.fotos.map((p) => <button key={p} type="button" onClick={() => verFoto(p)} style={{ ...btn('#fff', ESP), fontSize: 12 }}>Ver foto</button>)}
