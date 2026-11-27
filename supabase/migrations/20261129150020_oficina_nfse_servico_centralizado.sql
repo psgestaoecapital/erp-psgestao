@@ -122,6 +122,8 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'os_id', p_os_id, 'itens', v_n, 'nao_removidos', v_bloqueados);
 END $function$;
+REVOKE ALL ON FUNCTION public.fn_oficina_diagnostico_salvar(uuid, uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_oficina_diagnostico_salvar(uuid, uuid, jsonb) TO authenticated, service_role;
 
 -- ============================ fn_oficina_diagnostico_obter (ADITIVA: devolve servico_fiscal_id) ============================
 CREATE OR REPLACE FUNCTION public.fn_oficina_diagnostico_obter(p_company_id uuid, p_os_id uuid)
@@ -260,6 +262,8 @@ BEGIN
     'grupos_fiscais', COALESCE(v_grupos, '[]'::jsonb),
     'itens_sem_vinculo', v_sem_vinculo);
 END $function$;
+REVOKE ALL ON FUNCTION public.fn_os_nfse_preparar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_os_nfse_preparar(uuid) TO authenticated, service_role;
 
 -- ============================ AJUDA "?" RD-95 (campos novos) ============================
 INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
