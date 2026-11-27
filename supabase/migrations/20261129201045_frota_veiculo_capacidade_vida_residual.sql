@@ -75,6 +75,12 @@ BEGIN
 END
 $function$;
 
+-- Guarda da função (check-fn-guards · Regra 1): SECURITY DEFINER re-criada numa migration nova precisa reafirmar o
+-- REVOKE anon no mesmo arquivo. Função guardada por empresa (fn__guarda_empresa) — nunca acessível a quem não está
+-- logado. Idêntico aos grants vivos (authenticated/service_role); CREATE OR REPLACE preserva os demais.
+REVOKE ALL ON FUNCTION public.fn_hub_frota_veiculo_salvar(uuid, uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hub_frota_veiculo_salvar(uuid, uuid, jsonb) TO authenticated;
+
 -- Ajuda de campo ("?") RD-95 dos 3 campos novos. Aditivo e idempotente.
 INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem)
 VALUES
