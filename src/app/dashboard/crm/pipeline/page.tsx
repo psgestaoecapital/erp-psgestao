@@ -71,7 +71,7 @@ export default function PipelinePage() {
   return (
     <Pagina>
       <Cabecalho titulo="Funil de vendas" subtitulo="Arraste o negócio para a próxima etapa. No celular, use “Mover para”."
-        acoes={!soLeitura && cfg ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><button style={btnPri} onClick={() => setNovo(true)} data-testid="crm-novo-negocio">+ Novo negócio</button><AjudaCampo chave="crm.hoje.novo_negocio" /></span> : undefined} />
+        acoes={!soLeitura && cfg && funis.length > 0 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><button style={btnPri} onClick={() => setNovo(true)} data-testid="crm-novo-negocio">+ Novo negócio</button><AjudaCampo chave="crm.hoje.novo_negocio" /></span> : undefined} />
       <Aviso texto={erroCfg || erro} onFechar={() => setErro(null)} />
       <Aviso texto={ok} tipo="ok" onFechar={() => setOk(null)} />
 
