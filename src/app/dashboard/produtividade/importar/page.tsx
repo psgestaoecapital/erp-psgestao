@@ -1,11 +1,7 @@
-'use client'
+// Rota antiga de "Importar quadro". Agora vive como ABA da tela Postos e vagas (CEO 25/11, RH em 5 itens).
+// Redireciona para a aba nova para o link salvo não quebrar (RD-30: a tela não foi apagada — virou aba).
+import { redirect } from 'next/navigation'
 
-// Produtividade Industrial · Importar quadro por planilha (CEO 08/11, c1e941c5). Página fina: toda a lógica
-// (baixar modelo .xlsx pré-preenchido com exemplo DEMO + subir e abastecer via fn_rh_importar_postos) vive no
-// componente ImportarPostosView. RD-26: reusa a RPC já publicada e guardada; não altera backend.
-
-import { ImportarPostosView } from '@/components/produtividade/ImportarPostosView'
-
-export default function ImportarPostosPage() {
-  return <ImportarPostosView />
+export default function ImportarPostosRedirect() {
+  redirect('/dashboard/produtividade?aba=importar')
 }

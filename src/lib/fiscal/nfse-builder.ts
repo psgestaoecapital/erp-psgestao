@@ -2,6 +2,7 @@ import type { NFSeRequest } from './types'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { FiscalError } from './errors'
 import { SELECT_CONFIG_EMISSOR, dadosEmissorDaConfig } from './emissorConfig'
+import { municipioInformaIm } from './municipioInformaIm'
 
 export async function buildNFSeFromReceber(opts: {
   companyId: string
@@ -106,6 +107,8 @@ export async function buildNFSeFromReceber(opts: {
   const isCpf = docLimpo.length === 11
 
   const emissor = dadosEmissorDaConfig(cfg, opts.overrides?.cnae)
+  // #9726 · a IM do prestador vai na DPS só se o município emissor informa IM (Guarujá do Sul → E0120).
+  const informaIm = await municipioInformaIm(emissor.codigoMunicipio)
   return {
     serie: emissor.serie,
     dataEmissao: new Date().toISOString(),
@@ -123,6 +126,7 @@ export async function buildNFSeFromReceber(opts: {
       // FIX-PRESTADOR-CODIGO-MUNICIPIO: o Focus exige prestador.codigo_municipio (IBGE).
       // Vem da config fiscal (gov_nfse_municipio_codigo). Antes nunca era enviado.
       codigoMunicipio: emissor.codigoMunicipio,
+      informaInscricaoMunicipal: informaIm,
     },
     tomador: {
       cnpj: isCnpj ? docLimpo : undefined,

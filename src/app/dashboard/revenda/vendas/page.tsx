@@ -86,8 +86,10 @@ function Inner() {
   const [motivoModal, setMotivoModal] = useState<{ titulo: string; label: string; obrig: boolean; confirmLabel: string; onConfirm: (motivo: string) => void | Promise<void> } | null>(null)
   const [motivoTxt, setMotivoTxt] = useState('')
   const [motivoErro, setMotivoErro] = useState<string | null>(null)
-  // #6928 · aviso de bloqueio do cancelamento mostrado ANTES de pedir o motivo (NF-e autorizada / título em aberto).
+  // #6928 · aviso de bloqueio do cancelamento mostrado ANTES de pedir o motivo (NF-e autorizada — bloqueio duro).
   const [cancelBloqueio, setCancelBloqueio] = useState<{ v: Venda; temNfe: boolean; titulos: Receb[] } | null>(null)
+  // #6928 (chamado) · com título a receber em aberto, PERGUNTAR (Sim/Não/Voltar) em vez de bloquear.
+  const [cancelaTit, setCancelaTit] = useState<{ v: Venda; titulos: Receb[] } | null>(null)
   // #7641 etapa 2 · card de conferência da NF-e (confere/edita antes de emitir; mantém aberto p/ reenviar em rejeição).
   const [nfeCard, setNfeCard] = useState<{ v: Venda; nota: PreviaNota; infoCpl: string; limite: number; aviso: string | null } | null>(null)
   const [nfeCardBusy, setNfeCardBusy] = useState(false)
@@ -283,31 +285,44 @@ function Inner() {
   const ABERTO = ['aberto', 'vencido', 'pendente']
   const titulosAbertos = (vendaId: string) => (recebs.get(vendaId) ?? []).filter((t) => t.receber_id && t.status && ABERTO.includes(t.status))
 
-  function cancelar(v: Venda) {
-    // #6928: checar o bloqueio NO CLIQUE (antes de pedir o motivo). Se houver NF-e autorizada ou
-    // título a receber em aberto, mostrar o aviso na hora — com atalho para cancelar a nota / tratar
-    // o título — e NÃO abrir o campo de motivo (o usuário não digita à toa). Só quando estiver limpo
-    // é que abrimos o modal de motivo. O backend (fn_veic_venda_cancelar) mantém a mesma validação
-    // como defesa em profundidade.
-    const titulos = titulosAbertos(v.id)
-    if (v.nfe_autorizada || titulos.length > 0) {
-      setCancelBloqueio({ v, temNfe: v.nfe_autorizada, titulos })
+  async function cancelar(v: Venda) {
+    // #6928: checar NO CLIQUE (antes do motivo). NF-e autorizada é bloqueio DURO: cancele a nota na SEFAZ antes.
+    if (v.nfe_autorizada) {
+      setCancelBloqueio({ v, temNfe: true, titulos: titulosAbertos(v.id) })
+      return
+    }
+    // Com título a receber em aberto, PERGUNTAR (cancelar venda + título, ou só a venda) — nunca cancelar direto.
+    const abertos = titulosAbertos(v.id)
+    if (abertos.length > 0) {
+      setCancelaTit({ v, titulos: abertos })
       return
     }
     setMotivoTxt(''); setMotivoErro(null)
-    setMotivoModal({ titulo: `Cancelar venda — ${v.modelo || ''}`, label: 'Motivo do cancelamento (opcional)', obrig: false, confirmLabel: 'Continuar', onConfirm: (motivo) => prosseguirCancelar(v, motivo) })
+    setMotivoModal({ titulo: `Cancelar venda — ${v.modelo || ''}`, label: 'Motivo do cancelamento (opcional)', obrig: false, confirmLabel: 'Continuar', onConfirm: (motivo) => executarCancelar(v, motivo, false) })
   }
-  async function prosseguirCancelar(v: Venda, motivo: string) {
-    // O bloqueio já foi checado na UI (cancelar). O backend valida de novo (defesa em profundidade).
-    await executarCancelar(v, motivo)
+  // após a pergunta (Sim/Não), pede o motivo e então cancela a venda (e o título, quando escolhido).
+  function pedirMotivoCancelar(v: Venda, cancelarTitulo: boolean) {
+    setCancelaTit(null); setMotivoTxt(''); setMotivoErro(null)
+    setMotivoModal({
+      titulo: cancelarTitulo ? `Cancelar venda e título — ${v.modelo || ''}` : `Cancelar venda — ${v.modelo || ''}`,
+      label: 'Motivo do cancelamento (opcional)', obrig: false,
+      confirmLabel: cancelarTitulo ? 'Cancelar venda e título' : 'Cancelar venda',
+      onConfirm: (motivo) => executarCancelar(v, motivo, cancelarTitulo),
+    })
   }
-  async function executarCancelar(v: Venda, motivo: string) {
+  async function executarCancelar(v: Venda, motivo: string, cancelarTitulo = false) {
     setBusy(true)
-    const { data, error } = await supabase.rpc('fn_veic_venda_cancelar', { p_venda_id: v.id, p_user: await userId(), p_motivo: motivo || null })
-    const r = data as { ok?: boolean; erro?: string; mensagem?: string; titulos_nao_excluidos?: number } | null
+    // A venda e os títulos a receber em aberto são tratados numa ÚNICA transação no backend
+    // (fn_veic_venda_cancelar com p_titulos): 'cancelar' cancela a venda + os títulos em aberto;
+    // 'manter' cancela só a venda. Título pago nunca é cancelado. Sem o laço de RPC no cliente.
+    const { data, error } = await supabase.rpc('fn_veic_venda_cancelar', {
+      p_venda_id: v.id, p_user: await userId(), p_motivo: motivo || null,
+      p_titulos: cancelarTitulo ? 'cancelar' : 'manter',
+    })
+    const r = data as { ok?: boolean; erro?: string; mensagem?: string; titulos_cancelados?: number } | null
     setBusy(false)
     if (error || !r?.ok) { setErro((error ? msgAmigavel(error.message) : null) || r?.mensagem || r?.erro || 'Falha'); return }
-    setMsg('Venda cancelada.')
+    setMsg(cancelarTitulo ? `Venda e ${r?.titulos_cancelados ?? 0} título(s) cancelados.` : 'Venda cancelada.')
     void carregar()
   }
 
@@ -539,6 +554,26 @@ function Inner() {
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
             <button onClick={() => setCancelBloqueio(null)} style={btnGold}>Entendi</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* #6928 · cancelar venda com título a receber em aberto: PERGUNTA (Sim/Não/Voltar), nunca cancela o título sozinho */}
+      {cancelaTit && (
+        <Modal onClose={() => setCancelaTit(null)} titulo={`Cancelar venda com título em aberto — ${cancelaTit.v.modelo || ''}`}>
+          <div style={{ fontSize: 13, color: C.esp, marginBottom: 8 }}>
+            Esta venda tem {cancelaTit.titulos.length} título(s) a receber em aberto ({brl(cancelaTit.titulos.reduce((a, t) => a + (t.valor || 0), 0))}) no Contas a Receber (GE). O que você quer fazer?
+          </div>
+          <ul style={{ margin: '0 0 12px', paddingLeft: 18, fontSize: 12, color: C.espM }}>
+            {cancelaTit.titulos.map((t, i) => (
+              <li key={t.receber_id || i}>{t.numero ? `Nº ${t.numero}` : t.tipo} — {t.devedor} — {brl(t.valor)}</li>
+            ))}
+          </ul>
+          <div style={{ fontSize: 11.5, color: C.espM, marginBottom: 10 }}>Título pago não é cancelado; cancelar o título é irreversível e também é cancelado no Contas a Receber.</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <button onClick={() => setCancelaTit(null)} style={btnGhost}>Voltar</button>
+            <button onClick={() => pedirMotivoCancelar(cancelaTit.v, false)} style={btnGhost}>Não, só a venda</button>
+            <button onClick={() => pedirMotivoCancelar(cancelaTit.v, true)} style={btnGold}>Sim, cancelar venda e título</button>
           </div>
         </Modal>
       )}

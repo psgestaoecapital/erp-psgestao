@@ -38,6 +38,16 @@ const DEBITO = new Set<string>([
   'e2e/jornadas/aceitacao/nr36-272-pausa-19min-desvio.spec.ts::ind_ponto_dia',
   'e2e/jornadas/aceitacao/nr36-273-supervisao-detalhe.spec.ts::ind_ponto_dia',
   'e2e/jornadas/aceitacao/produtividade-cadastro-editavel.spec.ts::ind_ponto_colaborador',
+  // pendentes de uma RPC de limpeza de demo p/ RH/ponto (tabelas sem deleted_at): essas limpezas de teste ainda
+  // usam hard dbDelete. Tolerado por ora (RD-30 segura o delete real; é só limpeza de dado de teste na DEMO).
+  // Conserto definitivo = fn_demo de limpeza com GUC app.permitir_delete_fisico — remover estas linhas então.
+  'e2e/jornadas/aceitacao/industria-rh-pessoas.spec.ts::compliance_funcionarios',   // #6168 · gilberto-chamados
+  'e2e/jornadas/aceitacao/industria-rh-pessoas.spec.ts::ind_ponto_colaborador',     // #6168 · gilberto-chamados
+  'e2e/jornadas/aceitacao/industria-rh-pessoas.spec.ts::folha_competencia',         // #6168 · gilberto-chamados
+  'e2e/jornadas/aceitacao/industria-produtividade-mix.spec.ts::ind_ponto_dia',      // #6184 · gilberto-chamados
+  'e2e/jornadas/aceitacao/industria-rh-bi.spec.ts::ind_ponto_dia',                  // #6170 · code-desenvolvedor-3
+  'e2e/jornadas/aceitacao/industria-rh-bi.spec.ts::ind_ponto_colaborador',          // #6170 · code-desenvolvedor-3
+  'e2e/jornadas/aceitacao/industria-rh-bi.spec.ts::compliance_funcionarios',        // #6170 · code-desenvolvedor-3
 ])
 
 let falhas = 0

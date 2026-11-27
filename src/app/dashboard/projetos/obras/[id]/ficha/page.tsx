@@ -32,6 +32,23 @@ const EDIFICACAO = [
   { v: 'misto', l: 'Misto' },
 ]
 
+// Dados técnicos da obra (tela 314 · escopo 5): padrão construtivo e sistema estrutural.
+const PADRAO = [
+  { v: 'popular', l: 'Popular' },
+  { v: 'normal', l: 'Normal' },
+  { v: 'alto', l: 'Alto' },
+  { v: 'luxo', l: 'Luxo' },
+]
+const SISTEMA = [
+  { v: 'alvenaria_estrutural', l: 'Alvenaria estrutural' },
+  { v: 'concreto_armado', l: 'Concreto armado' },
+  { v: 'estrutura_metalica', l: 'Estrutura metálica' },
+  { v: 'madeira', l: 'Madeira' },
+  { v: 'pre_moldado', l: 'Pré-moldado' },
+  { v: 'misto', l: 'Misto' },
+  { v: 'outro', l: 'Outro' },
+]
+
 type Ficha = { ok: boolean; numero?: string; nome?: string | null; cliente_nome?: string | null; tipo_execucao?: string | null; modelo_contratacao?: string | null; matricula?: string | null; inscricao_imobiliaria?: string | null; tipo_edificacao?: string | null; area_construida_m2?: number | null; area_terreno_m2?: number | null; endereco?: string | null; bairro?: string | null; cidade?: string | null; uf?: string | null; cep?: string | null; erro?: string }
 
 export default function FichaObraPage({ params }: { params: Promise<{ id: string }> }) {
@@ -47,6 +64,9 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [tipoEdif, setTipoEdif] = useState('')
   const [areaConstruida, setAreaConstruida] = useState('')
   const [areaTerreno, setAreaTerreno] = useState('')
+  // Dados técnicos
+  const [padrao, setPadrao] = useState('')
+  const [sistema, setSistema] = useState('')
   // Endereço da obra
   const [endereco, setEndereco] = useState('')
   const [bairro, setBairro] = useState('')
@@ -56,10 +76,12 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [busyId, setBusyId] = useState(false)
+  const [busyTec, setBusyTec] = useState(false)
   const [busyEnd, setBusyEnd] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [ok, setOk] = useState(false)
   const [okId, setOkId] = useState(false)
+  const [okTec, setOkTec] = useState(false)
   const [okEnd, setOkEnd] = useState(false)
   // Localização no mapa (tela 314 crit. h): pino lat/long derivado do CEP, sem migration.
   const [coord, setCoord] = useState<{ lat: number; lon: number } | null>(null)
@@ -88,6 +110,10 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     setMatricula(j.matricula ?? ''); setInscricao(j.inscricao_imobiliaria ?? ''); setTipoEdif(j.tipo_edificacao ?? '')
     setAreaConstruida(j.area_construida_m2 != null ? String(j.area_construida_m2) : '')
     setAreaTerreno(j.area_terreno_m2 != null ? String(j.area_terreno_m2) : '')
+    // Dados técnicos — leitor próprio (não depende de fn_obra_ficha_ler); falha aqui não derruba a ficha.
+    const { data: t } = await supabase.rpc('fn_obra_ficha_tecnica_ler', { p_obra_id: id })
+    const jt = t as { ok?: boolean; padrao_construtivo?: string | null; sistema_estrutural?: string | null } | null
+    if (jt?.ok) { setPadrao(jt.padrao_construtivo ?? ''); setSistema(jt.sistema_estrutural ?? '') }
     // Endereço vem de um leitor próprio (collision-free; fn_obra_ficha_ler não é tocado por esta fatia)
     const { data: endData } = await supabase.rpc('fn_obra_ficha_endereco_ler', { p_obra_id: id })
     const e = endData as Ficha | null
@@ -160,6 +186,17 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     const j = data as Ficha | null
     if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar a identidade da obra.')); return }
     setOkId(true)
+  }
+
+  const salvarTecnica = async () => {
+    setBusyTec(true); setErro(null); setOkTec(false)
+    const { data, error } = await supabase.rpc('fn_obra_ficha_tecnica_salvar', {
+      p_obra_id: id, p_padrao_construtivo: padrao || null, p_sistema_estrutural: sistema || null,
+    })
+    setBusyTec(false)
+    const j = data as Ficha | null
+    if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar os dados técnicos.')); return }
+    setOkTec(true)
   }
 
   const salvarEndereco = async () => {
@@ -268,6 +305,33 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                 </div>
               </div>
 
+              {/* Dados técnicos da obra — padrão construtivo e sistema estrutural (tela 314 · escopo 5) */}
+              <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 14 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700 }}>Dados técnicos da obra</div>
+                <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                  <span>Padrão construtivo<AjudaCampo chave="projetos.obra_ficha.padrao_construtivo" rota={ROTA} /></span>
+                  <select data-testid="ficha-padrao-construtivo" style={campo} value={padrao} onChange={(e) => { setPadrao(e.target.value); setOkTec(false) }}>
+                    <option value="">Não informado</option>
+                    {PADRAO.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+                  </select>
+                </label>
+                <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                  <span>Sistema estrutural<AjudaCampo chave="projetos.obra_ficha.sistema_estrutural" rota={ROTA} /></span>
+                  <select data-testid="ficha-sistema-estrutural" style={campo} value={sistema} onChange={(e) => { setSistema(e.target.value); setOkTec(false) }}>
+                    <option value="">Não informado</option>
+                    {SISTEMA.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+                  </select>
+                </label>
+                {okTec && <div data-testid="ficha-tecnica-ok" style={{ background: '#EAF6EC', color: VERDE, borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 600 }}>Dados técnicos salvos.</div>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button data-testid="ficha-salvar-tecnica" disabled={busyTec} onClick={() => void salvarTecnica()}
+                    style={{ flex: 1, padding: '12px 16px', borderRadius: 8, border: 'none', background: ESP, color: '#fff', fontSize: 14, fontWeight: 700, cursor: busyTec ? 'wait' : 'pointer' }}>
+                    {busyTec ? 'Salvando…' : 'Salvar dados técnicos'}
+                  </button>
+                  <AjudaCampo chave="projetos.obra_ficha.salvar_tecnica" rota={ROTA} />
+                </div>
+              </div>
+
               {/* Endereço da obra — logradouro, bairro, cidade, UF e CEP (tela 314 "ficha da obra") */}
               <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 14 }}>
                 <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700 }}>Endereço da obra</div>
@@ -324,7 +388,7 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                   )}
                   {mapaLink && (
                     <a data-testid="ficha-mapa-link" href={mapaLink} target="_blank" rel="noopener noreferrer"
-                      style={{ fontSize: 13, color: GOLD, fontWeight: 600, textDecoration: 'none' }}>Abrir no mapa ↗</a>
+                      style={{ fontSize: 13, color: GOLD, fontWeight: 600, textDecoration: 'none' }}>Abrir no mapa →</a>
                   )}
                 </div>
               </div>
