@@ -10,6 +10,8 @@ const lerMig = (ns: string[]) => ns.map((n) => readFileSync(`supabase/migrations
 const migTexto = ['20261021180030_hb3_cronograma_tela_ajuda_menu', '20261022100030_hb3_cronograma_fatia3_ajuda', '20261022130030_hb3_cronograma_fatia6_curva_s_ajuda', '20261024040000_hb3_cronograma_fatia8_caminho_critico_ajuda', '20261024200000_hb3_cronograma_fatia9_lookahead_ajuda', '20261024220000_hb3_cronograma_fatia11_histograma_ajuda']
 const mig = lerMig(migTexto)
 const migTodas = lerMig([...migTexto, '20261023141730_hb3_cronograma_fatia7_fisico_financeiro', '20261024210000_hb3_cronograma_necessidades_periodo', '20261025000000_hb3_cronograma_fatia12_avanco_historico', '20261025010000_hb3_cronograma_fatia12_gantt_ajuda',
+  // hub #109: o cronograma consome o calendário (ajuda da chave projetos.cronograma.dias_trabalhados) — CEO 27/11 alinhado por gilberto-esteira (RD-105 caso 6)
+  '20261128130045_hub_109_cronograma_consome_calendario',
   // fatia 13 e ajuda do "avanço por custo" (§317) lidas pelo sufixo: a fila pode renumerar a versão
   ...readdirSync('supabase/migrations').filter((f) => f.endsWith('_hb3_cronograma_fatia13_reprogramar_ajuda.sql') || f.endsWith('_hb4_rdo_quantidade_avanco.sql') || f.endsWith('_ajuda_cronograma_avanco_custo.sql')).map((f) => f.replace(/\.sql$/, ''))])
 
