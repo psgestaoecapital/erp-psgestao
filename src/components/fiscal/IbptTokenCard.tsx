@@ -46,7 +46,7 @@ export default function IbptTokenCard({ companyId }: { companyId: string }) {
   const [estado, setEstado] = useState<Estado | null>(null)
   const [token, setToken] = useState('')
   const [trocando, setTrocando] = useState(false)
-  const [fase, setFase] = useState<'ocioso' | 'testando' | 'removendo'>('ocioso')
+  const [fase, setFase] = useState<'ocioso' | 'testando' | 'removendo' | 'atualizando'>('ocioso')
   const [salvando, setSalvando] = useState<'lei12741Ativo' | 'ibptEmpresaNasNotas' | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null)
   const [teste, setTeste] = useState<{ generico: boolean; testes: Teste[] } | null>(null)
@@ -81,6 +81,21 @@ export default function IbptTokenCard({ companyId }: { companyId: string }) {
       const r = await authFetch('/api/fiscal/ibpt-token', { method: 'DELETE', body: JSON.stringify({ companyId }) })
       setMsg(r.ok ? { ok: true, texto: 'Token removido. As notas usam a tabela genérica.' } : { ok: false, texto: 'Não foi possível remover.' })
       await carregar()
+    } finally { setFase('ocioso') }
+  }
+
+  // #bug NFS-e "sem tributos aproximados" · reconsulta o IBPT com o token já salvo e repopula o cache, sem trocar o token.
+  async function atualizarAgora() {
+    setFase('atualizando'); setMsg(null); setTeste(null)
+    try {
+      const r = await authFetch('/api/fiscal/ibpt-token', { method: 'PUT', body: JSON.stringify({ companyId }) })
+      const j = (await r.json().catch(() => null)) as { ok?: boolean; mensagem?: string; atualizados?: number; vigenciaFim?: string | null } | null
+      if (r.ok && j?.ok) {
+        setMsg({ ok: true, texto: `Tributos do IBPT atualizados (${j.atualizados ?? 0} ${j.atualizados === 1 ? 'código' : 'códigos'})${j.vigenciaFim ? ` · vigência até ${dm(j.vigenciaFim)}` : ''}.` })
+        await carregar()
+      } else {
+        setMsg({ ok: false, texto: j?.mensagem ?? 'Não foi possível atualizar o IBPT agora.' })
+      }
     } finally { setFase('ocioso') }
   }
 
@@ -178,7 +193,12 @@ export default function IbptTokenCard({ companyId }: { companyId: string }) {
           </div>
         </div>
       ) : (
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center flex-wrap">
+          <button type="button" onClick={() => void atualizarAgora()} disabled={fase !== 'ocioso'} data-testid="ibpt-atualizar"
+            className="px-3 py-2 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[13px] hover:bg-[#B07F12] disabled:opacity-50 inline-flex items-center gap-2">
+            {fase === 'atualizando' && <Loader2 size={14} className="animate-spin" />} Atualizar agora
+          </button>
+          <AjudaCampo chave="fiscal.config.ibpt_atualizar_agora" />
           <button type="button" onClick={() => { setTrocando(true); setMsg(null) }} data-testid="ibpt-trocar" className="px-3 py-2 rounded-md border border-[#3D2314]/15 text-[13px] text-[#3D2314] hover:bg-[#3D2314]/5">Trocar</button>
           <button type="button" onClick={() => void remover()} disabled={fase !== 'ocioso'} data-testid="ibpt-remover" className="px-3 py-2 rounded-md border border-[#C94544]/40 text-[13px] text-[#791F1F] hover:bg-[#FCEBEB] disabled:opacity-50">Remover</button>
         </div>

@@ -4,8 +4,13 @@
 // Enquanto o Extrato mostra UMA conta por vez em fluxo contínuo, o Razão coloca TODAS as contas
 // lado a lado no mesmo período: para cada conta, saldo inicial · entradas · saídas · saldo final,
 // com o grupo consolidado no topo e o detalhe de lançamentos ao expandir. É um relatório
-// SOMENTE-LEITURA: reutiliza a RPC provada `fn_ge_extrato_conta` (mesma semântica do Extrato —
-// sem lógica financeira nova), uma chamada por conta. RD-96: desenho próprio PS, não é cópia.
+// SOMENTE-LEITURA. RD-96: desenho próprio PS, não é cópia.
+//
+// Performance (GAP B auditor_pdca_2 26/11, RD-99): o load faz UMA chamada à RPC consolidada
+// `fn_ge_razao_contas` (totalizadores de TODAS as contas numa passada set-based), em vez de uma ida
+// ao banco por conta. Os lançamentos de cada conta carregam SÓ ao expandir (fn_ge_extrato_conta
+// daquela conta). A RPC consolidada replica a MESMA lógica de saldo provada do Extrato (provado no
+// dado, RD-38: conta a conta bate com fn_ge_extrato_conta).
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -40,9 +45,10 @@ interface Conta {
 interface RazaoConta {
   conta: Conta
   total: Totalizadores
-  movs: Mov[]
-  semPlano: boolean
-  erro: string | null
+  n_lancamentos: number
+  movs: Mov[] | null // null = ainda não carregado (carrega ao expandir)
+  movsLoading: boolean
+  movsErro: string | null
 }
 
 function fmt(n: number | null | undefined): string {
@@ -72,7 +78,6 @@ export default function RazaoFinanceiroPage() {
   const { companyIds, selInfo } = useCompanyIds()
   const empresaUnica = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
 
-  const [contas, setContas] = useState<Conta[]>([])
   const [dataInicio, setDataInicio] = useState<string>(isoMinus(30))
   const [dataFim, setDataFim] = useState<string>(isoToday())
 
@@ -82,56 +87,43 @@ export default function RazaoFinanceiroPage() {
   const [semPlano, setSemPlano] = useState(false)
   const [expandida, setExpandida] = useState<string | null>(null)
 
-  // contas ativas da empresa (mesma leitura RLS do Extrato)
+  // UMA chamada consolidada: totalizadores de TODAS as contas no período (set-based no banco).
   useEffect(() => {
     let ignore = false
     if (!empresaUnica) return
-    ;(async () => {
-      const { data } = await supabase
-        .from('erp_banco_contas').select('id, nome')
-        .eq('company_id', empresaUnica).eq('ativo', true)
-        .order('nome')
-      if (!ignore) setContas((data ?? []) as Conta[])
-    })()
-    return () => { ignore = true }
-  }, [empresaUnica])
-
-  // uma chamada à RPC provada por conta — monta o razão por conta no período
-  useEffect(() => {
-    let ignore = false
-    if (!empresaUnica) return
-    if (contas.length === 0) { setRazao([]); setLoading(false); return }
     ;(async () => {
       setLoading(true)
+      setExpandida(null)
       try {
-        const res = await Promise.all(contas.map(async (conta) => {
-          const { data, error } = await supabase.rpc('fn_ge_extrato_conta', {
-            p_company_id: empresaUnica,
-            p_conta_id: conta.id,
-            p_data_inicio: dataInicio,
-            p_data_fim: dataFim,
-          })
-          if (error) {
-            return { conta, total: ZERO, movs: [], semPlano: false, erro: erroAmigavel(error, 'Falha ao carregar.') } as RazaoConta
-          }
-          const d = data as { sem_plano?: boolean; resultados?: Mov[]; totalizadores?: Totalizadores }
-          if (d && d.sem_plano) {
-            return { conta, total: ZERO, movs: [], semPlano: true, erro: null } as RazaoConta
-          }
-          return {
-            conta,
-            total: d?.totalizadores ?? ZERO,
-            movs: (d?.resultados ?? []) as Mov[],
-            semPlano: false,
-            erro: null,
-          } as RazaoConta
-        }))
+        const { data, error } = await supabase.rpc('fn_ge_razao_contas', {
+          p_company_id: empresaUnica,
+          p_data_inicio: dataInicio,
+          p_data_fim: dataFim,
+        })
         if (ignore) return
-        if (res.length > 0 && res.every((r) => r.semPlano)) {
-          setSemPlano(true); setRazao([]); setErro(null)
-        } else {
-          setSemPlano(false); setRazao(res); setErro(null)
+        if (error) {
+          setErro(erroAmigavel(error, 'Não foi possível montar o razão. Tente de novo.'))
+          setRazao([]); setSemPlano(false); return
         }
+        const d = data as {
+          sem_plano?: boolean
+          contas?: Array<{ conta_id: string; conta_nome: string; saldo_anterior: number; total_entradas: number; total_saidas: number; saldo_atual: number; n_lancamentos: number }>
+        }
+        if (d?.sem_plano) { setSemPlano(true); setRazao([]); setErro(null); return }
+        const lista: RazaoConta[] = (d?.contas ?? []).map((c) => ({
+          conta: { id: c.conta_id, nome: c.conta_nome },
+          total: {
+            saldo_anterior: Number(c.saldo_anterior ?? 0),
+            saldo_atual: Number(c.saldo_atual ?? 0),
+            total_entradas: Number(c.total_entradas ?? 0),
+            total_saidas: Number(c.total_saidas ?? 0),
+          },
+          n_lancamentos: Number(c.n_lancamentos ?? 0),
+          movs: null,
+          movsLoading: false,
+          movsErro: null,
+        }))
+        setSemPlano(false); setRazao(lista); setErro(null)
       } catch (e) {
         if (!ignore) { setErro(erroAmigavel(e, 'Não foi possível montar o razão. Tente de novo.')); setRazao([]) }
       } finally {
@@ -139,7 +131,34 @@ export default function RazaoFinanceiroPage() {
       }
     })()
     return () => { ignore = true }
-  }, [empresaUnica, contas, dataInicio, dataFim])
+  }, [empresaUnica, dataInicio, dataFim])
+
+  // Lançamentos da conta carregam SÓ ao expandir (fn_ge_extrato_conta daquela conta, no mesmo período).
+  async function alternarConta(contaId: string) {
+    const jaAberta = expandida === contaId
+    setExpandida(jaAberta ? null : contaId)
+    if (jaAberta || !empresaUnica) return
+    const atual = razao.find((r) => r.conta.id === contaId)
+    if (!atual || atual.movs !== null || atual.movsLoading) return // já carregado ou em andamento
+    setRazao((prev) => prev.map((r) => (r.conta.id === contaId ? { ...r, movsLoading: true, movsErro: null } : r)))
+    try {
+      const { data, error } = await supabase.rpc('fn_ge_extrato_conta', {
+        p_company_id: empresaUnica,
+        p_conta_id: contaId,
+        p_data_inicio: dataInicio,
+        p_data_fim: dataFim,
+      })
+      if (error) {
+        setRazao((prev) => prev.map((r) => (r.conta.id === contaId ? { ...r, movsLoading: false, movsErro: erroAmigavel(error, 'Falha ao carregar os lançamentos.') } : r)))
+        return
+      }
+      const d = data as { resultados?: Mov[] }
+      const movs = (d?.resultados ?? []) as Mov[]
+      setRazao((prev) => prev.map((r) => (r.conta.id === contaId ? { ...r, movs, movsLoading: false } : r)))
+    } catch (e) {
+      setRazao((prev) => prev.map((r) => (r.conta.id === contaId ? { ...r, movsLoading: false, movsErro: erroAmigavel(e, 'Falha ao carregar os lançamentos.') } : r)))
+    }
+  }
 
   const consolidado = useMemo<Totalizadores>(() => {
     return razao.reduce((acc, r) => ({
@@ -150,7 +169,7 @@ export default function RazaoFinanceiroPage() {
     }), { ...ZERO })
   }, [razao])
 
-  const totalLancamentos = useMemo(() => razao.reduce((s, r) => s + r.movs.length, 0), [razao])
+  const totalLancamentos = useMemo(() => razao.reduce((s, r) => s + r.n_lancamentos, 0), [razao])
 
   function exportarCSV() {
     const head = ['Conta', 'Saldo inicial', 'Entradas', 'Saídas', 'Saldo final', 'Lançamentos']
@@ -160,7 +179,7 @@ export default function RazaoFinanceiroPage() {
       Number(r.total.total_entradas ?? 0).toFixed(2).replace('.', ','),
       Number(r.total.total_saidas ?? 0).toFixed(2).replace('.', ','),
       Number(r.total.saldo_atual ?? 0).toFixed(2).replace('.', ','),
-      String(r.movs.length),
+      String(r.n_lancamentos),
     ])
     rows.push([
       'TOTAL DO GRUPO',
@@ -196,7 +215,7 @@ export default function RazaoFinanceiroPage() {
         </h1>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 24 }}>
           <p style={{ color: 'rgba(61,35,20,0.65)', fontSize: 13, margin: 0 }}>
-            {loading ? 'Carregando…' : `${fmtDate(dataInicio)} a ${fmtDate(dataFim)} · ${contas.length} conta(s) · ${totalLancamentos} lançamento(s)`}
+            {loading ? 'Carregando…' : `${fmtDate(dataInicio)} a ${fmtDate(dataFim)} · ${razao.length} conta(s) · ${totalLancamentos} lançamento(s)`}
           </p>
           {razao.length > 0 && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -251,7 +270,7 @@ export default function RazaoFinanceiroPage() {
             </div>
             <button onClick={() => router.push('/dashboard/gestao-empresarial')} style={primaryBtn}>Ver Gestão Empresarial</button>
           </div>
-        ) : contas.length === 0 ? (
+        ) : razao.length === 0 ? (
           <div style={emptyBox}>
             <div style={{ fontSize: 14, color: '#3D2314', marginBottom: 6, fontWeight: 600 }}>Nenhuma conta cadastrada</div>
             <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)', marginBottom: 16 }}>
@@ -283,7 +302,7 @@ export default function RazaoFinanceiroPage() {
                       r={r}
                       aberta={aberta}
                       saldoFinalCor={saldoFinalCor}
-                      onToggle={() => setExpandida(aberta ? null : r.conta.id)}
+                      onToggle={() => alternarConta(r.conta.id)}
                     />
                   )
                 })}
@@ -315,20 +334,22 @@ function RazaoLinha({ r, aberta, saldoFinalCor, onToggle }: { r: RazaoConta; abe
         <td style={{ ...td, textAlign: 'center', color: 'rgba(61,35,20,0.55)' }} aria-label={aberta ? 'Recolher' : 'Expandir'}>{aberta ? '▾' : '▸'}</td>
         <td style={{ ...td, fontWeight: 600 }}>
           {r.conta.nome}
-          {r.erro && <span style={{ color: '#A32D2D', fontSize: 11, marginLeft: 8 }}>· {r.erro}</span>}
-          {r.semPlano && <span style={{ color: 'rgba(61,35,20,0.45)', fontSize: 11, marginLeft: 8 }}>· sem plano</span>}
         </td>
         <td style={{ ...td, textAlign: 'right', color: 'rgba(61,35,20,0.6)', fontVariantNumeric: 'tabular-nums' }}>R$ {fmt(r.total.saldo_anterior)}</td>
         <td style={{ ...td, textAlign: 'right', color: '#3B6D11', fontVariantNumeric: 'tabular-nums' }}>+ R$ {fmt(r.total.total_entradas)}</td>
         <td style={{ ...td, textAlign: 'right', color: '#A32D2D', fontVariantNumeric: 'tabular-nums' }}>− R$ {fmt(r.total.total_saidas)}</td>
         <td style={{ ...td, textAlign: 'right', color: saldoFinalCor, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>R$ {fmt(r.total.saldo_atual)}</td>
-        <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.movs.length}</td>
+        <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.n_lancamentos}</td>
       </tr>
       {aberta && (
         <tr>
           <td></td>
           <td colSpan={6} style={{ padding: '0 14px 14px' }}>
-            {r.movs.length === 0 ? (
+            {r.movsLoading ? (
+              <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.5)', padding: '12px 0' }}>Carregando lançamentos…</div>
+            ) : r.movsErro ? (
+              <div style={{ fontSize: 12, color: '#A32D2D', padding: '12px 0' }}>{r.movsErro}</div>
+            ) : !r.movs || r.movs.length === 0 ? (
               <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.5)', padding: '12px 0' }}>Nenhum lançamento nesta conta no período.</div>
             ) : (
               <div style={{ border: '0.5px solid rgba(61,35,20,0.1)', borderRadius: 6, overflow: 'auto', marginTop: 8 }}>

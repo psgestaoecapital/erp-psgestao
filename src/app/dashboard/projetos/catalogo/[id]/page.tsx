@@ -268,6 +268,27 @@ export default function ServicoEditorPage({
         return;
       }
     }
+    // Faixas válidas (CHECK no banco): jornada 0 < h ≤ 24 e base de produção por 'dia'/'hora'.
+    // Validar ANTES de enviar evita o 23514 cru ("algum valor está fora do permitido. confira os
+    // campos") — chamado #11035 (Tryo): ao editar o serviço duplicado, jornada/produção fora da
+    // faixa mostrava erro sem dizer QUAL campo corrigir (RD-98: erro em linguagem do usuário).
+    if ("jornada_horas_dia" in edits) {
+      const j = (edits as any).jornada_horas_dia;
+      const jn = j === "" || j === null || j === undefined ? NaN : Number(j);
+      if (!Number.isFinite(jn) || jn <= 0 || jn > 24) {
+        setErro("Informe a jornada entre 0 e 24 horas por dia (ex.: 8).");
+        setTimeout(() => setErro(null), 5000);
+        return;
+      }
+    }
+    if ("produtividade_base" in edits) {
+      const b = String((edits as any).produtividade_base ?? "");
+      if (b !== "dia" && b !== "hora") {
+        setErro("A produção deve ser por dia ou por hora.");
+        setTimeout(() => setErro(null), 5000);
+        return;
+      }
+    }
     setSalvandoMeta(true);
     setErro(null);
     try {
@@ -299,14 +320,24 @@ export default function ServicoEditorPage({
       const codigoDuplicado =
         /projetos_servicos_codigo_unico/i.test(raw) ||
         (code === "23505" && /duplicate key|já existe|chave duplicada/i.test(raw));
+      // 23514 (check) / 23502 na jornada: traduzir o constraint cru para linguagem do usuário,
+      // apontando o campo exato (chamado #11035 · RD-98). Antes caía no genérico "Não foi possível".
+      const jornadaFora =
+        /projetos_servicos_jornada_check/i.test(raw) ||
+        (code === "23502" && /jornada_horas_dia/i.test(raw));
+      const baseFora = /produtividade_base_check/i.test(raw);
       setErro(
         codigoDuplicado
           ? "Já existe um serviço com esse código nesta empresa. Troque o código e salve de novo."
-          : /unidade/i.test(raw)
-            ? "Informe a unidade de medida do serviço (m², m, un)."
-            : /violates not-null|null value in column/i.test(raw)
-              ? "Preencha os campos obrigatórios: código, nome e unidade."
-              : "Não foi possível salvar. Tente novamente.",
+          : jornadaFora
+            ? "Informe a jornada entre 0 e 24 horas por dia (ex.: 8)."
+            : baseFora
+              ? "A produção deve ser por dia ou por hora."
+              : /unidade/i.test(raw)
+                ? "Informe a unidade de medida do serviço (m², m, un)."
+                : /violates not-null|null value in column/i.test(raw)
+                  ? "Preencha os campos obrigatórios: código, nome e unidade."
+                  : "Não foi possível salvar. Tente novamente.",
       );
     } finally {
       setSalvandoMeta(false);
@@ -610,6 +641,19 @@ export default function ServicoEditorPage({
               produtividadeBase={servico.produtividade_base}
               equipePessoas={servico.equipe_pessoas}
               jornadaHorasDia={servico.jornada_horas_dia}
+              onProdutividadeServico={async (v) => {
+                // CEO 26/11: o card grava os valores no serviço (fonte única) → ao reabrir, pré-preenche;
+                // e o formulário do serviço reflete os mesmos valores.
+                if (!servico) return;
+                const supabase = supabaseBrowser();
+                await supabase.from("projetos_servicos").update({
+                  produtividade_pessoa: v.produtividade_pessoa,
+                  produtividade_base: v.produtividade_base,
+                  equipe_pessoas: v.equipe_pessoas,
+                  jornada_horas_dia: v.jornada_horas_dia,
+                }).eq("id", servico.id);
+                await carregar({ soft: true });
+              }}
             />
           </div>
         </div>
