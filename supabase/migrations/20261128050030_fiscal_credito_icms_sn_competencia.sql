@@ -76,12 +76,13 @@ ALTER TABLE public.erp_fiscal_provider_config
 COMMENT ON COLUMN public.erp_fiscal_provider_config.credito_sn_bloqueia_sem_mes IS
   '#11424 · true = BLOQUEIA a emissão (empresa que usa crédito) quando a competência do mês não foi lançada; false (default) = usa o último valor conhecido + alerta visível.';
 
--- #11424 (revisão) · SEED: preserva o STATUS QUO no merge. Toda empresa que já usa crédito (flat > 0) recebe esse
--- MESMO valor na competência CORRENTE (mês de Brasília do deploy), para seguir emitindo 101 com o crédito atual —
--- agora por competência. NÃO inventa alíquota; usa a já configurada. Idempotente (ON CONFLICT DO NOTHING).
+-- #11424 (revisão, Eng. Chefe) · SEED: preserva o STATUS QUO no merge. Toda empresa que já usa crédito (flat > 0)
+-- recebe esse MESMO valor na competência FIXA de 11/2026 (mês da revisão/deploy), para seguir emitindo 101 com o
+-- crédito atual — agora por competência. A regra mensal vale a partir de 12/2026. DATA FIXA (nunca copiar para outro
+-- mês). NÃO inventa alíquota; usa a já configurada. Idempotente (ON CONFLICT DO NOTHING).
 INSERT INTO public.erp_fiscal_credito_sn (company_id, competencia, credito, created_by)
 SELECT pc.company_id,
-       date_trunc('month', timezone('America/Sao_Paulo', now()))::date AS competencia,
+       DATE '2026-11-01' AS competencia,
        round(pc.aliquota_credito_icms_sn, 2) AS credito,
        NULL::uuid
 FROM public.erp_fiscal_provider_config pc

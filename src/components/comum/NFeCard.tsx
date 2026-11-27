@@ -44,6 +44,9 @@ interface NFeUltima {
 interface PreviaInfCpl {
   original: string
   limite: number
+  // #11424 (revisão) · alerta visível quando a empresa optou pelo crédito de ICMS do Simples e o mês da nota não
+  // está lançado (a nota sai com o último valor conhecido). Faixa amarela, não bloqueia.
+  avisoCreditoSN?: string | null
 }
 
 const C = {
@@ -127,7 +130,7 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
         setNotaMontada(null)
       } else {
         const texto = String(json.previa.informacoesComplementares ?? '')
-        setPrevia({ original: texto, limite: Number(json.previa.limite) || 5000 })
+        setPrevia({ original: texto, limite: Number(json.previa.limite) || 5000, avisoCreditoSN: json.previa.avisoCreditoSN ?? null })
         setTextoInfCpl(texto)
         setNotaMontada((json.previa.nota ?? null) as EspelhoNota | null)
       }
@@ -286,6 +289,14 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
           }}
         />
       </label>
+      {previa?.avisoCreditoSN && (
+        <div
+          data-testid="nfe-pedido-aviso-credito-sn"
+          style={{ fontSize: 12, color: '#8A5A08', background: '#FDF6E3', border: '1px solid rgba(200,148,26,0.4)', padding: '8px 10px', borderRadius: 8 }}
+        >
+          ⚠️ {previa.avisoCreditoSN}
+        </div>
+      )}
       {previa && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span data-testid="nfe-pedido-infcpl-contador" style={{ fontSize: 11, fontWeight: excedeInfCpl ? 700 : 400, color: excedeInfCpl ? C.red : C.espressoM }}>

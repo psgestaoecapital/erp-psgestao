@@ -71,7 +71,9 @@ export default function EmitirNFeOSButton({
   const [fase, setFase] = useState<'form' | 'enviando' | 'resultado'>('form')
   const [resultado, setResultado] = useState<{ ok?: boolean; status?: string; numero?: string | null; mensagem?: string; motivoRejeicao?: string } | null>(null)
   // Informações Complementares: prévia (texto composto pelo servidor para as peças marcadas) + texto editado na tela
-  const [previa, setPrevia] = useState<{ original: string; limite: number } | null>(null)
+  // #11424 (revisão) · avisoCreditoSN: faixa amarela visível quando a empresa optou pelo crédito de ICMS do Simples
+  // e o mês da nota não está lançado (sai com o último valor conhecido). Não bloqueia.
+  const [previa, setPrevia] = useState<{ original: string; limite: number; avisoCreditoSN?: string | null } | null>(null)
   const [textoInfCpl, setTextoInfCpl] = useState('')
   const editouInfCpl = useRef(false)
   const [previaErro, setPreviaErro] = useState<string | null>(null)
@@ -194,7 +196,7 @@ export default function EmitirNFeOSButton({
         if (!vivo) return
         if (!res.ok || json?.ok === false || !json?.previa) { setPreviaErro(json?.mensagem ?? json?.message ?? `HTTP ${res.status}`); setNotaMontada(null); return }
         const texto = String(json.previa.informacoesComplementares ?? '')
-        setPrevia({ original: texto, limite: Number(json.previa.limite) || 5000 })
+        setPrevia({ original: texto, limite: Number(json.previa.limite) || 5000, avisoCreditoSN: json.previa.avisoCreditoSN ?? null })
         setTextoInfCpl((atual) => (editouInfCpl.current ? atual : texto))
         setNotaMontada((json.previa.nota ?? null) as EspelhoNota | null)
       } catch (e) {
@@ -447,6 +449,12 @@ export default function EmitirNFeOSButton({
                         placeholder={!previa && !previaErro ? 'Montando o texto da nota…' : 'Sem informações complementares'}
                         style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${excedeInfCpl ? C.red : C.line}`, borderRadius: 6, padding: '8px 10px', fontSize: 12, lineHeight: 1.5, color: C.espresso, resize: 'vertical' }} />
                     </label>
+                    {previa?.avisoCreditoSN && (
+                      <div data-testid="os-nfe-aviso-credito-sn"
+                        style={{ fontSize: 12, color: '#8A5A08', background: '#FDF6E3', border: '1px solid rgba(200,148,26,0.4)', padding: '8px 10px', borderRadius: 6 }}>
+                        ⚠️ {previa.avisoCreditoSN}
+                      </div>
+                    )}
                     {previa && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                         <span data-testid="os-nfe-infcpl-contador" style={{ fontSize: 11, fontWeight: excedeInfCpl ? 700 : 400, color: excedeInfCpl ? C.red : C.espressoM }}>

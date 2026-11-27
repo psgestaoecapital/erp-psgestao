@@ -63,6 +63,12 @@ ok(/avisoCreditoSN/.test(rotaEmitir), 'emissão devolve o alerta do crédito (pr
 ok(/credito_sn_bloqueia_sem_mes/.test(rotaEmitir), 'rota: opção (b) — bloqueia quando o perfil pede e o mês não foi lançado')
 const modalNfe = readFileSync('src/components/fiscal/NFePreviewModal.tsx', 'utf8')
 ok(/avisoCreditoSN/.test(modalNfe), 'tela de emissão: alerta do crédito VISÍVEL (não só nos dados da prévia)')
+// #11424 (revisão) · os DOIS pontos reais de emissão (comércio e oficina) leem a prévia inline e precisam
+// SURFAR o aviso — antes liam só informacoesComplementares/limite e o alerta ficava invisível.
+const nfeCard = readFileSync('src/components/comum/NFeCard.tsx', 'utf8')
+const osBtn = readFileSync('src/components/comum/EmitirNFeOSButton.tsx', 'utf8')
+ok(/previa\.avisoCreditoSN/.test(nfeCard) && /nfe-pedido-aviso-credito-sn/.test(nfeCard), 'tela comércio (NFeCard): faixa do crédito VISÍVEL acima do Emitir')
+ok(/previa\.avisoCreditoSN/.test(osBtn) && /os-nfe-aviso-credito-sn/.test(osBtn), 'tela oficina (EmitirNFeOSButton): faixa do crédito VISÍVEL acima do Emitir')
 
 const mig = readFileSync('supabase/migrations/20261017022020_fiscal_credito_icms_simples.sql', 'utf8')
 ok(/ADD COLUMN IF NOT EXISTS aliquota_credito_icms_sn numeric/.test(mig) && !/DEFAULT\s+\d/.test(mig.split('aliquota_credito_icms_sn numeric')[1]?.slice(0, 20) ?? ''), 'coluna do opt-in nula por padrão (ninguém muda sem cadastrar)')
@@ -78,6 +84,8 @@ ok(/fn__guarda_empresa\(p_company_id\)/.test(migComp) && /fn_pagar_usuario_maste
 ok(/REVOKE EXECUTE ON FUNCTION public\.fn_fiscal_credito_sn_salvar\(uuid, date, numeric\) FROM anon, public/.test(migComp), 'função mensal sem acesso anônimo')
 ok(/ADD COLUMN IF NOT EXISTS credito_sn_bloqueia_sem_mes boolean NOT NULL DEFAULT false/.test(migComp), 'migração: flag de bloqueio (opção b), default false')
 ok(/INSERT INTO public\.erp_fiscal_credito_sn[\s\S]*FROM public\.erp_fiscal_provider_config[\s\S]*aliquota_credito_icms_sn[\s\S]*ON CONFLICT \(company_id, competencia\) DO NOTHING/.test(migComp), 'migração: SEED idempotente preserva o status quo (flat>0 → competência corrente)')
+// #11424 (revisão) · DATA FIXA: o seed nunca copia o crédito para outro mês (a regra mensal vale a partir de 12/2026).
+ok(/DATE '2026-11-01'|competencia\s*=\s*'2026-11-01'/.test(migComp) && !/date_trunc\('month',\s*timezone\([^)]*now\(\)\)/.test(migComp), 'migração: SEED com competência FIXA 2026-11-01 (sem now(), nunca copia para outro mês)')
 
 const card = readFileSync('src/components/fiscal/ConfigFiscalEditCard.tsx', 'utf8')
 for (const c of [...card.matchAll(/<AjudaCampo chave="([^"]+credito[^"]*)"/g)].map((m) => m[1])) ok(mig.includes(`'${c}'`) || migComp.includes(`'${c}'`), `"?" cadastrado: ${c}`)
