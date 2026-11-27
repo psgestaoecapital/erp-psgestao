@@ -176,6 +176,9 @@ export interface NFeRequest {
   serie: string
   naturezaOperacao: string
   finalidade: 'normal' | 'complementar' | 'ajuste' | 'devolucao'
+  // #9787 · tpNF: 1 = saída (padrão: venda) · 0 = entrada (nota própria de entrada da revenda — compra PF/PJ, troca).
+  // Ausente = 1 (comportamento atual). Mapeado para `tipo_documento` no payload Focus.
+  tipoOperacao?: 0 | 1
   emitente: {
     cnpj: string
     razaoSocial: string

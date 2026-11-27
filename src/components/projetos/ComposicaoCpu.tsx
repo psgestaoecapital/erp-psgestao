@@ -6,7 +6,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Package, HardHat, Wrench, ShieldCheck, Hammer, ChevronDown, ChevronRight, Loader2, Info } from "lucide-react";
+import { Package, HardHat, Wrench, ShieldCheck, Hammer, ChevronDown, ChevronRight, Loader2, Info, AlertTriangle } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
@@ -176,6 +176,26 @@ export function ComposicaoCpu({
         </div>
       ) : (
         <>
+          {(() => {
+            // Chamado #11474/#11274: material/equipamento/EPI/ferramenta sem custo unitário entra como R$ 0,00
+            // e "some" do custo total — o usuário acha que o material não está somando. Avisa de forma visível.
+            const semCusto = data.itens.filter(
+              (it) => it.tipo !== "mao_obra" && (it.custo_unitario ?? 0) <= 0,
+            ).length;
+            if (semCusto === 0) return null;
+            return (
+              <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <span>
+                  {semCusto === 1
+                    ? "1 item sem custo unitário"
+                    : `${semCusto} itens sem custo unitário`}{" "}
+                  — entram como R$ 0,00 e não somam no custo de material. Informe o custo do item no cadastro
+                  (estoque/insumo) ou no custo manual do BOM para o preço refletir o material.
+                </span>
+              </div>
+            );
+          })()}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-sm">
               <thead>
@@ -217,7 +237,15 @@ export function ComposicaoCpu({
                           <span className="ml-1 text-[10px] text-[#3D2314]/45">+{it.perda_pct}%</span>
                         )}
                       </td>
-                      <td className="py-2 pr-3 text-right font-mono text-[#3D2314]/80">{brl(it.custo_unitario, it.custo_unitario < 1 ? 4 : 2)}</td>
+                      <td className="py-2 pr-3 text-right font-mono text-[#3D2314]/80">
+                        {it.tipo !== "mao_obra" && (it.custo_unitario ?? 0) <= 0 ? (
+                          <span className="inline-flex items-center gap-1 text-amber-700" title="Sem custo unitário — não soma no custo de material">
+                            <AlertTriangle size={11} /> R$ 0,00
+                          </span>
+                        ) : (
+                          brl(it.custo_unitario, it.custo_unitario < 1 ? 4 : 2)
+                        )}
+                      </td>
                       <td className="py-2 pr-3 text-right font-mono font-medium text-[#3D2314]">{brl(it.custo_no_servico)}</td>
                       {verImpostos && (
                         <>

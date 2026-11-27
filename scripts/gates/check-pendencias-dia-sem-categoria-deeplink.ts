@@ -30,4 +30,12 @@ const tela = readFileSync('src/components/financeiro/ListagemPagarReceberView.ts
 ok(tela.includes("qs.get('semcategoria')"), 'a tela lê o parâmetro ?semcategoria=')
 ok(tela.includes('SEM_CATEGORIA'), 'a tela tem a sentinela SEM_CATEGORIA para filtrar os sem categoria')
 
+// CEO 25/11: os 2 links (pagar/receber sem categoria) levam também a empresa (company=<id>), na definição VIVA.
+const viva = readdirSync(DIR).filter((f) => f.endsWith('.sql'))
+  .filter((f) => /CREATE OR REPLACE FUNCTION public\.fn_ge_pendencias_dia/.test(readFileSync(`${DIR}/${f}`, 'utf8')))
+  .sort().pop()
+const sqlViva = viva ? readFileSync(`${DIR}/${viva}`, 'utf8') : ''
+ok(/pagar\?semcategoria=1&company=/.test(sqlViva), 'despesa sem categoria → ?semcategoria=1&company=<id>')
+ok(/receber\?semcategoria=1&company=/.test(sqlViva), 'receita sem categoria → ?semcategoria=1&company=<id>')
+
 if (falhas) process.exit(1)

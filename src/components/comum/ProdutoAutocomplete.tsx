@@ -38,6 +38,9 @@ interface Props {
   colorDanger?: string
   colorMuted?: string
   colorBorder?: string
+  /** Contexto de uso: filtra a busca pelos produtos que fazem sentido ali (tela 143 · releitura 21/11).
+   *  'venda' → só produtos marcados como "é vendido"; 'compra' → só "é comprado". Sem contexto = todos. */
+  contexto?: 'venda' | 'compra'
 }
 
 const BORDER = '#E0D8CC'
@@ -63,6 +66,7 @@ export default function ProdutoAutocomplete({
   colorDanger = RED,
   colorMuted = ESPRESSO_M,
   colorBorder = BORDER,
+  contexto,
 }: Props) {
   const [busca, setBusca] = useState('')
   const [candidatos, setCandidatos] = useState<ProdutoSelecionado[]>([])
@@ -82,16 +86,19 @@ export default function ProdutoAutocomplete({
     const handle = window.setTimeout(async () => {
       try {
         const cols = 'id, codigo, nome, unidade, preco_custo, preco_custo_medio, estoque_atual'
-        const inicia = supabase
+        // Tela 143 · releitura 21/11: no contexto de venda/compra, só os produtos que fazem sentido ali.
+        const usoCol = contexto === 'venda' ? 'uso_venda' : contexto === 'compra' ? 'uso_compra' : null
+        let fIni = supabase
           .from('erp_produtos').select(cols)
           .eq('company_id', companyId).eq('ativo', true)
           .or(`nome.ilike.${t}%,codigo.ilike.${t}%`)
-          .order('nome').limit(50)
-        const contem = supabase
+        let fCon = supabase
           .from('erp_produtos').select(cols)
           .eq('company_id', companyId).eq('ativo', true)
           .ilike('nome', `%${t}%`)
-          .order('nome').limit(50)
+        if (usoCol) { fIni = fIni.eq(usoCol, true); fCon = fCon.eq(usoCol, true) }
+        const inicia = fIni.order('nome').limit(50)
+        const contem = fCon.order('nome').limit(50)
         const [resIni, resCon] = await Promise.all([inicia, contem])
         const map = new Map<string, ProdutoSelecionado>()
         for (const p of (resIni.data ?? []) as ProdutoSelecionado[]) map.set(p.id, p)

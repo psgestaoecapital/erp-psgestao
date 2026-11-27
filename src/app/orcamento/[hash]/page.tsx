@@ -55,6 +55,19 @@ export default function OrcamentoPublicoPage() {
     })();
   }, [hash]);
 
+  // CEO 24/11: aberta em modo impressão (botão "Imprimir"/"Baixar PDF" do painel Finalizar do editor) →
+  // dispara a impressão do navegador assim que a proposta carrega (o usuário pode salvar como PDF).
+  useEffect(() => {
+    if (loading || !dados) return;
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get("imprimir") === "1") {
+        const t = setTimeout(() => window.print(), 600);
+        return () => clearTimeout(t);
+      }
+    } catch { /* sem window: ignora */ }
+  }, [loading, dados]);
+
   const enviar = async (acao: 'aprovar' | 'recusar') => {
     if (!nomeAprovador.trim()) {
       alert("Por favor, informe seu nome para " + (acao === 'aprovar' ? 'aprovar' : 'recusar'));

@@ -8,7 +8,8 @@ const PASTA = 'src/app/dashboard/projetos'
 // Componentes compartilhados que já renderizam o próprio <h1> da tela (RD-26 — a page.tsx só os reusa):
 // - InstalarApp (tela de instalação do app)
 // - AgendaComercialView (Agenda comercial; renderiza <h1>Agenda</h1>, reusada do P&M)
-const COMPONENTE_COM_TITULO = /<(InstalarApp|AgendaComercialView)\b/
+// - MaoObraTela (Mão de obra / Pessoas e custo; renderiza <h1> próprio — #6168, RD-26)
+const COMPONENTE_COM_TITULO = /<(InstalarApp|AgendaComercialView|MaoObraTela)\b/
 
 function paginas(d: string): string[] {
   return readdirSync(d).flatMap((n) => {
