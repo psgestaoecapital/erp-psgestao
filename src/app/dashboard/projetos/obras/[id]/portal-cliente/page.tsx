@@ -347,11 +347,14 @@ export default function PortalClienteObraPage({ params }: { params: Promise<{ id
                   <input value={aprovTitulo} onChange={(e) => setAprovTitulo(e.target.value)} placeholder="ex.: Medição nº 3" style={inp} data-testid="aprov-titulo" />
                 </label>
                 <label style={{ flex: '1 1 140px' }}>
-                  <div style={{ ...lbl, marginBottom: 6 }}>Valor (opcional)</div>
+                  <div style={{ ...lbl, marginBottom: 6 }}>Valor (opcional) <AjudaCampo chave="obra.portal.aprovacao_titulo" rota={ROTA} /></div>
                   <input value={aprovValor} onChange={(e) => setAprovValor(e.target.value)} inputMode="decimal" placeholder="R$" style={inp} data-testid="aprov-valor" />
                 </label>
               </div>
-              <textarea value={aprovDescricao} onChange={(e) => setAprovDescricao(e.target.value)} placeholder="Descrição do que o cliente vai aprovar (opcional)" rows={2} style={{ ...inp, marginTop: 10, resize: 'vertical' }} data-testid="aprov-descricao" />
+              <label style={{ display: 'block', marginTop: 10 }}>
+                <div style={{ ...lbl, marginBottom: 6 }}>Descrição (opcional) <AjudaCampo chave="obra.portal.aprovacao_titulo" rota={ROTA} /></div>
+                <textarea value={aprovDescricao} onChange={(e) => setAprovDescricao(e.target.value)} placeholder="Descrição do que o cliente vai aprovar (opcional)" rows={2} style={{ ...inp, resize: 'vertical' }} data-testid="aprov-descricao" />
+              </label>
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
                 <button onClick={() => void registrarAprov()} disabled={salvandoAprov || !aprovTitulo.trim()} style={{ ...btn(GOLD, ESP), opacity: salvandoAprov || !aprovTitulo.trim() ? 0.6 : 1 }} data-testid="aprov-registrar">
                   {salvandoAprov ? 'Registrando…' : 'Registrar pedido'}
