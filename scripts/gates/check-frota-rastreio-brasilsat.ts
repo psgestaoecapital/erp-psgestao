@@ -6,6 +6,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import {
   md5Hex, assinatura, converterDispositivos, converterPosicoes, converterPlayback, distanciaKm, mensagemErro, lotes,
+  janelaDia, converterMileage, converterAlarmes, converterCercas, cercaDoPonto, derivarViagensParadas, type PontoRota,
   metrosParaKm, motoristaDe, temperaturaDe, baseUrlDe, BASE_URL,
 } from '../../supabase/functions/frota-rastreio-sync/protocolo'
 
@@ -34,6 +35,7 @@ ok(pos[0].motorista === null && motoristaDe({ id: '9', name: ' Cleber ' }) === '
 ok(motoristaDe('[object Object]') === null && motoristaDe('Leimar') === 'Leimar', 'driver texto legado: "[object Object]" = nulo')
 ok(pos[0].temperatura === null && temperaturaDe(['-18.5', '-17']) === -18.5 && temperaturaDe('') === null, 'temperature [] = nulo (nunca 0 falso); lista = 1ª sonda')
 ok(baseUrlDe(null) === BASE_URL && baseUrlDe('https://api.protrack365.com/') === 'https://api.protrack365.com' && baseUrlDe('http://x.com') === BASE_URL && baseUrlDe('javascript:alert(1)') === BASE_URL, 'endereço da API por empresa: só https; vazio/inválido = padrão')
+ok(converterPosicoes([{ imei: '1', latitude: -27.1, longitude: -52.6, gpstime: 1700000000, mileage: -1 }])[0].odometro === null, 'track: mileage -1 = sem dado')
 const rota = converterPlayback('-52.6,-27.1,1700000000,50,90;-52.61,-27.11,1700000060,55,90;;lixo')
 ok(rota.length === 2 && rota[1].t === 1700000060, 'playback: record "lng,lat,gpstime,speed,course;…"')
 ok(distanciaKm([{ lat: -27, lng: -52 }, { lat: -28, lng: -52 }]) > 110 && distanciaKm([{ lat: -27, lng: -52 }, { lat: -28, lng: -52 }]) < 112, 'distância haversine ~111 km por grau')
@@ -76,13 +78,52 @@ ok(/REVOKE ALL ON FUNCTION public\.fn_frota_rastreio_corrigir_legado\(\) FROM PU
 ok(/api_base_url text/.test(sql2), 'frota_rastreio_config.api_base_url (família Protrack)')
 ok(/REVOKE ALL ON FUNCTION public\.fn_frota_rastreio_painel\(uuid\) FROM PUBLIC, anon/.test(sql2), 'REVOKE anon mantido no painel')
 const fnEdge = readFileSync('supabase/functions/frota-rastreio-sync/index.ts', 'utf8')
-ok((fnEdge.match(/await usarApiDaEmpresa\(companyId\)/g) || []).length === 2, 'edge usa o endereço da API da empresa no sync e na rota histórica')
+ok((fnEdge.match(/await usarApiDaEmpresa\(companyId\)/g) || []).length === 2 && /await usarApiDaEmpresa\(p\.company_id\)/.test(fnEdge) && /apiBase = s\.base/.test(fnEdge), 'edge usa o endereço da API da empresa no sync, na rota histórica e na cópia diária')
 
 // ── (4) tela ──
 const tela = readFileSync('src/app/dashboard/inteligencia/logistica/page.tsx', 'utf8')
 ok(/fn_frota_rastreio_painel/.test(tela), 'tela lê a porta fn_frota_rastreio_painel')
 ok(/tem_credencial/.test(tela) && /\/dashboard\/conectores/.test(tela), 'sem credencial: estado vazio com o caminho para cadastrar')
 ok(/playback_habilitado/.test(tela), 'tela: rota histórica só com a flag ligada')
+
+// ── cópia diária, km oficial, alarmes, cercas, viagens/paradas (pacote Eng. Chefe 27/11) ──
+const j = janelaDia('2026-11-26')
+ok(new Date(j.ini * 1000).toISOString() === '2026-11-26T03:00:00.000Z' && j.fim - j.ini === 86400, 'janela do dia = 00h–24h de Brasília (minuto 0, exigido pelo mileage)')
+ok(converterMileage([{ imei: '1', mileage: 412.34 }, { imei: '', mileage: 3 }])[0].km === 412.3, 'device/mileage: km oficial por imei')
+const al = converterAlarmes('9', [{ alarmtype: 7, systemtime: 1700000000, gpstime: 1699999990, latitude: -27, longitude: -52, speed: 95, geofenceid: 0 }, { alarmtype: 99, systemtime: 1700000100 }])
+ok(al.length === 2 && al[0].tipo_nome === 'Excesso de velocidade' && al[0].cerca_id === null && al[1].tipo_nome === 'Alarme 99', 'alarm/list2: tipo em português, sem cerca quando id 0')
+const cer = converterCercas([{ id: '1', name: 'Planta', type: 2, parameter: '-52.6,-27.1,500' }, { id: '2', name: 'Fazenda', type: 3, parameter: '-52,-27;-52,-26;-51,-26;-51,-27' }, { id: '3', type: 3, parameter: '1,1' }])
+ok(cer.length === 2 && cer[0].raio_m === 500 && cer[1].poligono?.length === 4, 'geofence/list: círculo "lng,lat,raio" e polígono "lng,lat;…"')
+ok(cercaDoPonto({ lat: -27.101, lng: -52.6 }, cer) === 'Planta' && cercaDoPonto({ lat: -26.5, lng: -51.5 }, cer) === 'Fazenda' && cercaDoPonto({ lat: -30, lng: -50 }, cer) === null, 'ponto dentro de círculo e de polígono')
+// dia sintético: parado 20 min na planta → anda ~11 km → para 3 min (semáforo) → anda → rastreador dorme 40 min (lacuna) → anda
+const dia: PontoRota[] = []
+let t = 1700000000
+const push = (lat: number, lng: number, v: number) => { dia.push({ lat, lng, t, em: new Date(t * 1000).toISOString(), velocidade: v, curso: 0 }) }
+for (let i = 0; i < 21; i++) { push(-27.1, -52.6, 0); t += 60 }                       // 20 min parado
+for (let i = 1; i <= 10; i++) { push(-27.1 - i * 0.01, -52.6, 60); t += 60 }          // ~11 km
+for (let i = 0; i < 4; i++) { push(-27.2, -52.6, 0); t += 60 }                         // 3 min (não é parada)
+for (let i = 1; i <= 5; i++) { push(-27.2 - i * 0.01, -52.6, 60); t += 60 }
+t += 40 * 60; push(-27.25, -52.6, 0); t += 60                                          // lacuna de 40 min no mesmo lugar
+for (let i = 1; i <= 5; i++) { push(-27.25 - i * 0.01, -52.6, 60); t += 60 }
+const dv = derivarViagensParadas(dia)
+ok(dv.paradas.length === 2 && dv.paradas[0].duracao_min >= 20 && dv.paradas[1].duracao_min >= 40, 'paradas: ≥ 5 min contam (inclui lacuna do rastreador); semáforo de 3 min não')
+ok(dv.viagens.length === 2 && dv.viagens[0].km > 16 && dv.viagens[0].velocidade_max === 60, 'viagens: trechos entre paradas, com km e velocidade máxima')
+ok(derivarViagensParadas([]).viagens.length === 0, 'dia sem pontos: nada derivado')
+
+const fnAj = readFileSync('supabase/functions/frota-rastreio-sync/index.ts', 'utf8')
+ok(/fn_frota_rastreio_token_ler/.test(fnAj) && /fn_frota_rastreio_token_gravar/.test(fnAj), 'token único: guardado no Vault e reaproveitado')
+ok(/modo === "diario"/.test(fnAj) && /\/api\/device\/mileage/.test(fnAj) && /\/api\/alarm\/list2/.test(fnAj) && /\/api\/geofence\/list/.test(fnAj), 'edge: cópia diária, km oficial, alarmes e cercas')
+ok(!/\/api\/(command|geofence\/(add|edit|delete)|device\/alertsettings\/set|user\/)/.test(fnAj), 'edge: só leitura da plataforma (sem comando, bloqueio, cerca ou alarme escrito)')
+
+const migAj = readdirSync('supabase/migrations').find((f) => /_frota_rastreio_ajustes\.sql$/.test(f))
+const sqlAj = migAj ? readFileSync(`supabase/migrations/${migAj}`, 'utf8') : ''
+ok(!!migAj, 'migration de ajustes existe')
+ok(/fn_frota_placa_canonica/.test(sqlAj) && /chr\(65 \+ substr\(x, 5, 1\)::int\)/.test(sqlAj), 'placa antiga → Mercosul (5º caractere 0-9 → A-J)')
+ok(/ind_fin_titulo_mv/.test(sqlAj) && /frota_custo_regra/.test(sqlAj) && /\^\(ADF\|ADS\)\$/.test(sqlAj), 'custo pelos títulos do ERP com regras editáveis, sem adiantamentos')
+ok(/interval '90 days'/.test(sqlAj) && /frota-rastreio-diario/.test(sqlAj), 'bruto 90 dias + cron da cópia diária')
+ok(/'frota_rastreio_vinculo','frota_rastreio_ponto','frota_km_dia','frota_viagem','frota_parada',\s*'frota_copia_dia','frota_alarme','frota_cerca','frota_custo_regra'/.test(sqlAj) && /REVOKE ALL ON public\.%I FROM anon, PUBLIC/.test(sqlAj), 'RLS + REVOKE anon em todas as tabelas novas')
+ok(!/(UPDATE|INSERT INTO|DELETE FROM|ALTER TABLE)\s+public\.(atak_conexao_config|erp_credencial|erp_sync_log|ind_fin_titulo_mv)\b/i.test(sqlAj.replace(/--[^\n]*/g, '')), 'ajustes não escrevem na coleta nem nos títulos')
+ok(/fn_frota_rastreio_vincular/.test(tela) && /divergencias/.test(tela) && /custo_mes/.test(tela) && /log\.bi\.subconta/.test(tela), 'tela: divergências com confirmação, custo/km do ERP e dica da subconta')
 
 if (falhas) { console.error(`\n${falhas} falha(s) — check-frota-rastreio-brasilsat`); process.exit(1) }
 console.log('\ncheck-frota-rastreio-brasilsat OK')
