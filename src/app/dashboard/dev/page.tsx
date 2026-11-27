@@ -311,6 +311,7 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
   // Fase 3 (27/11): só aparece na lista a vertical ativa COM documento vigente em COALESCE(doc_slug, slug).
   // null = o usuário não lê erp_documento_vertical (RLS só PS admin) → lista as ativas, como antes.
   const [comDoc,setComDoc]=useState<Set<string>|null>(null);
+  const [vertCarregada,setVertCarregada]=useState(false); // espera a lista para não piscar "sem documento" (doc_slug)
   const [docEdits,setDocEdits]=useState<Record<string,string>>({});
   const [areasEdits,setAreasEdits]=useState<Record<string,string>>({});
   const [gerVert,setGerVert]=useState(false);
@@ -325,7 +326,7 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
     const lista=((data||[]) as VertRow[]);
     const docs=((vig||[]) as {vertical:string}[]).map(r=>r.vertical);
     const cd=docs.length?new Set(docs):null;
-    setVerticais(lista); setComDoc(cd); setDocEdits({}); setAreasEdits({});
+    setVerticais(lista); setComDoc(cd); setDocEdits({}); setAreasEdits({}); setVertCarregada(true);
     const visiveis=lista.filter(v=>v.ativo&&(!cd||cd.has(v.doc_slug||v.slug)));
     if(visiveis.length && vertical!==ESTRELA_POLAR && !visiveis.some(v=>v.slug===vertical)) setVertical(visiveis[0].slug);
   }
@@ -384,6 +385,8 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
   }
   useEffect(()=>{(async()=>{
     setDisparo(null);setOrc(null);setVerVersao(null);
+    // Sem a lista ainda não se sabe o doc_slug: mostra "Carregando…" em vez de "sem documento".
+    if(!vertCarregada && vertical!==ESTRELA_POLAR){ setCarregando(true); return; }
     await carregarDoc();
     // documento-mestre: sem orçamento de auditoria, barras nem telas — só o documento e o histórico
     if(vertical===ESTRELA_POLAR){ setBarra(null); setAudit(null); return; }
@@ -395,7 +398,7 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
     // ⑧ — status VERDADEIRO da auditoria desta vertical (X de N auditadas · telas sem botão)
     const{data:au}=await supabase.rpc('fn_dev_vertical_auditoria_status',{p_vertical:vertical});
     setAudit(au||null); setVerSemBotao(false);
-  })();},[vertical,docVertical]);
+  })();},[vertical,docVertical,vertCarregada]);
 
   async function aprovarDoc(){
     if(aprovando)return;
