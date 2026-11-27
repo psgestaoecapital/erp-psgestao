@@ -8,6 +8,12 @@
 //           (até 1000 pontos por chamada; repetir com begintime = último gpstime enquanto vier 1000)
 
 export const BASE_URL = 'https://api.brasilsatgps.com.br'
+
+/** Endereço da API por empresa (família Protrack: BrasilSat e outras marcas com a mesma Open API). Só https; vazio = padrão. */
+export function baseUrlDe(cfg: unknown): string {
+  const s = String(cfg ?? '').trim().replace(/\/+$/, '')
+  return /^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(s) ? s : BASE_URL
+}
 export const IMEIS_POR_CHAMADA = 100
 export const PLAYBACK_PONTOS_POR_PAGINA = 1000
 
@@ -104,6 +110,28 @@ export function converterDispositivos(record: unknown): Dispositivo[] {
   return out
 }
 
+/** mileage/todaymileage vêm em METROS (Open API); -1 = sem dado → km com 3 casas. */
+export const metrosParaKm = (v: unknown): number | null => {
+  const n = num(v)
+  return n === null || n < 0 ? null : Math.round(n) / 1000
+}
+/** driver vem como objeto {id, name} ({} = sem cartão); aceita texto por compatibilidade. */
+export const motoristaDe = (d: unknown): string | null => {
+  if (d && typeof d === 'object') {
+    const o = d as Record<string, unknown>
+    const s = String(o.name ?? o.id ?? '').trim()
+    return s || null
+  }
+  const s = String(d ?? '').trim()
+  return s && s !== '[object Object]' ? s : null
+}
+/** temperature vem como lista de textos em °C ([] = sem sonda); guarda a 1ª sonda. Nunca vira 0 falso. */
+export const temperaturaDe = (t: unknown): number | null => {
+  const lista = Array.isArray(t) ? t : t === null || t === undefined || t === '' ? [] : [t]
+  for (const x of lista) { const n = num(x); if (n !== null) return n }
+  return null
+}
+
 export type Posicao = {
   imei: string; gps_em: string; servidor_em: string | null; latitude: number; longitude: number
   velocidade_kmh: number | null; curso: number | null; ignicao: boolean | null; odometro: number | null
@@ -123,8 +151,8 @@ export function converterPosicoes(record: unknown): Posicao[] {
     out.push({
       imei, gps_em: gps, servidor_em: unixParaIso(r.servertime), latitude: lat, longitude: lng,
       velocidade_kmh: num(r.speed), curso: num(r.course), ignicao: acc === 1 ? true : acc === 0 ? false : null,
-      odometro: num(r.mileage), km_hoje: num(r.todaymileage), combustivel: num(r.fuel), temperatura: num(r.temperature),
-      motorista: String(r.driver ?? '').trim() || null,
+      odometro: metrosParaKm(r.mileage), km_hoje: metrosParaKm(r.todaymileage), combustivel: num(r.fuel),
+      temperatura: temperaturaDe(r.temperature), motorista: motoristaDe(r.driver),
     })
   }
   return out
@@ -160,4 +188,174 @@ export function lotes<T>(xs: T[], n: number): T[][] {
   const out: T[][] = []
   for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n))
   return out
+}
+
+// ======================================================================================================
+// Cópia diária (D-1), km oficial, alarmes e cercas — pacote Eng. Chefe 27/11 (mapa 'mapa-brasilsat')
+// ======================================================================================================
+export const FUSO_OFFSET_H = -3   // Brasília (sem horário de verão desde 2019)
+
+/** Início e fim (unix s) do dia local de Brasília. Fim exclusivo. Minuto 0 (exigido pelo /api/device/mileage). */
+export function janelaDia(diaIso: string): { ini: number; fim: number } {
+  const ini = Math.floor(Date.parse(`${diaIso}T00:00:00Z`) / 1000) - FUSO_OFFSET_H * 3600
+  return { ini, fim: ini + 86400 }
+}
+
+/** /api/device/mileage → record[{ imei, mileage }] já em km. */
+export function converterMileage(record: unknown): { imei: string; km: number }[] {
+  const lista = Array.isArray(record) ? record : record && typeof record === 'object' ? [record] : []
+  const out: { imei: string; km: number }[] = []
+  for (const r of lista as Record<string, unknown>[]) {
+    const imei = String(r?.imei ?? '').trim()
+    const km = num(r?.mileage)
+    if (imei && km !== null && km >= 0) out.push({ imei, km: Math.round(km * 10) / 10 })
+  }
+  return out
+}
+
+// Tipos de alarme da Open API (seção 4.1) em português do usuário.
+export const ALARME_NOME: Record<number, string> = {
+  1: 'Pânico (SOS)', 2: 'Bateria baixa', 3: 'Energia desligada', 4: 'Vibração', 5: 'Entrou na cerca', 6: 'Saiu da cerca',
+  7: 'Excesso de velocidade', 8: 'Veículo em movimento', 9: 'Ignição ligada', 10: 'Ignição desligada',
+  11: 'Temperatura do pneu', 12: 'Vazamento no pneu', 13: 'Pneu com pressão baixa', 14: 'Pneu com pressão alta',
+  15: 'Entrou em área sem GPS', 16: 'Saiu da área sem GPS', 17: 'Falha do motor (OBD)', 18: 'Rastreador removido',
+  19: 'Rastreador desligado', 20: 'Colisão', 21: 'Queda', 22: 'Desvio de rota', 23: 'Aceleração brusca',
+  24: 'Freada brusca', 25: 'Curva brusca', 26: 'Porta aberta', 27: 'Porta fechada', 28: 'Sem comunicação',
+  29: 'Motor ligado parado (marcha lenta)', 30: 'Parada', 31: 'Vazamento de combustível', 32: 'Furto de combustível',
+  33: 'Bloqueador de sinal', 34: 'Direção em horário restrito', 35: 'Temperatura baixa', 36: 'Temperatura alta',
+  37: 'Basculante acionado', 38: 'Basculante desligado', 39: 'Alarme armado', 40: 'Capotamento', 41: 'Direção cansativa',
+  42: 'Sem descanso (fadiga)', 43: 'Combustível baixo', 44: 'Bateria externa baixa', 45: 'Interferência no GPS',
+  46: 'Fim da interferência no GPS', 47: 'Interferência no sinal de celular', 48: 'Fim da interferência no celular',
+  49: 'Instalação', 50: 'Umidade baixa', 51: 'Umidade alta',
+}
+export type Alarme = { imei: string; tipo: number; tipo_nome: string; sistema_em: string; gps_em: string | null
+  latitude: number | null; longitude: number | null; velocidade_kmh: number | null; cerca_id: string | null; cerca_nome: string | null; t: number }
+export function converterAlarmes(imei: string, record: unknown): Alarme[] {
+  const lista = Array.isArray(record) ? record : record && typeof record === 'object' ? [record] : []
+  const out: Alarme[] = []
+  for (const r of lista as Record<string, unknown>[]) {
+    const tipo = num(r?.alarmtype), t = num(r?.systemtime)
+    const sis = unixParaIso(r?.systemtime)
+    if (tipo === null || !sis || !t) continue
+    const lat = num(r.latitude), lng = num(r.longitude)
+    const semPos = lat === null || lng === null || (lat === 0 && lng === 0)
+    out.push({ imei, tipo, tipo_nome: ALARME_NOME[tipo] ?? `Alarme ${tipo}`, sistema_em: sis, gps_em: unixParaIso(r.gpstime),
+      latitude: semPos ? null : lat, longitude: semPos ? null : lng, velocidade_kmh: num(r.speed),
+      cerca_id: r.geofenceid != null && String(r.geofenceid) !== '0' ? String(r.geofenceid) : null,
+      cerca_nome: String(r.geofencename ?? '').trim() || null, t: t > 1e12 ? Math.floor(t / 1000) : t })
+  }
+  return out
+}
+
+export type Cerca = { cerca_id: string; nome: string | null; tipo: 'circulo' | 'poligono'; centro_lat: number | null
+  centro_lng: number | null; raio_m: number | null; poligono: [number, number][] | null; velocidade_max: number | null }
+/** /api/geofence/list → record[{ id, name, type (2 círculo · 3 polígono), parameter, speeding }] */
+export function converterCercas(record: unknown): Cerca[] {
+  const lista = Array.isArray(record) ? record : record && typeof record === 'object' ? [record] : []
+  const out: Cerca[] = []
+  for (const r of lista as Record<string, unknown>[]) {
+    const id = String(r?.id ?? '').trim()
+    const tipo = num(r?.type)
+    const par = String(r?.parameter ?? '')
+    const vel = num(r?.speeding)
+    if (!id) continue
+    if (tipo === 2) {
+      const [lng, lat, raio] = par.split(',').map((x) => num(x.trim()))
+      if (lat === null || lng === null || raio === null) continue
+      out.push({ cerca_id: id, nome: String(r.name ?? '').trim() || null, tipo: 'circulo', centro_lat: lat, centro_lng: lng, raio_m: raio, poligono: null, velocidade_max: vel || null })
+    } else if (tipo === 3) {
+      const pts = par.split(';').map((p) => p.split(',').map((x) => num(x.trim()))).filter((p) => p.length >= 2 && p[0] !== null && p[1] !== null) as [number, number][]
+      if (pts.length < 3) continue
+      out.push({ cerca_id: id, nome: String(r.name ?? '').trim() || null, tipo: 'poligono', centro_lat: null, centro_lng: null, raio_m: null, poligono: pts, velocidade_max: vel || null })
+    }
+  }
+  return out
+}
+
+function distM(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371000, rad = (g: number) => (g * Math.PI) / 180
+  const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng)
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)))
+}
+
+/** Nome da cerca que contém o ponto (círculo pelo raio; polígono por ray casting) ou null. */
+export function cercaDoPonto(p: { lat: number; lng: number }, cercas: Cerca[]): string | null {
+  for (const c of cercas) {
+    if (c.tipo === 'circulo' && c.centro_lat !== null && c.centro_lng !== null && c.raio_m !== null) {
+      if (distM(p, { lat: c.centro_lat, lng: c.centro_lng }) <= c.raio_m) return c.nome ?? c.cerca_id
+    } else if (c.tipo === 'poligono' && c.poligono) {
+      let dentro = false
+      const pol = c.poligono
+      for (let i = 0, j = pol.length - 1; i < pol.length; j = i++) {
+        const [xi, yi] = pol[i], [xj, yj] = pol[j]
+        if (((yi > p.lat) !== (yj > p.lat)) && (p.lng < ((xj - xi) * (p.lat - yi)) / (yj - yi) + xi)) dentro = !dentro
+      }
+      if (dentro) return c.nome ?? c.cerca_id
+    }
+  }
+  return null
+}
+
+// Regras de derivação (calculadas por nós: os rótulos de "excesso"/"parado" da plataforma não são confiáveis)
+export const PARADA_MIN_MIN = 5          // parada = 5 min ou mais sem sair do lugar
+export const PARADO_VEL_KMH = 3          // até 3 km/h conta como parado
+export const LACUNA_MIN = 10             // sem ponto por 10 min ou mais e quase sem deslocamento = parado (rastreador dorme com ignição desligada)
+export const LACUNA_DIST_M = 300
+export const VIAGEM_MIN_KM = 0.5
+
+export type Parada = { inicio: number; fim: number; duracao_min: number; lat: number; lng: number }
+export type Viagem = { inicio: number; fim: number; km: number; duracao_min: number; velocidade_max: number
+  origem: { lat: number; lng: number }; destino: { lat: number; lng: number } }
+
+/** Separa a rota de um dia em paradas e viagens. Pontos em qualquer ordem; devolve em ordem de tempo. */
+export function derivarViagensParadas(pontosIn: PontoRota[]): { paradas: Parada[]; viagens: Viagem[] } {
+  const pts = [...pontosIn].sort((a, b) => a.t - b.t)
+  const paradas: Parada[] = []
+  const viagens: Viagem[] = []
+  if (pts.length < 2) return { paradas, viagens }
+
+  // 1) marca cada intervalo [i-1, i] como "parado" ou "andando"
+  //    parado: velocidade dos dois pontos ≤ 3 km/h, ou lacuna longa sem deslocamento
+  const intervaloParado: boolean[] = []
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i]
+    const lento = (a.velocidade ?? 0) <= PARADO_VEL_KMH && (b.velocidade ?? 0) <= PARADO_VEL_KMH && distM(a, b) < LACUNA_DIST_M
+    const lacuna = b.t - a.t >= LACUNA_MIN * 60 && distM(a, b) < LACUNA_DIST_M
+    intervaloParado.push(lento || lacuna)
+  }
+
+  // 2) blocos contínuos de intervalos parados ≥ 5 min viram parada; o resto, trechos de movimento
+  type Bloco = { parado: boolean; i0: number; i1: number }   // índices de pontos (inclusivos)
+  const blocos: Bloco[] = []
+  for (let k = 0; k < intervaloParado.length; k++) {
+    const parado = intervaloParado[k]
+    const ult = blocos[blocos.length - 1]
+    if (ult && ult.parado === parado) ult.i1 = k + 1
+    else blocos.push({ parado, i0: k, i1: k + 1 })
+  }
+  // parado curto (< 5 min: semáforo, fila) volta a ser movimento
+  for (const b of blocos) if (b.parado && pts[b.i1].t - pts[b.i0].t < PARADA_MIN_MIN * 60) b.parado = false
+  // junta vizinhos iguais
+  const juntos: Bloco[] = []
+  for (const b of blocos) {
+    const ult = juntos[juntos.length - 1]
+    if (ult && ult.parado === b.parado) ult.i1 = b.i1
+    else juntos.push({ ...b })
+  }
+
+  for (const b of juntos) {
+    const a = pts[b.i0], z = pts[b.i1]
+    if (b.parado) {
+      paradas.push({ inicio: a.t, fim: z.t, duracao_min: Math.round((z.t - a.t) / 6) / 10, lat: a.lat, lng: a.lng })
+    } else {
+      const trecho = pts.slice(b.i0, b.i1 + 1)
+      const km = distanciaKm(trecho)
+      if (km < VIAGEM_MIN_KM) continue
+      viagens.push({ inicio: a.t, fim: z.t, km, duracao_min: Math.round((z.t - a.t) / 6) / 10,
+        velocidade_max: trecho.reduce((m, p) => Math.max(m, p.velocidade ?? 0), 0),
+        origem: { lat: a.lat, lng: a.lng }, destino: { lat: z.lat, lng: z.lng } })
+    }
+  }
+  return { paradas, viagens }
 }
