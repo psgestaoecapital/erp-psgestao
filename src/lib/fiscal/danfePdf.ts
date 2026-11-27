@@ -343,14 +343,16 @@ export async function gerarDanfePdf(d: DanfeDados, o: DanfeOpcoes): Promise<Uint
     caixa(c, xC, yTop, wC, 88)
     const cx = xC + wC / 2
     const ctr = (s: string, y: number, size: number, b = false) => texto(c, s, cx - (b ? c.bold : c.font).widthOfTextAtSize(ansi(s), size) / 2, y, size, b)
-    ctr('DANFE', yTop + 17, 15, true)
-    ctr('Documento Auxiliar da', yTop + 26, 6.3); ctr('Nota Fiscal Eletrônica', yTop + 33, 6.3)
-    texto(c, '0 - ENTRADA', xC + 6, yTop + 45, 6.3); texto(c, '1 - SAÍDA', xC + 6, yTop + 52.5, 6.3)
-    caixa(c, xC + wC - 26, yTop + 38, 18, 16)
-    texto(c, String(d.tipoOperacao ?? 1), xC + wC - 26 + 9 - c.bold.widthOfTextAtSize(String(d.tipoOperacao ?? 1), 10) / 2, yTop + 50, 10, true)
-    ctr(`Nº ${fmtNumero(d.numero) || '—'}`, yTop + 66, 8.2, true)
-    ctr(`SÉRIE ${d.serie ?? '—'}`, yTop + 74.5, 8.2, true)
-    ctr(`Folha ${folha}/${total}`, yTop + 83, 7.2, true)
+    // #11234 · pilha ÚNICA centralizada verticalmente no quadro (padrão OMIE/Tryo): título → tipo → Nº/Série/Folha
+    // juntos, sem o vão morto no meio. O bloco Nº/Série/Folha NÃO fica mais ancorado ao rodapé do quadro.
+    ctr('DANFE', yTop + 19, 15, true)
+    ctr('Documento Auxiliar da', yTop + 28, 6.3); ctr('Nota Fiscal Eletrônica', yTop + 35, 6.3)
+    texto(c, '0 - ENTRADA', xC + 6, yTop + 46, 6.3); texto(c, '1 - SAÍDA', xC + 6, yTop + 53.5, 6.3)
+    caixa(c, xC + wC - 26, yTop + 40, 18, 16)
+    texto(c, String(d.tipoOperacao ?? 1), xC + wC - 26 + 9 - c.bold.widthOfTextAtSize(String(d.tipoOperacao ?? 1), 10) / 2, yTop + 51.5, 10, true)
+    ctr(`Nº ${fmtNumero(d.numero) || '—'}`, yTop + 63, 8.2, true)
+    ctr(`SÉRIE ${d.serie ?? '—'}`, yTop + 71, 8.2, true)
+    ctr(`Folha ${folha}/${total}`, yTop + 79, 7.2, true)
     // 3) chave + barras
     const xD = xC + wC
     caixa(c, xD, yTop, wD, 88)

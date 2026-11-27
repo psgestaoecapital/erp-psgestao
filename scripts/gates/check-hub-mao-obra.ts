@@ -63,7 +63,7 @@ ok(/custo_hora_manual, projetos_mao_obra_id\)/.test(aplicar), 'função migrada 
 ok(!/xlsx|importar_planilha/i.test(sql), 'sem importação por planilha (CEO cancelou o xlsx: cadastro manual e conferido)')
 
 // ── a tela ──
-const tela = readFileSync('src/app/dashboard/projetos/mao-obra/page.tsx', 'utf8')
+const tela = readFileSync('src/app/dashboard/projetos/mao-obra/page.tsx', 'utf8') + '\n' + readFileSync('src/components/maoObra/MaoObraTela.tsx', 'utf8') /* #6168: a tela virou o componente compartilhado MaoObraTela */
 ok(tela.includes("from \"@/lib/hub/custoMaoObra\"") && tela.includes('calcularCustoMaoObra(ficha, encargos)'), 'a tela mostra o custo com a mesma conta do banco enquanto digita')
 ok(tela.includes('data-testid="mao-obra-encargos"') && /provisórios/.test(tela), 'aviso de encargos provisórios na tela')
 ok(tela.includes('data-testid="mao-obra-lgpd"'), 'aviso LGPD para quem vê só a média')

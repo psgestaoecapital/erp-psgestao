@@ -35,7 +35,9 @@ else comFilaSimulada((rodar) => {
   ok(merges(x.escritas).length === 0, 'hub: deploy-migrations não-verde segura o hub (trava estrutural fica)')
   // crítica comum CONTA no teto LOTE_MIG_CRIT_MAX (CEO 01/11: batela até 5); o hub NÃO conta (via expressa, é aditivo).
   // Com teto 1, a 2ª crítica comum espera a próxima rodada; o hub batelaria mesmo assim — a expressa é exclusiva do hub.
-  x = rodar([{ n: 1, ...crit, sqlMigration: A }, { n: 2, ...crit, sqlMigration: B }], false, 5000, { LOTE_MIG_CRIT_MAX: '1' })
+  // crit precisa de conteúdo CRÍTICO por si (CREATE OR REPLACE VIEW) — após o item A (CEO 25/11) uma migration ADITIVA
+  // (CREATE TABLE = A/B) de PR autorizada é rebaixada p/ aditiva e NÃO contaria no teto de crítica. COR VIEW continua crítica.
+  x = rodar([{ n: 1, ...crit, sqlMigration: 'create or replace view public.v_crit_1 as select 1;\n' }, { n: 2, ...crit, sqlMigration: 'create or replace view public.v_crit_2 as select 2;\n' }], false, 5000, { LOTE_MIG_CRIT_MAX: '1' })
   ok(merges(x.escritas).join() === '1', 'crítica comum conta no teto LOTE_MIG_CRIT_MAX; o hub não (expressa exclusiva do hub)')
 })
 

@@ -16,9 +16,11 @@ import {
   Package,
   HardHat,
   Wrench,
+  Settings2,
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { BomEditor, type BomLinha } from "@/components/projetos/BomEditor";
+import { UNIDADES_MEDIDA } from "@/lib/projetos/unidades";
 import { ComposicaoCpu } from "@/components/projetos/ComposicaoCpu";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { CampoDecimal } from "@/components/comum/CampoDecimal";
@@ -36,6 +38,10 @@ interface Servico {
   unidade: string | null;
   produtividade_unidade_dia: number | null;
   equipe_padrao: string | null;
+  produtividade_pessoa: number | null;
+  produtividade_base: "hora" | "dia" | null;
+  jornada_horas_dia: number | null;
+  equipe_pessoas: number | null;
   observacoes: string | null;
   ativo: boolean | null;
   is_publico: boolean | null;
@@ -221,6 +227,13 @@ export default function ServicoEditorPage({
   const precoVenda = preview?.preco_venda ?? custoTotal * (1 + (bdiPct ?? 0) / 100);
   const margemMinima = config?.margem_minima_pct ?? null;
 
+  // Material na composição, mas custo R$ 0: os produtos/insumos não têm preço de custo cadastrado,
+  // então o material não soma no custo total (chamado #11274 — "o custo só puxa da mão de obra").
+  // Avisa em linguagem do usuário em vez de mostrar um total baixo em silêncio (RD-98).
+  const validacaoResumo =
+    data?.validacao && !Array.isArray(data.validacao) ? data.validacao : null;
+  const materialSemCusto = (validacaoResumo?.tem_material ?? false) && custoMaterial === 0;
+
   function pctOf(v: number, total: number) {
     if (!total) return 0;
     return (v / total) * 100;
@@ -255,6 +268,27 @@ export default function ServicoEditorPage({
         return;
       }
     }
+    // Faixas válidas (CHECK no banco): jornada 0 < h ≤ 24 e base de produção por 'dia'/'hora'.
+    // Validar ANTES de enviar evita o 23514 cru ("algum valor está fora do permitido. confira os
+    // campos") — chamado #11035 (Tryo): ao editar o serviço duplicado, jornada/produção fora da
+    // faixa mostrava erro sem dizer QUAL campo corrigir (RD-98: erro em linguagem do usuário).
+    if ("jornada_horas_dia" in edits) {
+      const j = (edits as any).jornada_horas_dia;
+      const jn = j === "" || j === null || j === undefined ? NaN : Number(j);
+      if (!Number.isFinite(jn) || jn <= 0 || jn > 24) {
+        setErro("Informe a jornada entre 0 e 24 horas por dia (ex.: 8).");
+        setTimeout(() => setErro(null), 5000);
+        return;
+      }
+    }
+    if ("produtividade_base" in edits) {
+      const b = String((edits as any).produtividade_base ?? "");
+      if (b !== "dia" && b !== "hora") {
+        setErro("A produção deve ser por dia ou por hora.");
+        setTimeout(() => setErro(null), 5000);
+        return;
+      }
+    }
     setSalvandoMeta(true);
     setErro(null);
     try {
@@ -277,13 +311,33 @@ export default function ServicoEditorPage({
       await carregar({ soft: true });
     } catch (e: any) {
       // Nunca expor mensagem crua do banco (RD-51): traduzir para linguagem do usuário.
-      const raw = String(e?.message ?? "");
+      // Lê message + details (o nome da constraint costuma vir em details) para identificar o motivo real.
+      const raw = `${String(e?.message ?? "")} ${String(e?.details ?? "")}`;
+      const code = String(e?.code ?? "");
+      // Código duplicado por empresa (índice único projetos_servicos_codigo_unico). Caminho do chamado #11470:
+      // duplicar serviço gera código "-COPIA"; ao editar o código para um já existente, o UPDATE cai em 23505 e
+      // antes mostrava só "Não foi possível salvar", sem dizer o porquê (RD-98: erro em linguagem do usuário).
+      const codigoDuplicado =
+        /projetos_servicos_codigo_unico/i.test(raw) ||
+        (code === "23505" && /duplicate key|já existe|chave duplicada/i.test(raw));
+      // 23514 (check) / 23502 na jornada: traduzir o constraint cru para linguagem do usuário,
+      // apontando o campo exato (chamado #11035 · RD-98). Antes caía no genérico "Não foi possível".
+      const jornadaFora =
+        /projetos_servicos_jornada_check/i.test(raw) ||
+        (code === "23502" && /jornada_horas_dia/i.test(raw));
+      const baseFora = /produtividade_base_check/i.test(raw);
       setErro(
-        /unidade/i.test(raw)
-          ? "Informe a unidade de medida do serviço (m², m, un)."
-          : /violates not-null|null value in column/i.test(raw)
-            ? "Preencha os campos obrigatórios: código, nome e unidade."
-            : "Não foi possível salvar. Tente novamente.",
+        codigoDuplicado
+          ? "Já existe um serviço com esse código nesta empresa. Troque o código e salve de novo."
+          : jornadaFora
+            ? "Informe a jornada entre 0 e 24 horas por dia (ex.: 8)."
+            : baseFora
+              ? "A produção deve ser por dia ou por hora."
+              : /unidade/i.test(raw)
+                ? "Informe a unidade de medida do serviço (m², m, un)."
+                : /violates not-null|null value in column/i.test(raw)
+                  ? "Preencha os campos obrigatórios: código, nome e unidade."
+                  : "Não foi possível salvar. Tente novamente.",
       );
     } finally {
       setSalvandoMeta(false);
@@ -450,13 +504,18 @@ export default function ServicoEditorPage({
                   Unidade
                   <AjudaCampo chave="projetos.catalogo.servico.unidade" rota={ROTA_AJUDA} />
                 </label>
+                {/* CEO 26/11: oferece o catálogo universal de unidades (qualquer ramo); segue aceitando texto livre */}
                 <input
                   type="text"
+                  list="unidades-medida-hub"
                   value={(valorAtual("unidade") as string) ?? ""}
                   onChange={(e) => handleEdit("unidade", e.target.value)}
-                  placeholder="m²"
+                  placeholder="m², m³, m, ponto, kg, un…"
                   className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
+                <datalist id="unidades-medida-hub">
+                  {UNIDADES_MEDIDA.map((u) => (<option key={u.value} value={u.value}>{u.label}</option>))}
+                </datalist>
               </div>
               <div data-ajuda="projetos.catalogo.servico.produtividade">
                 <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
@@ -482,6 +541,61 @@ export default function ServicoEditorPage({
                   onChange={(e) => handleEdit("equipe_padrao", e.target.value)}
                   placeholder="1 oficial + 1 ajudante"
                   className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
+                />
+              </div>
+              {/* Mão de obra por pessoa (CEO 26/11): produção por pessoa × nº pessoas (o sistema multiplica) */}
+              <div data-ajuda="projetos.catalogo.servico.produtividade_pessoa">
+                <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
+                  Produção por pessoa
+                  <AjudaCampo chave="projetos.catalogo.servico.produtividade_pessoa" rota={ROTA_AJUDA} />
+                </label>
+                <CampoDecimal
+                  step="0.01"
+                  value={valorAtual("produtividade_pessoa") as number | null}
+                  onChange={(n) => handleEdit("produtividade_pessoa", n)}
+                  placeholder="3"
+                  className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-right font-mono text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
+                />
+              </div>
+              <div data-ajuda="projetos.catalogo.servico.produtividade_base">
+                <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
+                  Por hora ou dia
+                  <AjudaCampo chave="projetos.catalogo.servico.produtividade_base" rota={ROTA_AJUDA} />
+                </label>
+                <select
+                  value={(valorAtual("produtividade_base") as string) ?? "dia"}
+                  onChange={(e) => handleEdit("produtividade_base", e.target.value)}
+                  aria-label="Produção por pessoa é por hora ou por dia"
+                  className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
+                >
+                  <option value="dia">por dia</option>
+                  <option value="hora">por hora</option>
+                </select>
+              </div>
+              <div data-ajuda="projetos.catalogo.servico.equipe_pessoas">
+                <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
+                  Nº de pessoas
+                  <AjudaCampo chave="projetos.catalogo.servico.equipe_pessoas" rota={ROTA_AJUDA} />
+                </label>
+                <CampoDecimal
+                  step="0.5"
+                  value={valorAtual("equipe_pessoas") as number | null}
+                  onChange={(n) => handleEdit("equipe_pessoas", n)}
+                  placeholder="8"
+                  className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-right font-mono text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
+                />
+              </div>
+              <div data-ajuda="projetos.catalogo.servico.jornada_horas_dia">
+                <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
+                  Jornada (h/dia)
+                  <AjudaCampo chave="projetos.catalogo.servico.jornada_horas_dia" rota={ROTA_AJUDA} />
+                </label>
+                <CampoDecimal
+                  step="0.5"
+                  value={valorAtual("jornada_horas_dia") as number | null}
+                  onChange={(n) => handleEdit("jornada_horas_dia", n)}
+                  placeholder="8"
+                  className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-right font-mono text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
               </div>
             </div>
@@ -523,6 +637,23 @@ export default function ServicoEditorPage({
               equipePadrao={servico.equipe_padrao}
               unidadeServico={servico.unidade}
               diasUteisMes={config?.dias_uteis_mes ?? 22}
+              produtividadePessoa={servico.produtividade_pessoa}
+              produtividadeBase={servico.produtividade_base}
+              equipePessoas={servico.equipe_pessoas}
+              jornadaHorasDia={servico.jornada_horas_dia}
+              onProdutividadeServico={async (v) => {
+                // CEO 26/11: o card grava os valores no serviço (fonte única) → ao reabrir, pré-preenche;
+                // e o formulário do serviço reflete os mesmos valores.
+                if (!servico) return;
+                const supabase = supabaseBrowser();
+                await supabase.from("projetos_servicos").update({
+                  produtividade_pessoa: v.produtividade_pessoa,
+                  produtividade_base: v.produtividade_base,
+                  equipe_pessoas: v.equipe_pessoas,
+                  jornada_horas_dia: v.jornada_horas_dia,
+                }).eq("id", servico.id);
+                await carregar({ soft: true });
+              }}
             />
           </div>
         </div>
@@ -579,6 +710,13 @@ export default function ServicoEditorPage({
                     por {servico.unidade}
                   </p>
                 )}
+                {materialSemCusto && (
+                  <p className="mt-3 rounded-lg bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
+                    Há material na composição, mas o custo dele está R$ 0,00 — por isso o custo total só
+                    soma a mão de obra. Cadastre o preço de custo dos produtos/insumos usados para o
+                    material entrar na conta.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -605,6 +743,15 @@ export default function ServicoEditorPage({
                   </span>
                   <span className="font-mono">{pct(bdiPct)}</span>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => router.push("/dashboard/projetos/configuracoes?aba=precificacao")}
+                  className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-[#C8941A] hover:text-[#9c7214] hover:underline"
+                  title="Onde o BDI é definido: Projetos · Configurações · Precificação"
+                >
+                  <Settings2 className="h-3.5 w-3.5" />
+                  Configurar BDI (Precificação)
+                </button>
               </div>
               <div className="mt-3 border-t border-[#C8941A]/20 pt-3">
                 <div className="flex items-baseline justify-between">

@@ -101,26 +101,26 @@ export default function PartesObraPage({ params }: { params: Promise<{ id: strin
           <div data-testid="partes-form" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, marginBottom: 16, display: 'grid', gap: 12 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: ESP }}>{form.id ? 'Editar parte' : 'Nova parte'}</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-              <div>
+              <div data-ajuda="projetos.obra_parte.papel">
                 <div style={lbl}>Papel <AjudaCampo chave="projetos.obra_parte.papel" rota={ROTA} /></div>
                 <select data-testid="partes-papel" style={campo} value={form.papel} onChange={(e) => setForm({ ...form, papel: e.target.value })}>
                   {PAPEIS.map((p) => <option key={p.v} value={p.v}>{p.t}</option>)}
                 </select>
               </div>
-              <div>
+              <div data-ajuda="projetos.obra_parte.nome">
                 <div style={lbl}>Nome <AjudaCampo chave="projetos.obra_parte.nome" rota={ROTA} /></div>
                 <input data-testid="partes-nome" style={campo} value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="Nome da pessoa ou empresa" />
               </div>
-              <div>
+              <div data-ajuda="projetos.obra_parte.documento">
                 <div style={lbl}>CPF / CNPJ <AjudaCampo chave="projetos.obra_parte.documento" rota={ROTA} /></div>
                 <input data-testid="partes-documento" style={campo} value={form.documento} onChange={(e) => setForm({ ...form, documento: e.target.value })} placeholder="Documento (opcional)" />
               </div>
-              <div>
+              <div data-ajuda="projetos.obra_parte.contato">
                 <div style={lbl}>Contato <AjudaCampo chave="projetos.obra_parte.contato" rota={ROTA} /></div>
                 <input data-testid="partes-contato" style={campo} value={form.contato} onChange={(e) => setForm({ ...form, contato: e.target.value })} placeholder="E-mail e/ou telefone" />
               </div>
             </div>
-            <div>
+            <div data-ajuda="projetos.obra_parte.observacao">
               <div style={lbl}>Observação <AjudaCampo chave="projetos.obra_parte.observacao" rota={ROTA} /></div>
               <input data-testid="partes-observacao" style={campo} value={form.observacao} onChange={(e) => setForm({ ...form, observacao: e.target.value })} placeholder="Observação (opcional)" />
             </div>
@@ -155,7 +155,10 @@ export default function PartesObraPage({ params }: { params: Promise<{ id: strin
                           {it.observacao && <div style={{ fontSize: 12, color: ESP, marginTop: 4 }}>{it.observacao}</div>}
                         </div>
                         <div style={{ display: 'flex', gap: 10 }}>
-                          <button data-testid="partes-editar" onClick={() => editar(it)} style={{ border: 'none', background: 'transparent', color: GOLD, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Editar</button>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                            <button data-testid="partes-editar" onClick={() => editar(it)} style={{ border: 'none', background: 'transparent', color: GOLD, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Editar</button>
+                            <AjudaCampo chave="projetos.obra_parte.editar" rota={ROTA} />
+                          </span>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                             <button data-testid="partes-excluir" disabled={busy} onClick={() => void excluir(it)} style={{ border: 'none', background: 'transparent', color: VERM, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Excluir</button>
                             <AjudaCampo chave="projetos.obra_parte.excluir" rota={ROTA} />

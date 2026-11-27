@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { rpc } from '@/lib/authFetch'
 import { ListChecks, Users, HardHat, UserCog, Plus, Trash2, X } from 'lucide-react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = {
   espresso: '#3D2314', offwhite: '#FAF7F2', gold: '#C8941A', beigeLt: '#f5f0e8', borderLt: '#ece3d2',
@@ -130,10 +131,11 @@ function Selecao({ companyId, aplicaA }: { companyId: string; aplicaA: 'funciona
               <div key={item.tipo_documento_id} style={{ background: '#fff', border: `1px solid ${item.marcado ? C.gold : C.borderLt}`, borderRadius: 10, padding: '10px 12px' }}>
                 <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
                   <input type="checkbox" checked={item.marcado} onChange={e => toggle(item, e.target.checked)} style={{ marginTop: 2 }} />
-                  <div style={{ minWidth: 0 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontWeight: 600, color: C.espresso, fontSize: 13.5 }}>{item.nome}</div>
                     <div style={{ fontSize: 11, color: C.gray }}>{item.base_legal || '—'}{item.codigo_esocial ? ` · eSocial ${item.codigo_esocial}` : ''}{item.validade_dias_padrao ? ` · validade ${item.validade_dias_padrao}d` : ''}</div>
                   </div>
+                  <AjudaCampo chave="ehs.docexig.marcar" alinhar="fim" />
                 </label>
                 {item.marcado && item.exigido_id && (
                   <EscopoControl item={item} cargos={cargos} setores={setores} onSalvar={salvarEscopo} />
@@ -151,10 +153,11 @@ function Selecao({ companyId, aplicaA }: { companyId: string; aplicaA: 'funciona
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.espresso }}>Documento próprio</h3>
               <button onClick={() => setNovoCustom(null)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: C.gray }}><X size={18} /></button>
             </div>
-            <Campo label="Nome do documento *"><input style={inp()} value={novoCustom.nome} onChange={e => setNovoCustom({ ...novoCustom, nome: e.target.value })} placeholder="Ex.: Ficha de integração interna" /></Campo>
-            <Campo label="Validade (dias, opcional)"><input type="number" style={inp()} value={novoCustom.validade_dias} onChange={e => setNovoCustom({ ...novoCustom, validade_dias: e.target.value })} /></Campo>
+            <Campo label="Nome do documento *" ajuda={<AjudaCampo chave="ehs.docexig.custom_nome" />}><input style={inp()} value={novoCustom.nome} onChange={e => setNovoCustom({ ...novoCustom, nome: e.target.value })} placeholder="Ex.: Ficha de integração interna" /></Campo>
+            <Campo label="Validade (dias, opcional)" ajuda={<AjudaCampo chave="ehs.docexig.custom_validade" />}><input type="number" style={inp()} value={novoCustom.validade_dias} onChange={e => setNovoCustom({ ...novoCustom, validade_dias: e.target.value })} /></Campo>
             <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13.5, color: C.espresso, cursor: 'pointer', marginTop: 4 }}>
               <input type="checkbox" checked={novoCustom.obrigatorio} onChange={e => setNovoCustom({ ...novoCustom, obrigatorio: e.target.checked })} /> Obrigatório
+              <AjudaCampo chave="ehs.docexig.custom_obrigatorio" />
             </label>
             <div style={{ fontSize: 11.5, color: C.gray, marginTop: 6 }}>Aplica a: <b>{aplicaA === 'funcionario' ? 'Funcionários próprios' : 'Terceiros / Prestadores'}</b> (a aba atual).</div>
             {erro && <div style={{ background: C.redBg, color: C.red, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, marginTop: 10 }}>{erro}</div>}
@@ -179,6 +182,7 @@ function EscopoControl({ item, cargos, setores, onSalvar }: {
   return (
     <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px dashed ${C.borderLt}`, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
       <span style={{ fontSize: 11, fontWeight: 700, color: restrito ? C.gold : C.gray }}>{restrito ? 'Aplica só a:' : 'Aplica a: todos'}</span>
+      <AjudaCampo chave="ehs.docexig.escopo" />
       <select value={item.escopo_funcao ?? ''} onChange={e => onSalvar(item, e.target.value || null, item.escopo_setor_id)} style={escSel} title="Cargo">
         <option value="">todos os cargos</option>
         {cargos.map(c => <option key={c} value={c}>{c}</option>)}
@@ -209,5 +213,5 @@ function Header() {
 function Vazio({ titulo, texto }: { titulo: string; texto: string }) { return <div style={{ background: '#fff', border: `1px dashed ${C.borderLt}`, borderRadius: 14, padding: '32px 20px', textAlign: 'center' }}><div style={{ fontSize: 15, fontWeight: 600, color: C.espresso }}>{titulo}</div><div style={{ fontSize: 13, color: C.gray, marginTop: 5, maxWidth: 460, marginInline: 'auto' }}>{texto}</div></div> }
 function Load() { return <div style={{ color: C.gray, padding: 30, textAlign: 'center', fontSize: 13 }}>Carregando…</div> }
 function inp(): React.CSSProperties { return { width: '100%', border: `1px solid ${C.borderLt}`, borderRadius: 8, padding: '8px 10px', fontSize: 13.5, color: C.ink, background: '#fff' } }
-function Campo({ label, children }: { label: string; children: React.ReactNode }) { return <div style={{ marginBottom: 10 }}><label style={{ display: 'block', fontSize: 12, color: C.gray, marginBottom: 4 }}>{label}</label>{children}</div> }
+function Campo({ label, children, ajuda }: { label: string; children: React.ReactNode; ajuda?: React.ReactNode }) { return <div style={{ marginBottom: 10 }}><label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: C.gray, marginBottom: 4 }}>{label}{ajuda}</label>{children}</div> }
 function Btn({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) { return <button onClick={onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.gold, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{children}</button> }

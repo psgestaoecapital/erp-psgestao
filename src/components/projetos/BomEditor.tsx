@@ -9,6 +9,7 @@ import { Plus, Trash2, Package, HardHat, Wrench, ShieldCheck, Hammer, Loader2, C
 import { supabaseBrowser } from "@/lib/authFetch";
 import { SeletorItemModal, type ItemEscolhido, type TipoItem } from "./SeletorItemModal";
 import { CalcCoeficienteModal, type CoefResultado } from "./CalcCoeficienteModal";
+import { CalcProdutividadeModal, type ProdResultado } from "./CalcProdutividadeModal";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { erroAmigavel } from "@/lib/erroAmigavel";
 import { parseNumBR } from "@/lib/num";
@@ -42,16 +43,35 @@ interface Props {
   bom: BomLinha[];
   onChange: () => void | Promise<void>;
   // Para a calculadora de coeficiente (consumo por unidade): dados do serviço + config da empresa.
-  produtividade?: number | null; // produtividade_unidade_dia
+  produtividade?: number | null; // produtividade_unidade_dia (legado, equipe/dia)
   equipePadrao?: string | null;
   unidadeServico?: string | null; // unidade da produtividade (ex.: m²)
   diasUteisMes?: number | null; // config da empresa (padrão 22)
+  // Mão de obra por pessoa (CEO 26/11): parâmetros do serviço p/ a conversão automática.
+  produtividadePessoa?: number | null;
+  produtividadeBase?: "hora" | "dia" | null;
+  equipePessoas?: number | null;
+  jornadaHorasDia?: number | null;
+  // CEO 26/11: ao confirmar o card de produtividade, a página grava esses valores no serviço
+  // (projetos_servicos) para pré-preencher na próxima vez (fonte única).
+  onProdutividadeServico?: (v: { produtividade_pessoa: number | null; produtividade_base: "hora" | "dia"; equipe_pessoas: number | null; jornada_horas_dia: number | null }) => void | Promise<void>;
 }
 
 const METODO_LABEL: Record<string, string> = {
   manual: "Direto", rendimento: "Rendimento", tecnico: "Consumo técnico",
   vida_util: "Vida útil/período", por_pessoa: "Por pessoa × tempo",
 };
+
+// Modo de custo da MÃO DE OBRA (CEO 24-25/11), inferido da própria linha (sem coluna nova):
+//  • empreitada = linha manual (sem função) precificada por UNIDADE que não é hora (m², m, un, ponto…):
+//    paga-se um valor por unidade feita; sem auxílio de produtividade (o custo é o valor por unidade).
+//  • por_hora   = função/pessoa/equipe por hora (custo/h × horas por unidade), ou a própria unidade em horas.
+const UNIDADES_HORA = ["h", "hr", "hora", "horas"];
+function modoMaoObra(linha: BomLinha): "por_hora" | "empreitada" {
+  const un = (linha.unidade || "").toLowerCase().replace(/\s/g, "");
+  const empreitada = !linha.mao_obra_id && un !== "" && !UNIDADES_HORA.includes(un);
+  return empreitada ? "empreitada" : "por_hora";
+}
 
 function tipoIcone(tipo: string | TipoItem) {
   if (tipo === "mao_obra") return HardHat;
@@ -87,11 +107,43 @@ function parseNumero(s: string): number | null {
   return parseNumBR(s);
 }
 
-export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, equipePadrao, unidadeServico, diasUteisMes }: Props) {
+export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, equipePadrao, unidadeServico, diasUteisMes, produtividadePessoa, produtividadeBase, equipePessoas, jornadaHorasDia, onProdutividadeServico }: Props) {
   const [seletorOpen, setSeletorOpen] = useState(false);
   const [salvandoLinha, setSalvandoLinha] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [calcLinha, setCalcLinha] = useState<BomLinha | null>(null);
+  const [prodLinha, setProdLinha] = useState<BomLinha | null>(null);
+
+  // Modo A (mão de obra por hora): aplica a quantidade (horas por unidade) vinda do auxílio simples de produtividade.
+  // Não usa metodo_coeficiente (os 5 métodos são de material/EPI); guarda só a explicação na observação.
+  async function salvarProd(linha: BomLinha, r: ProdResultado) {
+    setProdLinha(null);
+    setSalvandoLinha(linha.id);
+    setErro(null);
+    try {
+      const supabase = supabaseBrowser();
+      const { error } = await supabase
+        .from("projetos_servicos_bom")
+        .update({ quantidade: r.quantidade, observacao: r.observacao, metodo_coeficiente: null })
+        .eq("id", linha.id);
+      if (error) throw error;
+      await supabase.rpc("fn_projetos_atualizar_cache_bom", { p_servico_id: servicoId });
+      // CEO 26/11: grava os inputs no serviço p/ o card pré-preencher na próxima vez (fonte única).
+      if (onProdutividadeServico) {
+        await onProdutividadeServico({
+          produtividade_pessoa: r.produtividade_pessoa,
+          produtividade_base: r.produtividade_base,
+          equipe_pessoas: r.equipe_pessoas,
+          jornada_horas_dia: r.jornada_horas_dia,
+        });
+      }
+      await onChange();
+    } catch (e: any) {
+      setErro(erroAmigavel(e, "Falha ao aplicar a produtividade"));
+    } finally {
+      setSalvandoLinha(null);
+    }
+  }
 
   async function salvarCalc(linha: BomLinha, r: CoefResultado) {
     setCalcLinha(null);
@@ -201,6 +253,19 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
       } else {
         payload.insumo_id = item.item_id; // legado m16_insumos (itens antigos)
       }
+      // Guarda bom_uma_referencia (chamado #11035 · RD-98): o CHECK exige UMA referência não vazia.
+      // Item sem id válido (manual sem nome, MO/insumo com id vazio) geraria 23514 cru ("algum valor
+      // está fora do permitido"). Barramos antes com mensagem clara em vez do erro de banco.
+      const ehRef = (v: unknown) => typeof v === "string" && v.trim() !== "";
+      const nRefs =
+        (ehRef(payload.item_nome_manual) ? 1 : 0) +
+        (ehRef(payload.mao_obra_id) ? 1 : 0) +
+        (ehRef(payload.produto_id) ? 1 : 0) +
+        (ehRef(payload.insumo_id) ? 1 : 0);
+      if (nRefs !== 1) {
+        setErro("Não consegui identificar o item selecionado. Escolha o item novamente.");
+        return;
+      }
       const { error } = await supabase.from("projetos_servicos_bom").insert(payload);
       if (error) throw error;
       await supabase.rpc("fn_projetos_atualizar_cache_bom", { p_servico_id: servicoId });
@@ -218,11 +283,15 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
     setErro(null);
     try {
       const supabase = supabaseBrowser();
-      const { error } = await supabase
-        .from("projetos_servicos_bom")
-        .delete()
-        .eq("id", linha.id);
+      // RD-98 p4 (exclusão rastreável): nunca DELETE físico direto. A RPC guarda por empresa, grava
+      // o snapshot em projetos_servicos_bom_excluido + audit_log_global (quem/quando/motivo) e só então
+      // remove a linha viva — o trigger recalcula o custo do serviço.
+      const { data, error } = await supabase.rpc("fn_projetos_bom_excluir", {
+        p_bom_id: linha.id,
+        p_motivo: null,
+      });
       if (error) throw error;
+      if (data && data.ok === false) throw new Error(data.erro || "Não foi possível remover o item.");
       await supabase.rpc("fn_projetos_atualizar_cache_bom", { p_servico_id: servicoId });
       await onChange();
     } catch (e: any) {
@@ -284,9 +353,18 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
                     </span>
                   </td>
                   <td className="px-3 py-2 text-[#3D2314]">
-                    {linha.item_nome || "—"}
+                    <span className="align-middle">{linha.item_nome || "—"}</span>
+                    {linha.tipo === "mao_obra" && (
+                      <span
+                        data-ajuda="projetos.catalogo.bom.mo_modo"
+                        className="ml-2 inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 align-middle text-[10px] font-medium text-blue-800"
+                      >
+                        {modoMaoObra(linha) === "empreitada" ? `Por ${linha.unidade} (empreitada)` : "Por hora"}
+                        <AjudaCampo chave="projetos.catalogo.bom.mo_modo" rota={ROTA_AJUDA_SERVICO} />
+                      </span>
+                    )}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td data-ajuda="projetos.catalogo.bom.quantidade" className="px-3 py-2 text-right">
                     <input
                       type="text"
                       inputMode="decimal"
@@ -302,7 +380,7 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
                     />
                   </td>
                   <td className="px-3 py-2 text-[#3D2314]/70">{linha.unidade || "—"}</td>
-                  <td className="px-3 py-2 text-right">
+                  <td data-ajuda="projetos.catalogo.bom.perda" className="px-3 py-2 text-right">
                     <input
                       type="text"
                       inputMode="decimal"
@@ -325,14 +403,27 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center justify-end gap-1">
-                      <button
-                        onClick={() => setCalcLinha(linha)}
-                        disabled={salvando}
-                        title="Calcular consumo (coeficiente)"
-                        className="rounded-lg p-1.5 text-[#C8941A] hover:bg-[#C8941A]/10 disabled:opacity-30"
-                      >
-                        <Calculator size={14} />
-                      </button>
+                      {linha.tipo !== "mao_obra" ? (
+                        // Material/EPI/equipamento/ferramenta: a calculadora dos 5 métodos (consumo/rendimento/vida útil…).
+                        <button
+                          onClick={() => setCalcLinha(linha)}
+                          disabled={salvando}
+                          title="Calcular consumo (coeficiente)"
+                          className="rounded-lg p-1.5 text-[#C8941A] hover:bg-[#C8941A]/10 disabled:opacity-30"
+                        >
+                          <Calculator size={14} />
+                        </button>
+                      ) : modoMaoObra(linha) === "por_hora" ? (
+                        // Mão de obra por hora: só o auxílio simples de produtividade (horas por unidade). Nada dos 5 métodos.
+                        <button
+                          onClick={() => setProdLinha(linha)}
+                          disabled={salvando}
+                          title="Horas por unidade (produtividade)"
+                          className="rounded-lg p-1.5 text-[#C8941A] hover:bg-[#C8941A]/10 disabled:opacity-30"
+                        >
+                          <Calculator size={14} />
+                        </button>
+                      ) : null /* mão de obra empreitada: custo é o valor por unidade, sem coeficiente */}
                       <button
                         onClick={() => removerLinha(linha)}
                         disabled={salvando}
@@ -409,6 +500,20 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
             observacao: calcLinha.observacao ?? undefined,
           }}
           onConfirm={(r) => salvarCalc(calcLinha, r)}
+        />
+      )}
+
+      {prodLinha && (
+        <CalcProdutividadeModal
+          open={!!prodLinha}
+          onClose={() => setProdLinha(null)}
+          itemNome={prodLinha.item_nome || "mão de obra"}
+          unidadeServico={unidadeServico ?? null}
+          produtividadePessoa={produtividadePessoa ?? null}
+          produtividadeBase={produtividadeBase ?? null}
+          equipePessoas={equipePessoas ?? null}
+          jornada={jornadaHorasDia ?? 8}
+          onConfirm={(r) => salvarProd(prodLinha, r)}
         />
       )}
     </div>

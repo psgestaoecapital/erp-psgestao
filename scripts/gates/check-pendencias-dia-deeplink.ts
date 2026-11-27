@@ -3,13 +3,27 @@
 // pelo parâmetro ?status= com os valores 'vencido' | 'hoje' | 'avencer'. A migration que define
 // fn_ge_pendencias_dia tem de emitir esses links com o parâmetro/valor certo — nunca mais o antigo
 // ?situacao=vencidos/hoje, que caía na tela geral sem filtrar.
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
 
 const MIG = 'supabase/migrations/20261120214020_pendencias_dia_resolver_deeplink_status.sql'
 const sql = readFileSync(MIG, 'utf8')
+
+// CEO 25/11: TODO link de pendência leva a empresa da pendência (company=<id>), senão o "Resolver"
+// abre na empresa selecionada globalmente (0 pendentes p/ outra empresa do grupo). Checado na definição
+// VIVA (última migration que (re)cria a função) — a função evolui por CREATE OR REPLACE (RD-52).
+const DIR = 'supabase/migrations'
+const viva = readdirSync(DIR).filter((f) => f.endsWith('.sql'))
+  .filter((f) => /CREATE OR REPLACE FUNCTION public\.fn_ge_pendencias_dia/.test(readFileSync(`${DIR}/${f}`, 'utf8')))
+  .sort().pop()
+const sqlViva = viva ? readFileSync(`${DIR}/${viva}`, 'utf8') : ''
+ok(!!viva, `definição viva de fn_ge_pendencias_dia encontrada (${viva ?? 'nenhuma'})`)
+const linksViva = [...sqlViva.matchAll(/'link'\s*,\s*'([^']*)'/g)].map((m) => m[1])
+ok(linksViva.length > 0, `a definição viva emite links (${linksViva.length})`)
+const semEmpresa = linksViva.filter((l) => l.startsWith('/dashboard/') && !l.includes('company='))
+ok(semEmpresa.length === 0, `todo link de pendência leva company=${semEmpresa.length ? ' — FALTAM: ' + semEmpresa.join(', ') : ''}`)
 
 // os 4 links corrigidos
 ok(sql.includes("/dashboard/financeiro/receber?status=vencido"), 'a receber atrasado → ?status=vencido')

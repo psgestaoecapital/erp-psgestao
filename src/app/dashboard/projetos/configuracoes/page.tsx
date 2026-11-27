@@ -127,6 +127,14 @@ export default function ConfiguracoesPage() {
   const empresa = companies.find((c) => c.id === companyId);
 
   const [aba, setAba] = useState<"projetos" | "precificacao" | "produtividade">("projetos");
+  // Abre direto na aba pedida pela URL (?aba=precificacao), ex.: link "Configurar BDI" do Catálogo de Serviços.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const alvo = new URLSearchParams(window.location.search).get("aba");
+    if (alvo === "precificacao" || alvo === "produtividade" || alvo === "projetos") {
+      setAba(alvo);
+    }
+  }, []);
   const [config, setConfig] = useState<Config | null>(null);
   const [salvo, setSalvo] = useState(false); // empresa já tem linha de config gravada
   const [impactos, setImpactos] = useState<ImpactoServico[]>([]);
