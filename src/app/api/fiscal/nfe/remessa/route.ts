@@ -3,6 +3,7 @@ import { withAuth } from '@/lib/withAuth'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { createFiscalService } from '@/lib/fiscal/service'
 import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-builder'
+import { aplicarLei12741 } from '@/lib/fiscal/lei12741'
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
 import { notaEspelhoDeNFeReq } from '@/lib/fiscal/espelhoNota'
@@ -256,12 +257,18 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       },
     })
 
+    // Lei 12.741/2012 (Transparência Fiscal) · chamado #11418 — a NF-e avulsa (remessa) saía SEM o "valor
+    // aproximado dos tributos" porque o bloco só existia na /api/fiscal/nfe/emitir. Reusa o MESMO cálculo
+    // (helper compartilhado): concatena o bloco em nfeReq.observacoes quando consumidor final e lei12741_ativo.
+    // Antes do apenasPrevia para a prévia já mostrar o texto (igual à emissão normal).
+    const { avisoIbpt, fontesIbpt } = await aplicarLei12741(body.companyId, nfeReq)
+
     // #9724 (decisão B) · espelho/prévia: devolve um RESUMO estruturado da nota montada (mesmo formato da
     // /api/fiscal/nfe/emitir) para o operador baixar o PDF "PRÉVIA — SEM VALOR FISCAL". Puramente aditivo —
     // retorna ANTES de validar/emitir: não transmite, não consome numeração/série, não grava nada.
     if (body.apenasPrevia) {
       const nota = await notaEspelhoDeNFeReq(nfeReq, body.companyId)
-      return NextResponse.json({ ok: true, previa: { informacoesComplementares: nfeReq.observacoes ?? '', nota } })
+      return NextResponse.json({ ok: true, previa: { informacoesComplementares: nfeReq.observacoes ?? '', avisoIbpt, nota } })
     }
 
     // OS-0179 (RD-71, mesmo caminho da nfe/emitir): toda falha da emissão deixa rastro — tentativa; recusa
@@ -333,6 +340,13 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         .eq('id', registroId as string)
     }
 
+    // IBPT por empresa · grava a(s) fonte(s) dos tributos aproximados usadas na nota (Lei 12.741, mesmo caminho da nfe/emitir).
+    if (!rpcErr && registroId && fontesIbpt.size > 0) {
+      await supabaseAdmin.from('erp_nfe_emitidas')
+        .update({ ibpt_fonte: Array.from(fontesIbpt).sort().join('+') })
+        .eq('id', registroId as string)
+    }
+
     // Reenvio: só o VÍNCULO com o pedido/título da nota recusada, gravado à parte (mesmo caminho do pedido_id na
     // nfe/emitir). A avulsa não gera nem altera título — por isso não passa p_erp_receber_id à RPC.
     if (!rpcErr && registroId && (vinculoReenvio?.pedido_id || vinculoReenvio?.erp_receber_id)) {
@@ -366,6 +380,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       ambiente: svc.ambiente,
       cfop: avulsa.cfop,
       avisos: avulsa.avisos,
+      ...(avisoIbpt ? { avisoIbpt } : {}),
     })
   } catch (err) {
     if (isFiscalError(err)) {

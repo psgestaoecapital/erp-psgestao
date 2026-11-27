@@ -54,11 +54,12 @@ type Reuniao = {
   id: string; codigo: string; titulo: string; data_hora: string | null; local: string | null
   dono_user_id: string | null; dono_nome: string | null; participantes: string | null; pauta: string | null
   ata: string | null; status: StatusReuniao
+  obra_id: string | null; obra_numero: string | null; obra_nome: string | null
   acoes_total: number; acoes_abertas: number; acoes_atrasadas: number; acoes_concluidas: number
 }
-type FormReuniao = { titulo: string; data_hora: string; local: string; dono_nome: string; participantes: string; pauta: string; ata: string; status: StatusReuniao }
+type FormReuniao = { titulo: string; data_hora: string; local: string; dono_nome: string; participantes: string; pauta: string; ata: string; status: StatusReuniao; obra_id: string }
 const STATUS_REUNIAO: Record<StatusReuniao, string> = { agendada: 'Agendada', realizada: 'Realizada', cancelada: 'Cancelada' }
-const FORM_REUNIAO_VAZIO: FormReuniao = { titulo: '', data_hora: '', local: '', dono_nome: '', participantes: '', pauta: '', ata: '', status: 'agendada' }
+const FORM_REUNIAO_VAZIO: FormReuniao = { titulo: '', data_hora: '', local: '', dono_nome: '', participantes: '', pauta: '', ata: '', status: 'agendada', obra_id: '' }
 type Form = {
   titulo: string; o_que: string; por_que: string; onde: string; setor_id: string; quando: string
   responsavel_nome: string; como: string; custo_estimado: string; custo_real: string
@@ -127,6 +128,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
   const [fSetor, setFSetor] = useState('')
   const [fPrioridade, setFPrioridade] = useState('')
   const [fOrigem, setFOrigem] = useState('')
+  const [fObra, setFObra] = useState('') // '' = Todas (só no Hub)
   const [soAtrasadas, setSoAtrasadas] = useState(false)
   const [incluirArq, setIncluirArq] = useState(false) // arquivo: concluída/cancelada >30 dias (nunca exclui)
 
@@ -188,6 +190,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
       if (fSetor && p.setor_id !== fSetor) return false
       if (fPrioridade && p.prioridade !== fPrioridade) return false
       if (fOrigem && p.origem !== fOrigem) return false
+      if (fObra && p.obra_id !== fObra) return false
       if (soAtrasadas && !p.atrasada) return false
       if (q) {
         const alvo = norm(`${p.codigo} ${p.titulo} ${p.o_que ?? ''} ${p.responsavel_nome ?? ''} ${p.setor_nome ?? ''} ${p.onde ?? ''}`)
@@ -195,7 +198,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
       }
       return true
     })
-  }, [planos, busca, fStatus, fResp, fSetor, fPrioridade, fOrigem, soAtrasadas])
+  }, [planos, busca, fStatus, fResp, fSetor, fPrioridade, fOrigem, fObra, soAtrasadas])
 
   const porStatus = useMemo(() => {
     const m: Record<Status, Plano[]> = { aberta: [], em_andamento: [], concluida: [], cancelada: [] }
@@ -281,6 +284,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
     setReuniaoForm({
       titulo: r.titulo, data_hora: r.data_hora ? r.data_hora.slice(0, 16) : '', local: r.local ?? '',
       dono_nome: r.dono_nome ?? '', participantes: r.participantes ?? '', pauta: r.pauta ?? '', ata: r.ata ?? '', status: r.status,
+      obra_id: r.obra_id ?? '',
     })
     setReuniaoFormAberto(true)
   }
@@ -291,6 +295,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
     const payload = {
       titulo: reuniaoForm.titulo, data_hora: reuniaoForm.data_hora, local: reuniaoForm.local, dono_nome: reuniaoForm.dono_nome,
       participantes: reuniaoForm.participantes, pauta: reuniaoForm.pauta, ata: reuniaoForm.ata, status: reuniaoForm.status,
+      ...(isHub ? { obra_id: reuniaoForm.obra_id } : {}),
     }
     const { data, error } = await supabase.rpc('fn_plano_acao_reuniao_salvar', { p_company_id: companyId, p_reuniao: payload, p_id: reuniaoEditId })
     setSalvandoReuniao(false)
@@ -503,6 +508,15 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
               {(Object.keys(ORIGEM_ROTULO) as Origem[]).map((o) => <option key={o} value={o}>{ORIGEM_ROTULO[o]}</option>)}
             </select>
           </label>
+          {isHub && (
+            <label>
+              <span style={rotulo}>Obra<AjudaCampo chave="plano_acao.f_obra" rota={ROTA} /></span>
+              <select data-testid="plano-f-obra" value={fObra} onChange={(e) => setFObra(e.target.value)} style={sel}>
+                <option value="">Todas</option>
+                {obras.map((o) => <option key={o.id} value={o.id}>{o.numero ? `${o.numero} · ` : ''}{o.nome}</option>)}
+              </select>
+            </label>
+          )}
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: ESP, padding: '7px 2px' }}>
             <input data-testid="plano-f-atrasadas" type="checkbox" checked={soAtrasadas} onChange={(e) => setSoAtrasadas(e.target.checked)} />
             Só atrasadas<AjudaCampo chave="industrial.plano_acao.f_so_atrasadas" rota={ROTA} />
@@ -680,6 +694,15 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
                 <span style={rotulo}>Local<AjudaCampo chave="industrial.plano_acao.reuniao_local" rota={ROTA} /></span>
                 <input data-testid="reuniao-local" value={reuniaoForm.local} onChange={(e) => setReuniaoForm({ ...reuniaoForm, local: e.target.value })} placeholder="Ex.: Sala de reuniões" style={inp} />
               </label>
+              {isHub && (
+                <label>
+                  <span style={rotulo}>Obra da reunião (opcional)<AjudaCampo chave="plano_acao.reuniao_obra" rota={ROTA} /></span>
+                  <select data-testid="reuniao-obra" value={reuniaoForm.obra_id} onChange={(e) => setReuniaoForm({ ...reuniaoForm, obra_id: e.target.value })} style={{ ...inp, padding: '8px 10px' }}>
+                    <option value="">—</option>
+                    {obras.map((o) => <option key={o.id} value={o.id}>{o.numero ? `${o.numero} · ` : ''}{o.nome}</option>)}
+                  </select>
+                </label>
+              )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
               <label>
@@ -757,6 +780,7 @@ function CardAcao({ p, arrastando, onArrastar, onEditar, onStatus, onConcluir, o
       )}
       <div style={{ fontSize: 12, lineHeight: 1.5, color: MUT, display: 'flex', alignItems: 'center', gap: '2px 6px', flexWrap: 'wrap', overflowWrap: 'anywhere' }}>
         {(p.setor_nome || p.onde) && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><MapPin size={12} strokeWidth={1.5} /> {p.setor_nome || p.onde} ·</span>}
+        {p.obra_nome && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: ESP, fontWeight: 600 }}>Obra: {p.obra_numero ? `${p.obra_numero} ` : ''}{p.obra_nome} ·</span>}
         {p.responsavel_nome ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><User size={12} strokeWidth={1.5} /> {p.responsavel_nome}</span> : <span style={{ color: VERM }}>sem responsável</span>}
       </div>
       <div style={{ fontSize: 12, color: p.atrasada ? VERM : MUT, fontWeight: p.atrasada ? 700 : 400, display: 'inline-flex', alignItems: 'center', gap: 4 }}>

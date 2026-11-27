@@ -77,3 +77,8 @@ ON CONFLICT (chave) DO UPDATE SET
   o_que_preencher = EXCLUDED.o_que_preencher, para_que_serve = EXCLUDED.para_que_serve,
   exemplo = EXCLUDED.exemplo, erro_comum = EXCLUDED.erro_comum, vertical = EXCLUDED.vertical,
   ordem = EXCLUDED.ordem, status = EXCLUDED.status, atualizado_em = now();
+
+-- ACL da função SECURITY DEFINER recriada (check_fn_guards): espelha a ACL viva
+-- (authenticated + service_role; anon/PUBLIC revogados). Conteúdo da função inalterado.
+REVOKE ALL ON FUNCTION public.fn_plano_acao_listar(uuid,text,uuid,uuid,text,text,boolean,text,uuid,boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_plano_acao_listar(uuid,text,uuid,uuid,text,text,boolean,text,uuid,boolean) TO authenticated, service_role;
