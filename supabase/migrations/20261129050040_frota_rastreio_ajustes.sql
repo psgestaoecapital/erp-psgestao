@@ -3,6 +3,11 @@
 -- funções novas; só substitui funções NOVAS da própria #6406 (fn_frota_rastreio_painel / _dispatch / _empresas_devidas
 -- ainda não usadas: não há credencial). Não toca atak_conexao_config, erp_credencial, erp_sync_log nem o ETL;
 -- ind_fin_titulo_mv é só LIDA.
+-- Vem DEPOIS da PR-1a (#6417, 20261129040040_frota_rastreio_conversoes_placa: km em metros, motorista, temperatura,
+-- fn_placa_mercosul, placa_chave, api_base_url, correção do legado). Esta migration substitui de novo o
+-- fn_frota_rastreio_painel da #6417: o casamento passa a ser o fn_frota_rastreio_casamento (vínculo manual > placa do
+-- campo > placa achada no NOME, mesma conversão Mercosul do fn_placa_mercosul) e 'divergencias' ganha a sugestão de
+-- 1 caractere. A coluna placa_chave da #6417 continua valendo para consultas diretas.
 --
 -- a) CASAMENTO rastreador × frota: o campo placa do rastreador vem vazio em 16 de 17 → a placa é extraída do NOME do
 --    equipamento, com conversão placa antiga ↔ Mercosul (MKS1306 = MKS1D06, 5º caractere 0-9 ↔ A-J). Vínculo manual

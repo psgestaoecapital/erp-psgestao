@@ -7,6 +7,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import {
   md5Hex, assinatura, converterDispositivos, converterPosicoes, converterPlayback, distanciaKm, mensagemErro, lotes,
   janelaDia, converterMileage, converterAlarmes, converterCercas, cercaDoPonto, derivarViagensParadas, type PontoRota,
+  metrosParaKm, motoristaDe, temperaturaDe, baseUrlDe, BASE_URL,
 } from '../../supabase/functions/frota-rastreio-sync/protocolo'
 
 let falhas = 0
@@ -22,12 +23,19 @@ ok(assinatura('123456', 1700000000) === md5Hex('e10adc3949ba59abbe56e057f20f883e
 const disp = converterDispositivos([{ imei: '86123', devicename: 'Truck 01', platenumber: 'ABC1D23', devicetype: 'X3', activatedtime: 1700000000 }, { imei: '' }])
 ok(disp.length === 1 && disp[0].placa === 'ABC1D23' && disp[0].ativado_em === '2023-11-14T22:13:20.000Z', 'device/list: converte e descarta sem imei')
 const pos = converterPosicoes([
-  { imei: '1', latitude: -27.1, longitude: -52.6, gpstime: 1700000000, speed: 60, accstatus: 1, todaymileage: 12500, mileage: -1 },
+  { imei: '1', latitude: -27.1, longitude: -52.6, gpstime: 1700000000, speed: 60, accstatus: 1, todaymileage: 12500, mileage: 105834123, driver: {}, temperature: [] },
   { imei: '2', latitude: 0, longitude: 0, gpstime: 1700000000 },            // sem fixo
   { imei: '3', latitude: -27.1, longitude: -52.6, gpstime: 0 },             // sem hora
 ])
-ok(pos.length === 1 && pos[0].ignicao === true && pos[0].velocidade_kmh === 60, 'track: converte e descarta sem fixo/sem hora')
-ok(pos[0].km_hoje === 12.5 && pos[0].odometro === null, 'track: mileage/todaymileage vêm em METROS → km; -1 = sem dado')
+ok(pos.length === 1 && pos[0].ignicao === true && pos[0].km_hoje === 12.5 && pos[0].velocidade_kmh === 60, 'track: converte e descarta sem fixo/sem hora')
+// PR-1a (prova 27/11, contexto 156a6a5a): metros → km; driver objeto; temperature lista
+ok(pos[0].odometro === 105834.123, 'track: mileage em METROS vira km (105.834.123 m = 105.834,123 km)')
+ok(metrosParaKm(-1) === null && metrosParaKm('') === null && metrosParaKm(163906) === 163.906, 'metrosParaKm: -1/vazio = nulo; 163.906 m = 163,906 km')
+ok(pos[0].motorista === null && motoristaDe({ id: '9', name: ' Cleber ' }) === 'Cleber' && motoristaDe({ id: 'A1' }) === 'A1', 'driver {} = nulo; {id,name} = nome (ou id)')
+ok(motoristaDe('[object Object]') === null && motoristaDe('Leimar') === 'Leimar', 'driver texto legado: "[object Object]" = nulo')
+ok(pos[0].temperatura === null && temperaturaDe(['-18.5', '-17']) === -18.5 && temperaturaDe('') === null, 'temperature [] = nulo (nunca 0 falso); lista = 1ª sonda')
+ok(baseUrlDe(null) === BASE_URL && baseUrlDe('https://api.protrack365.com/') === 'https://api.protrack365.com' && baseUrlDe('http://x.com') === BASE_URL && baseUrlDe('javascript:alert(1)') === BASE_URL, 'endereço da API por empresa: só https; vazio/inválido = padrão')
+ok(converterPosicoes([{ imei: '1', latitude: -27.1, longitude: -52.6, gpstime: 1700000000, mileage: -1 }])[0].odometro === null, 'track: mileage -1 = sem dado')
 const rota = converterPlayback('-52.6,-27.1,1700000000,50,90;-52.61,-27.11,1700000060,55,90;;lixo')
 ok(rota.length === 2 && rota[1].t === 1700000060, 'playback: record "lng,lat,gpstime,speed,course;…"')
 ok(distanciaKm([{ lat: -27, lng: -52 }, { lat: -28, lng: -52 }]) > 110 && distanciaKm([{ lat: -27, lng: -52 }, { lat: -28, lng: -52 }]) < 112, 'distância haversine ~111 km por grau')
@@ -57,6 +65,20 @@ ok(/cadencia_min\s+integer NOT NULL DEFAULT 10/.test(sql), 'CADÊNCIA parametriz
 ok(/playback_habilitado boolean NOT NULL DEFAULT false/.test(sql), 'HISTÓRICO desligado por padrão')
 ok(!/(UPDATE|INSERT INTO|DELETE FROM|ALTER TABLE)\s+public\.(atak_conexao_config|erp_credencial|erp_sync_log)\b/i.test(semComentario), 'migration não escreve na coleta existente')
 ok(!/CREATE OR REPLACE FUNCTION public\.fn_(credencial|bi_temas|ponto)/.test(sql), 'migration não reescreve função existente')
+
+// ── (3b) migration de ajuste (PR-1a) ──
+const mig2 = readdirSync('supabase/migrations').find((f) => /_frota_rastreio_conversoes_placa\.sql$/.test(f))
+ok(!!mig2, 'migration do ajuste (conversões + placa) existe')
+const sql2 = mig2 ? readFileSync(`supabase/migrations/${mig2}`, 'utf8') : ''
+ok(/fn_placa_mercosul/.test(sql2) && /chr\(65 \+ substr\(n, 5, 1\)::int\)/.test(sql2), 'placa antiga → Mercosul (5º caractere 0..9 → A..J)')
+ok(/placa_chave text\s+GENERATED ALWAYS AS \(public\.fn_placa_mercosul\(coalesce\(nullif\(placa, ''\), nome\)\)\) STORED/.test(sql2), 'chave do rastreador = placa ou, se vazia, o nome do equipamento')
+ok(/c\.placa_chave = d\.placa_chave/.test(sql2) && /'divergencias'/.test(sql2), 'painel casa pela placa_chave e devolve divergências')
+ok(/WHERE motorista = '\[object Object\]'/.test(sql2) && /round\(km_hoje\s+\/ 1000\.0, 3\)/.test(sql2), 'correção do legado só nas linhas com o marcador (idempotente)')
+ok(/REVOKE ALL ON FUNCTION public\.fn_frota_rastreio_corrigir_legado\(\) FROM PUBLIC, anon, authenticated/.test(sql2), 'correção do legado só pela conexão de serviço')
+ok(/api_base_url text/.test(sql2), 'frota_rastreio_config.api_base_url (família Protrack)')
+ok(/REVOKE ALL ON FUNCTION public\.fn_frota_rastreio_painel\(uuid\) FROM PUBLIC, anon/.test(sql2), 'REVOKE anon mantido no painel')
+const fnEdge = readFileSync('supabase/functions/frota-rastreio-sync/index.ts', 'utf8')
+ok((fnEdge.match(/await usarApiDaEmpresa\(companyId\)/g) || []).length === 2 && /await usarApiDaEmpresa\(p\.company_id\)/.test(fnEdge) && /apiBase = s\.base/.test(fnEdge), 'edge usa o endereço da API da empresa no sync, na rota histórica e na cópia diária')
 
 // ── (4) tela ──
 const tela = readFileSync('src/app/dashboard/inteligencia/logistica/page.tsx', 'utf8')

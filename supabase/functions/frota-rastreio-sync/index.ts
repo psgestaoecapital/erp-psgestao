@@ -21,7 +21,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2"
 import { corsHeaders } from "../_shared/cors.ts"
 import {
-  BASE_URL, IMEIS_POR_CHAMADA, PLAYBACK_PONTOS_POR_PAGINA, CODIGOS_TOKEN,
+  BASE_URL, baseUrlDe, IMEIS_POR_CHAMADA, PLAYBACK_PONTOS_POR_PAGINA, CODIGOS_TOKEN,
   assinatura, mensagemErro, ehErroDeAutenticacao, converterDispositivos, converterPosicoes, converterPlayback,
   distanciaKm, lotes, janelaDia, converterMileage, converterAlarmes, converterCercas, cercaDoPonto,
   derivarViagensParadas, type Cerca, type PontoRota,
@@ -45,8 +45,16 @@ class ErroApi extends Error {
   constructor(public codigo: number | null, public amigavel: string) { super(amigavel) }
 }
 
+// Endereço da API da empresa em processamento (frota_rastreio_config.api_base_url; vazio = BASE_URL).
+// A edge processa uma empresa por vez, então a variável do módulo é trocada no início de cada uma.
+let apiBase = BASE_URL
+async function usarApiDaEmpresa(companyId: string) {
+  const { data } = await admin.from("frota_rastreio_config").select("api_base_url").eq("company_id", companyId).maybeSingle()
+  apiBase = baseUrlDe((data as { api_base_url?: string | null } | null)?.api_base_url)
+}
+
 async function chamar(path: string, params: Record<string, string | number>): Promise<unknown> {
-  const url = new URL(path, BASE_URL)
+  const url = new URL(path, apiBase)
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v))
   let res: Response
   try {
@@ -110,6 +118,7 @@ async function gravarStatus(companyId: string, patch: Record<string, unknown>) {
 type ResultadoSync = { company_id: string; ok: boolean; veiculos?: number; posicoes?: number; alarmes?: number; status: string; erro?: string }
 
 async function sincronizarEmpresa(companyId: string): Promise<ResultadoSync> {
+  await usarApiDaEmpresa(companyId)
   const cred = await lerCredencial(companyId)
   if (!cred) {
     await gravarStatus(companyId, { ultimo_status: "sem_credencial", ultimo_erro: "Conta e senha do rastreador ainda não cadastradas." })
@@ -180,6 +189,7 @@ async function playback(companyId: string, imei: string, inicioIso: string, fimI
   const { data: d } = await admin.from("frota_rastreio_dispositivo").select("imei").eq("company_id", companyId).eq("imei", imei).maybeSingle()
   if (!d) return respond(404, { ok: false, erro: "Veículo não encontrado na frota rastreada desta empresa." })
 
+  await usarApiDaEmpresa(companyId)
   const cred = await lerCredencial(companyId)
   if (!cred) return respond(200, { ok: false, erro: "Conta e senha do rastreador ainda não cadastradas." })
   try {
@@ -280,21 +290,23 @@ async function rodarDiario() {
   const { data, error } = await admin.rpc("fn_frota_rastreio_copias_pendentes", { p_limite: 500 })
   if (error) return { ok: false, erro: "falha_ao_listar_pendencias" }
   const pend = (data ?? []) as { company_id: string; imei: string; dia: string }[]
-  const sessoes = new Map<string, { comToken: ComToken; cercas: Cerca[] } | null>()
+  const sessoes = new Map<string, { comToken: ComToken; cercas: Cerca[]; base: string } | null>()
   let feitos = 0, erros = 0
   for (const p of pend) {
     if (Date.now() - t0 > DIARIO_ORCAMENTO_MS) break
     if (!sessoes.has(p.company_id)) {
+      await usarApiDaEmpresa(p.company_id)
       const cred = await lerCredencial(p.company_id)
       if (!cred) { sessoes.set(p.company_id, null); continue }
       try {
         const comToken = await sessao(p.company_id, cred)
         const cercas = await cercasDaEmpresa(p.company_id, cred.account, comToken).catch(() => [] as Cerca[])
-        sessoes.set(p.company_id, { comToken, cercas })
+        sessoes.set(p.company_id, { comToken, cercas, base: apiBase })
       } catch { sessoes.set(p.company_id, null) }
     }
     const s = sessoes.get(p.company_id)
     if (!s) continue
+    apiBase = s.base   // a lista de pendências pode alternar empresas: volta ao endereço da API desta
     const { data: ant } = await admin.from("frota_copia_dia").select("tentativas").eq("company_id", p.company_id).eq("imei", p.imei).eq("dia", p.dia).maybeSingle()
     try {
       const r = await copiarDia(p.company_id, p.imei, p.dia, s.comToken, s.cercas)
