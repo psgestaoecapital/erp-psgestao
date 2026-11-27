@@ -21,12 +21,25 @@ type Veiculo = {
   gps_em: string | null; latitude: number | null; longitude: number | null; velocidade_kmh: number | null
   ignicao: boolean | null; km_hoje: number | null; motorista: string | null; situacao: Situacao; km_30d: number | null
   cadastrado: boolean; modelo: string | null; marca: string | null; custo_30d: number | null; custo_km_30d: number | null
+  metodo: 'manual' | 'placa' | 'nome' | 'sem_par' | 'fora_da_frota' | null; km_mes_ant: number | null; custo_rateado_mes_ant: number | null
 }
+type CustoMes = { mes: string; km: number; combustivel: number; manutencao: number; pneus: number; total: number; titulos: number; custo_km: number | null; parcial: boolean }
+type Divergencias = {
+  casados: number; fora_da_frota: number
+  rastreador_sem_par: { imei: string; nome: string | null; placa_rastreador: string | null; sugestao_veiculo_id: string | null; sugestao_placa: string | null }[]
+  veiculo_sem_rastreador: { veiculo_id: string; placa: string; tipo: string | null }[]
+}
+type Alarmes = { ultimas_24h: number; por_tipo: { tipo: string; n: number }[]; recentes: { imei: string; tipo: string; em: string; cerca: string | null; velocidade_kmh: number | null }[] }
+type Ontem = { dia: string; km: number; viagens: number; paradas: number; horas_rodando: number; copiados: number; cercas: number }
 type Painel = {
   tem_credencial: boolean
-  config: { cadencia_min: number; playback_habilitado: boolean; ultima_sync_em: string | null; ultima_sync_ok_em: string | null; ultimo_status: string | null; ultimo_erro: string | null }
+  config: { cadencia_min: number; playback_habilitado: boolean; copia_diaria_habilitada?: boolean; ultima_sync_em: string | null; ultima_sync_ok_em: string | null; ultimo_status: string | null; ultimo_erro: string | null }
   frota_cadastrada: number
   kpis: { total: number; em_movimento: number; ligado_parado: number; parado: number; sem_sinal: number; km_hoje: number; km_30d: number; cadastrados: number; custo_30d: number }
+  custo_mes?: CustoMes[]
+  divergencias?: Divergencias
+  alarmes?: Alarmes
+  ontem?: Ontem
   veiculos: Veiculo[]
 }
 type Rota = { pontos: { lat: number; lng: number; em: string; velocidade: number | null }[]; resumo: { pontos: number; distancia_km: number; velocidade_max: number } }
@@ -50,6 +63,8 @@ function ha(s: string | null): string {
   if (min < 48 * 60) return `há ${Math.round(min / 60)} h`
   return `há ${Math.round(min / 1440)} dias`
 }
+const mesRot = (s: string) => { const [a, m] = s.slice(0, 7).split('-'); return `${['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][Number(m) - 1]}/${a.slice(2)}` }
+const dataBR = (s: string) => { const [a, m, d] = s.slice(0, 10).split('-'); return `${d}/${m}/${a}` }
 const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 
 const card: CSSProperties = { background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 14, padding: 16, minWidth: 0, display: 'grid', gap: 10, alignContent: 'start' }
@@ -186,6 +201,16 @@ function BiLogistica() {
     setRotaCarregando(false)
   }
 
+  const [vinculando, setVinculando] = useState<string | null>(null)
+  async function vincular(imei: string, veiculoId: string | null, foraDaFrota = false) {
+    if (!companyId) return
+    setVinculando(imei); setAviso(null)
+    const { error } = await supabase.rpc('fn_frota_rastreio_vincular', { p_company_id: companyId, p_imei: imei, p_veiculo_id: veiculoId, p_fora_da_frota: foraDaFrota })
+    if (error) setAviso(erroAmigavel(error, 'Não foi possível salvar o vínculo. Tente de novo.'))
+    setVinculando(null)
+    await carregar()
+  }
+
   const veiculos = useMemo(() => painel?.veiculos ?? [], [painel])
   const lista = useMemo(() => {
     const q = busca.trim().toLowerCase()
@@ -234,6 +259,7 @@ function BiLogistica() {
               Para ver a posição dos veículos aqui, cadastre uma vez a <b>conta</b> e a <b>senha</b> do rastreador em Conectores › Logística.
               A senha fica guardada no cofre da empresa e a leitura passa a acontecer sozinha a cada {int(cfg?.cadencia_min ?? 10)} minutos.
             </p>
+            <div style={{ fontSize: 13, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Dica: peça ao fornecedor uma conta só para a integração.<AjudaCampo chave="log.bi.subconta" rota={ROTA} /></div>
             <button onClick={() => router.push('/dashboard/conectores')} style={btn(true)}>Ir para Conectores</button>
             {painel.frota_cadastrada > 0 && <div style={{ fontSize: 12, color: C.m }}>{int(painel.frota_cadastrada)} veículo(s) já cadastrados na frota serão cruzados pela placa.</div>}
           </div>
@@ -251,6 +277,9 @@ function BiLogistica() {
               {cfg.ultimo_status && cfg.ultimo_status !== 'ok' && cfg.ultimo_erro && <div style={{ fontSize: 13, color: C.bad }}>{cfg.ultimo_erro}</div>}
               {!cfg.ultimo_status && <div style={{ fontSize: 13, color: C.m }}>A credencial está salva. Toque em “Atualizar agora” para ler a frota sem esperar a próxima leitura.</div>}
               {aviso && <div style={{ fontSize: 13, color: C.m }}>{aviso}</div>}
+              <div style={{ fontSize: 12, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>
+                Use uma conta do rastreador só para a integração: cada entrada nova derruba a sessão anterior.<AjudaCampo chave="log.bi.subconta" rota={ROTA} />
+              </div>
             </div>
 
             <div style={grade(160)}>
@@ -259,8 +288,86 @@ function BiLogistica() {
               <Kpi rot="Parados" v={int(k.parado + k.ligado_parado)} sub={`${int(k.ligado_parado)} com motor ligado`} ajuda="log.bi.parado" cor={C.azul} />
               <Kpi rot="Sem sinal" v={int(k.sem_sinal)} sub="última posição há mais de 1 h" ajuda="log.bi.sem_sinal" cor={k.sem_sinal ? C.bad : C.esp} />
               <Kpi rot="Km rodados" v={`${int(k.km_hoje)} km`} sub={`hoje · ${int(k.km_30d)} km em 30 dias`} ajuda="log.bi.km" />
-              <Kpi rot="Custo × km (30 dias)" v={k.km_30d > 0 && k.custo_30d > 0 ? `${brl(k.custo_30d / k.km_30d, 2)}/km` : '—'} sub={k.custo_30d > 0 ? `${brl(k.custo_30d)} lançados` : 'sem custo lançado na frota'} ajuda="log.bi.custo" />
+              {(() => {
+                const fechado = (painel.custo_mes ?? []).find((m) => !m.parcial)
+                return <Kpi rot="Custo × km" v={fechado?.custo_km != null ? `${brl(fechado.custo_km, 2)}/km` : '—'}
+                  sub={fechado ? (fechado.km > 0 ? `${mesRot(fechado.mes)} · ${brl(fechado.total)} ÷ ${int(fechado.km)} km` : `${mesRot(fechado.mes)} · ${brl(fechado.total)} · sem km oficial ainda`) : 'sem títulos de frota'}
+                  ajuda="log.bi.custo_mes" />
+              })()}
             </div>
+
+            <div style={grade(300)}>
+              {painel.ontem && (
+                <div style={card}>
+                  <Titulo t={`Ontem · ${dataBR(painel.ontem.dia)}`} ajuda="log.bi.ontem" nota={cfg.copia_diaria_habilitada ? 'Copiado do rastreador na madrugada.' : 'Cópia diária desligada para esta empresa.'} />
+                  {painel.ontem.copiados === 0
+                    ? <div style={{ fontSize: 13, color: C.m }}>A cópia do dia anterior ainda não rodou. Ela acontece toda madrugada.</div>
+                    : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, fontSize: 13 }}>
+                        <div><b style={{ fontSize: 20 }}>{int(painel.ontem.km)}</b> km</div>
+                        <div><b style={{ fontSize: 20 }}>{int(painel.ontem.viagens)}</b> viagens</div>
+                        <div><b style={{ fontSize: 20 }}>{int(painel.ontem.paradas)}</b> paradas</div>
+                        <div><b style={{ fontSize: 20 }}>{nf({ maximumFractionDigits: 1 }).format(painel.ontem.horas_rodando)}</b> h rodando</div>
+                      </div>}
+                </div>
+              )}
+              {(painel.custo_mes ?? []).length > 0 && (
+                <div style={card}>
+                  <Titulo t="Custo da frota por km" ajuda="log.bi.custo_mes" nota="Títulos a pagar do ERP (postos, oficinas, pneus) ÷ km oficial do mês." />
+                  {(painel.custo_mes ?? []).map((m) => (
+                    <div key={m.mes} style={{ display: 'grid', gap: 2, fontSize: 13, borderTop: `1px solid ${C.bg2}`, paddingTop: 6 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <b>{mesRot(m.mes)}{m.parcial ? ' (em andamento)' : ''}</b>
+                        <b>{m.custo_km != null ? `${brl(m.custo_km, 2)}/km` : '—'}</b>
+                      </div>
+                      <div style={{ color: C.m, fontSize: 12 }}>
+                        Combustível {brl(m.combustivel)} · manutenção {brl(m.manutencao)} · pneus {brl(m.pneus)} · {int(m.km)} km
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {painel.alarmes && (
+                <div style={card}>
+                  <Titulo t="Alarmes" ajuda="log.bi.alarmes" nota={`${int(painel.alarmes.ultimas_24h)} nas últimas 24 h`} />
+                  {painel.alarmes.recentes.length === 0
+                    ? <div style={{ fontSize: 13, color: C.m }}>Nenhum alarme recebido. Os alarmes são ligados na plataforma do rastreador.</div>
+                    : <div style={{ display: 'grid', gap: 4, fontSize: 12, maxHeight: 180, overflow: 'auto' }}>
+                        {painel.alarmes.recentes.map((a, i) => (
+                          <div key={a.imei + a.em + i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                            <span><b>{veiculos.find((v) => v.imei === a.imei)?.rotulo ?? a.imei}</b> · {a.tipo}{a.cerca ? ` · ${a.cerca}` : ''}</span>
+                            <span style={{ color: C.m, whiteSpace: 'nowrap' }}>{ha(a.em)}</span>
+                          </div>
+                        ))}
+                      </div>}
+                </div>
+              )}
+            </div>
+
+            {painel.divergencias && (painel.divergencias.rastreador_sem_par.length > 0 || painel.divergencias.veiculo_sem_rastreador.length > 0) && (
+              <div style={card}>
+                <Titulo t="Divergências: rastreador × frota cadastrada" ajuda="log.bi.casamento"
+                  nota={`${int(painel.divergencias.casados)} de ${int(veiculos.length)} rastreadores ligados a um veículo cadastrado.`} />
+                {painel.divergencias.rastreador_sem_par.map((d) => (
+                  <div key={d.imei} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between', fontSize: 13, borderTop: `1px solid ${C.bg2}`, paddingTop: 6 }}>
+                    <span>
+                      <b>{d.nome ?? d.imei}</b>{' '}
+                      {d.sugestao_placa ? <span style={{ color: C.warn }}>parece {d.sugestao_placa} (1 caractere diferente)</span> : <span style={{ color: C.m }}>sem placa conhecida no nome</span>}
+                    </span>
+                    <span style={{ display: 'flex', gap: 6 }}>
+                      {d.sugestao_veiculo_id && (
+                        <button disabled={vinculando === d.imei} onClick={() => void vincular(d.imei, d.sugestao_veiculo_id)} style={btn(true, vinculando === d.imei)}>Confirmar {d.sugestao_placa}</button>
+                      )}
+                      <button disabled={vinculando === d.imei} onClick={() => void vincular(d.imei, null, true)} style={btn(false, vinculando === d.imei)}>Não é da frota</button>
+                    </span>
+                  </div>
+                ))}
+                {painel.divergencias.veiculo_sem_rastreador.length > 0 && (
+                  <div style={{ fontSize: 13, color: C.m, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', borderTop: `1px solid ${C.bg2}`, paddingTop: 6 }}>
+                    Sem rastreador: {painel.divergencias.veiculo_sem_rastreador.map((v) => v.placa).join(', ')}<AjudaCampo chave="log.bi.sem_rastreador" rota={ROTA} />
+                  </div>
+                )}
+              </div>
+            )}
 
             {veiculos.length === 0 ? (
               <div style={{ ...card, color: C.m }}>O rastreador ainda não devolveu veículos para esta conta. Depois da primeira leitura, a frota aparece aqui.</div>
@@ -296,8 +403,8 @@ function BiLogistica() {
                         </div>
                         <div style={{ fontSize: 12, color: C.m }}>
                           {v.cadastrado
-                            ? <>{[v.marca, v.modelo].filter(Boolean).join(' ') || 'Na frota'} · custo 30 dias {brl(v.custo_30d)}{v.custo_km_30d != null && <> · {brl(v.custo_km_30d, 2)}/km</>}</>
-                            : <>Placa não encontrada na frota cadastrada</>}
+                            ? <>{[v.marca, v.modelo].filter(Boolean).join(' ') || 'Na frota'}{v.metodo === 'manual' ? ' · vínculo confirmado' : ''}{v.custo_rateado_mes_ant != null && <> · mês anterior {brl(v.custo_rateado_mes_ant)} em {int(v.km_mes_ant)} km</>}</>
+                            : v.metodo === 'fora_da_frota' ? <>Marcado como fora da frota</> : <>Sem par na frota cadastrada (veja Divergências)</>}
                         </div>
                       </button>
                     ))}
