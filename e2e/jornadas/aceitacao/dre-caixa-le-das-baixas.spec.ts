@@ -15,7 +15,7 @@
 // título por SOFT-DELETE (trg_bloqueia_delete_fisico), e recalcula o mês para não deixar resíduo no psgc_dre.
 
 import { test, expect } from '../../support/fixtures'
-import { dbSelect, dbInsert, dbPatch, dbDelete, rpcComoRobo, pegarTravaDemo, soltarTravaDemo, donoTrava } from '../../support/api'
+import { dbSelect, dbInsert, dbPatch, dbDelete, rpc, pegarTravaDemo, soltarTravaDemo, donoTrava } from '../../support/api'
 
 const DEMO_GE = 'b0700000-0000-4000-a000-000000000004'
 const ANO = 2020
@@ -31,7 +31,10 @@ const criado = { receber: [] as string[], pagar: [] as string[], recBaixa: [] as
 
 // soma do regime caixa de um `source` no mês 2020-01, depois de recalcular (idempotente)
 const caixaDoMes = async (source: 'etl_receber_caixa' | 'etl_pagar_caixa'): Promise<number> => {
-  await rpcComoRobo('fn_psgc_recalcular_dre_mes', { p_company_id: DEMO_GE, p_ano: ANO, p_mes: MES })
+  // fn_psgc_recalcular_dre_mes é o writer do psgc_dre: EXECUTE só p/ service_role (o psgc-worker). O JWT
+  // do bot (authenticated) leva "permission denied" e, se ignorado, o DRE nunca recalcula → delta 0 (falso
+  // positivo que travou a main). Chamamos via `rpc` (service_role), que ainda LANÇA erro se a RPC falhar.
+  await rpc('fn_psgc_recalcular_dre_mes', { p_company_id: DEMO_GE, p_ano: ANO, p_mes: MES })
   const rows = await dbSelect<DreRow>(
     'psgc_dre',
     `company_id=eq.${DEMO_GE}&ano=eq.${ANO}&mes=eq.${MES}&source=eq.${source}&select=valor`,
@@ -54,7 +57,7 @@ test.describe('GE — DRE regime caixa lê das baixas #dre-caixa', () => {
       for (const id of criado.receber) await dbPatch('erp_receber', `id=eq.${id}&deleted_at=is.null`, { deleted_at: agora })
       for (const id of criado.pagar) await dbPatch('erp_pagar', `id=eq.${id}&deleted_at=is.null`, { deleted_at: agora })
       // recalcula 2020-01 já sem os títulos do run → psgc_dre do mês volta a ficar vazio (sem resíduo).
-      await rpcComoRobo('fn_psgc_recalcular_dre_mes', { p_company_id: DEMO_GE, p_ano: ANO, p_mes: MES })
+      await rpc('fn_psgc_recalcular_dre_mes', { p_company_id: DEMO_GE, p_ano: ANO, p_mes: MES })
     } finally {
       await soltarTravaDemo(donoTrava())
     }
