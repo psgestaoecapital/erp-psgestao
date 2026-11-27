@@ -103,6 +103,7 @@ export default function EstruturaObraPage({ params }: { params: Promise<{ id: st
             style={{ border: 'none', background: 'transparent', color: GOLD, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Editar</button>
           <button data-testid="estrutura-excluir" disabled={busy} onClick={() => void excluir(it)}
             style={{ border: 'none', background: 'transparent', color: VERM, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Excluir</button>
+          <AjudaCampo chave="projetos.obra_estrutura.excluir" rota={ROTA} />
         </>
       )}
     </div>
@@ -116,6 +117,7 @@ export default function EstruturaObraPage({ params }: { params: Promise<{ id: st
           onChange={(e) => setNovo((s) => ({ ...s, [k]: e.target.value }))}
           onKeyDown={(e) => { if (e.key === 'Enter') void adicionar(nivel, parentId) }} />
         <button data-testid={`estrutura-add-${nivel}`} disabled={busy} onClick={() => void adicionar(nivel, parentId)} style={btnAdd}>+ {LABEL[nivel]}</button>
+        <AjudaCampo chave="projetos.obra_estrutura.adicionar" rota={ROTA} />
         <AjudaCampo chave={AJUDA[nivel]} rota={ROTA} />
       </div>
     )

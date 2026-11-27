@@ -1,0 +1,25 @@
+{
+  "_doc": "Banco de 20 perguntas reais do Consultor IA (CEO 25/11). Aceite PR B: >= 18/20 corretas na DEMO, 0 número inventado, 0 dado de outra empresa, tempo médio <= 25s. 'espera' = conceitos/entidades que a resposta tem de abordar; 'tipo' orienta a verificação. A correção final (18/20) é conferida por pessoa na jornada do piloto; o e2e trava as garantias determinísticas (sem erro, sem dado de outra empresa, sem número inventado).",
+  "perguntas": [
+    { "id": "receber_hoje", "pergunta": "Quais contas a receber vencem hoje?", "espera": ["receber", "vencem", "hoje"], "tipo": "listagem" },
+    { "id": "pagar_semana", "pergunta": "Quais despesas vencem nesta semana?", "espera": ["pagar", "semana"], "tipo": "listagem" },
+    { "id": "saldo_contas", "pergunta": "Qual o saldo das minhas contas bancárias?", "espera": ["saldo", "conta"], "tipo": "valor" },
+    { "id": "saldo_bate_banco", "pergunta": "Meu saldo bate com o banco?", "espera": ["banco", "extrato", "diferença"], "tipo": "divergencia" },
+    { "id": "inadimplentes", "pergunta": "Quais clientes estão inadimplentes?", "espera": ["vencido", "cliente"], "tipo": "listagem" },
+    { "id": "quem_mais_atrasa", "pergunta": "Quem são os clientes que mais atrasam os pagamentos?", "espera": ["atraso", "cliente"], "tipo": "analise" },
+    { "id": "juros_mes", "pergunta": "Quanto paguei de juros este mês?", "espera": ["juros"], "tipo": "analise" },
+    { "id": "total_receber_mes", "pergunta": "Quanto tenho a receber este mês?", "espera": ["receber", "total"], "tipo": "listagem" },
+    { "id": "total_pagar_mes", "pergunta": "Quanto tenho a pagar este mês?", "espera": ["pagar", "total"], "tipo": "listagem" },
+    { "id": "maior_despesa", "pergunta": "Qual foi minha maior despesa recente?", "espera": ["despesa", "maior"], "tipo": "analise" },
+    { "id": "sem_categoria", "pergunta": "Tenho lançamentos sem categoria?", "espera": ["categoria"], "tipo": "analise" },
+    { "id": "sem_conciliar", "pergunta": "Quais lançamentos estão sem conciliar?", "espera": ["conciliar"], "tipo": "listagem" },
+    { "id": "sem_cnpj", "pergunta": "Tenho fornecedores ou clientes sem CNPJ?", "espera": ["cnpj", "cadastro"], "tipo": "listagem" },
+    { "id": "cliente_cadastrado", "pergunta": "O cliente com maior volume de compras está cadastrado corretamente?", "espera": ["cliente", "cadastr"], "tipo": "parceiro" },
+    { "id": "boleto_pago_juros", "pergunta": "Algum boleto foi pago com juros recentemente? De quanto?", "espera": ["boleto", "juros"], "tipo": "analise" },
+    { "id": "fluxo_mes", "pergunta": "Como está meu fluxo de caixa este mês?", "espera": ["entrada", "saída", "caixa"], "tipo": "analise" },
+    { "id": "dre_caiu", "pergunta": "Por que meu resultado caiu em relação ao mês passado?", "espera": ["resultado", "mês"], "tipo": "analise" },
+    { "id": "maior_devedor", "pergunta": "Qual cliente me deve mais hoje?", "espera": ["cliente", "deve"], "tipo": "analise" },
+    { "id": "contrato_ativo", "pergunta": "Quantos contratos ativos eu tenho e quanto somam por mês?", "espera": ["contrato", "mensal"], "tipo": "analise" },
+    { "id": "titulo_parcial", "pergunta": "Tenho algum título marcado como parcial que já foi pago por inteiro?", "espera": ["parcial", "pago"], "tipo": "analise" }
+  ]
+}

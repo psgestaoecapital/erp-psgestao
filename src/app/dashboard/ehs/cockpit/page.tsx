@@ -60,6 +60,8 @@ export default function CockpitSstPage() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
+  // F.2 · financeiro acoplado: o EHS funciona sozinho; o Financeiro (GE) é um adicional por assinatura.
+  const [financeiro, setFinanceiro] = useState<{ acoplado: boolean; ehs: boolean } | null>(null)
 
   const alvo = useMemo(() => {
     const ids = companyIdsKey ? companyIdsKey.split(',').filter(Boolean) : []
@@ -69,15 +71,18 @@ export default function CockpitSstPage() {
   const carregar = useCallback(async () => {
     setLoading(true); setErro(null)
     try {
-      if (!alvo) { setResumo(null); setSetores([]); return }
-      const [r, s] = await Promise.all([
+      if (!alvo) { setResumo(null); setSetores([]); setFinanceiro(null); return }
+      const [r, s, f] = await Promise.all([
         supabase.from('v_ehs_cockpit_resumo').select('*').eq('company_id', alvo).maybeSingle(),
         supabase.from('v_ehs_cockpit_setor').select('*').eq('company_id', alvo),
+        supabase.rpc('fn_ehs_financeiro_status', { p_company_id: alvo }),
       ])
       if (r.error) throw r.error
       if (s.error) throw s.error
       setResumo((r.data as Resumo) || null)
       setSetores(((s.data || []) as SetorLinha[]).sort((a, b) => a.setor_nome.localeCompare(b.setor_nome)))
+      // F.2: a falta do adicional nunca é erro — só não mostra a tira se a leitura falhar.
+      setFinanceiro(f.error ? null : ((f.data as { acoplado: boolean; ehs: boolean }) || null))
     } catch (e: any) {
       setErro(e?.message || 'Falha ao carregar o cockpit')
     } finally { setLoading(false) }
@@ -108,6 +113,44 @@ export default function CockpitSstPage() {
         </header>
 
         {erro && (<div style={{ backgroundColor: C.redBg, color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 14 }}>{erro}</div>)}
+
+        {/* F.2 · Financeiro acoplado (adicional por assinatura — nunca quebra o EHS quando ausente) */}
+        {financeiro && (
+          <section
+            data-ajuda="ehs.cockpit.financeiro"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+              backgroundColor: financeiro.acoplado ? '#e7f6ec' : C.beigeLt,
+              border: `1px solid ${financeiro.acoplado ? '#bfe3c9' : C.borderLt}`,
+              borderRadius: 12, padding: '12px 16px', marginBottom: 16,
+            }}
+          >
+            <span style={{ fontSize: 18, lineHeight: 1 }}>{financeiro.acoplado ? '🟢' : '💠'}</span>
+            <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: C.espresso, display: 'flex', alignItems: 'center', gap: 6 }}>
+                {financeiro.acoplado ? 'Financeiro acoplado' : 'Financeiro não acoplado'}
+                <AjudaCampo chave="ehs.cockpit.financeiro" />
+              </p>
+              <p style={{ margin: '2px 0 0', fontSize: 13, color: C.muted }}>
+                {financeiro.acoplado
+                  ? 'A Gestão Empresarial (contas a pagar/receber, caixa e DRE) está disponível para esta empresa, junto do EHS.'
+                  : 'O EHS funciona sozinho. Se quiser, adicione o Financeiro (contas a pagar/receber, caixa e DRE) — nada no EHS deixa de funcionar sem ele.'}
+              </p>
+            </div>
+            <Link
+              href="/dashboard/gestao-empresarial"
+              style={{
+                padding: '9px 14px', borderRadius: 8, textDecoration: 'none', fontSize: 13, fontWeight: 600,
+                whiteSpace: 'nowrap',
+                backgroundColor: financeiro.acoplado ? 'white' : C.gold,
+                color: financeiro.acoplado ? C.espresso : 'white',
+                border: financeiro.acoplado ? `1px solid ${C.borderLt}` : 'none',
+              }}
+            >
+              {financeiro.acoplado ? 'Abrir Gestão Empresarial →' : 'Conhecer o adicional →'}
+            </Link>
+          </section>
+        )}
 
         {/* Filtros */}
         <section style={{ backgroundColor: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>

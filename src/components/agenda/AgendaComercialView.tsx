@@ -180,7 +180,17 @@ export function AgendaComercialView({ eyebrow = '🗓️ P&M · Comercial' }: { 
         </div>
 
         {erro && <div style={{ background: '#FCEBEB', color: RED, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
-        {loading ? <div style={{ padding: 30, textAlign: 'center', color: TEXTM }}>Carregando…</div> : (
+        {loading ? <div style={{ padding: 30, textAlign: 'center', color: TEXTM }}>Carregando…</div> : ags.length === 0 ? (
+          // PDCA aud8 27/11 (critério d / RD-98 p1): sem compromissos no período, a semana abria como uma
+          // parede de "+ agendar" — parecia tela morta, sem dizer o porquê. Estado vazio orientativo: explica
+          // (na aba "Minha agenda", quem não é responsável de nada vê isto, enquanto a Equipe pode ter eventos)
+          // e dá os botões para agir (Novo evento e, na "Minha", pular para a agenda da Equipe).
+          <AgendaVazia
+            vis={vis} quem={quem}
+            onNovo={() => abrirNovo(iso(vis === 'mes' ? new Date() : ref))}
+            onVerEquipe={() => setQuem('equipe')}
+          />
+        ) : (
           <>
             {/* DIA */}
             {vis === 'dia' && <DiaCol data={iso(ref)} ags={porDia.get(iso(ref)) ?? []} onNovo={abrirNovo} onEditar={abrirEditar} onStatus={mudarStatus} destaque />}
@@ -212,6 +222,35 @@ export function AgendaComercialView({ eyebrow = '🗓️ P&M · Comercial' }: { 
 }
 
 const navBtn: React.CSSProperties = { width: 34, height: 34, borderRadius: 8, border: `1px solid ${LINE}`, background: '#fff', color: ESP, cursor: 'pointer', fontSize: 14, fontWeight: 700 }
+
+// Estado vazio orientativo da Agenda (PDCA aud8 27/11, critério d): em vez de uma grade de "+ agendar" muda,
+// diz o que fazer e dá os botões. Na aba "Minha agenda" sugere ver a Equipe (os eventos podem estar sob outro
+// responsável). Funciona no celular (390px): cartão único, botões empilhados com flex-wrap.
+function AgendaVazia({ vis, quem, onNovo, onVerEquipe }: {
+  vis: Vis; quem: 'minha' | 'equipe'; onNovo: () => void; onVerEquipe: () => void
+}) {
+  const periodo = vis === 'dia' ? 'neste dia' : vis === 'semana' ? 'nesta semana' : 'neste mês'
+  const minha = quem === 'minha'
+  return (
+    <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: '40px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+      <div aria-hidden style={{ fontSize: 34, lineHeight: 1 }}>🗓️</div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: ESP }}>
+        {minha ? `Você não tem compromissos ${periodo}` : `Nenhum compromisso agendado ${periodo}`}
+      </div>
+      <div style={{ fontSize: 13, color: TEXTM, maxWidth: 440, lineHeight: 1.5 }}>
+        {minha
+          ? 'A aba “Minha agenda” mostra só os compromissos em que você é o responsável. Pode haver eventos da equipe neste período — ou comece agendando um novo.'
+          : 'Agende o primeiro compromisso deste período, ou use ← → acima para navegar até outra data.'}
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginTop: 4 }}>
+        <button onClick={onNovo} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>+ Novo evento</button>
+        {minha && (
+          <button onClick={onVerEquipe} style={{ background: '#fff', color: ESP, border: `1px solid ${ESP}`, borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Ver agenda da equipe</button>
+        )}
+      </div>
+    </div>
+  )
+}
 
 // agrupa os eventos do dia por horário de início (um cabeçalho por "slot"), para a semana não virar uma parede de
 // cartões quase iguais (auditoria RD-96 31/10). "Sem horário" vai por último.

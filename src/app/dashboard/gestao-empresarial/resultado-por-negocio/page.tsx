@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { useEmpresaSelecionada } from '@/lib/agro/usePecuaria'
+import { useEmpresaSelecionada } from '@/lib/empresa/useEmpresaSelecionada'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 

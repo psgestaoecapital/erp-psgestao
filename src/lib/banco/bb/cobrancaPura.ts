@@ -40,6 +40,27 @@ export function nossoNumeroBb(convenio: string, sequencial10: string): string {
   return `000${conv}${seq}`
 }
 
+// Convênio EMBUTIDO num nosso número do BB (posições 4..10 do formato "000"+convênio(7)+sequencial(10)). Devolve null
+// quando não é um nosso número de 20 posições com o prefixo esperado. Chamado #9976 (FC Pisos): a consulta de liquidação
+// em PRODUÇÃO manda numeroConvenio do convênio de produção; um boleto emitido com OUTRO convênio (ex.: o convênio
+// compartilhado de homologação) tem o nosso número rejeitado pelo BB ("nosso número preenchido com dados inválidos").
+// Comparar este convênio com o da credencial evita consultar (e errar todo dia) boletos de outro ambiente/convênio.
+export function convenioDoNossoNumeroBb(nossoNumero: string | null | undefined): string | null {
+  const d = onlyDigitsDoc(nossoNumero)
+  if (d.length !== 20 || !d.startsWith('000')) return null
+  return d.slice(3, 10)
+}
+
+// O nosso número pertence ao convênio da credencial de consulta? (normaliza os dois com 7 dígitos). Quando o nosso número
+// não é reconhecível (null), devolve true — não bloqueia por formato desconhecido; só pula quando há divergência comprovada.
+export function nossoNumeroDoConvenioBb(nossoNumero: string | null | undefined, convenioCredencial: string | null | undefined): boolean {
+  const emb = convenioDoNossoNumeroBb(nossoNumero)
+  if (emb === null) return true
+  const cred = onlyDigitsDoc(convenioCredencial).padStart(7, '0').slice(-7)
+  if (!onlyDigitsDoc(convenioCredencial)) return true
+  return emb === cred
+}
+
 // "Nosso Número já incluído anteriormente" (código 4874915 do BB; chamado #5404, 05/11): o número já existe no banco.
 // O convênio de homologação do BB é COMPARTILHADO entre todos os desenvolvedores, então colide fácil; em produção
 // só colide se um registro anterior não voltou para o sistema. Em ambos, o certo é tentar OUTRO nosso número.

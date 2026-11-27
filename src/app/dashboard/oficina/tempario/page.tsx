@@ -12,6 +12,7 @@ import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { useOficinaRamo, labelCategoria, type Categoria } from '@/lib/oficina/ramo'
 import { parseNumBR } from '@/lib/num'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,6 +54,7 @@ interface Parametros {
   margem_alvo_peca_pct: number
   custo_hora_manual: number | null
   modelo_atendimento?: 'tablet' | 'centralizado'   // #135
+  modo_baixa_estoque?: 'faturamento' | 'baixar_estoque'   // #9726 · quando a baixa de estoque acontece
 }
 
 interface DetalheCusto { categoria: string; rotulo: string; valor: number; pct?: number }
@@ -123,7 +125,7 @@ export default function TemparioPage() {
         .eq('company_id', companyIdAtiva).eq('excluida', false)
         .order('categoria', { ascending: true }).order('nome', { ascending: true }).limit(500),
       supabase.from('erp_oficina_parametros')
-        .select('company_id, horas_produtivas_mes, margem_alvo_mao_obra_pct, margem_alvo_peca_pct, custo_hora_manual, modelo_atendimento')
+        .select('company_id, horas_produtivas_mes, margem_alvo_mao_obra_pct, margem_alvo_peca_pct, custo_hora_manual, modelo_atendimento, modo_baixa_estoque')
         .eq('company_id', companyIdAtiva).maybeSingle(),
     ])
     if (e1) setErro(erroAmigavel(e1, 'Não foi possível carregar os serviços. Tente de novo.'))
@@ -131,6 +133,7 @@ export default function TemparioPage() {
     setParams((par as Parametros) ?? {
       company_id: companyIdAtiva, horas_produtivas_mes: 160,
       margem_alvo_mao_obra_pct: 30, margem_alvo_peca_pct: 40, custo_hora_manual: null, modelo_atendimento: 'tablet',
+      modo_baixa_estoque: 'faturamento',
     })
     // PASSO 2 · custo homem-hora automático dos custos reais de GE
     const { data: ch } = await supabase.rpc('fn_oficina_custo_hora', { p_company_id: companyIdAtiva })
@@ -522,6 +525,7 @@ function ModalParametros({
   const [mPeca, setMPeca] = useState(String(params.margem_alvo_peca_pct))
   const [custoManual, setCustoManual] = useState(params.custo_hora_manual != null ? String(params.custo_hora_manual) : '')
   const [modelo, setModelo] = useState<'tablet' | 'centralizado'>(params.modelo_atendimento === 'centralizado' ? 'centralizado' : 'tablet')
+  const [modoBaixa, setModoBaixa] = useState<'faturamento' | 'baixar_estoque'>(params.modo_baixa_estoque === 'baixar_estoque' ? 'baixar_estoque' : 'faturamento')
   const [salvando, setSalvando] = useState(false)
 
   async function salvar() {
@@ -534,6 +538,7 @@ function ModalParametros({
       margem_alvo_peca_pct: num(mPeca) ?? 40,
       custo_hora_manual: custoManual.trim() ? num(custoManual) : null,
       modelo_atendimento: modelo,
+      modo_baixa_estoque: modoBaixa,
       alterado_em: new Date().toISOString(),
     }, { onConflict: 'company_id' })
     setSalvando(false)
@@ -569,6 +574,20 @@ function ModalParametros({
               : 'O mecânico lança itens e quantidades no Diagnóstico; os valores entram na Aprovação do Cliente.'}
           </div>
         </div>
+        {/* #9726 · quando a baixa de estoque das peças acontece (configuração por empresa) */}
+        <label style={{ display: 'block' }}>
+          <span style={{ ...lbl, display: 'flex', alignItems: 'center' }}>Baixa de estoque do item<AjudaCampo chave="oficina.param.modo_baixa_estoque" /></span>
+          <select value={modoBaixa} onChange={(e) => setModoBaixa(e.target.value === 'baixar_estoque' ? 'baixar_estoque' : 'faturamento')}
+            data-testid="param-modo-baixa-estoque" style={inp}>
+            <option value="faturamento">No faturamento — baixa ao emitir a nota (padrão)</option>
+            <option value="baixar_estoque">Ao clicar em “Baixar estoque” na OS</option>
+          </select>
+          <div style={{ fontSize: 11, color: C.espressoL, marginTop: 4 }}>
+            {modoBaixa === 'baixar_estoque'
+              ? 'A baixa física das peças acontece pelo botão “Baixar estoque” na OS — controla o estoque pelo que foi realmente usado, inclusive peças sem nota.'
+              : 'A baixa física das peças acontece na emissão da nota fiscal, como é hoje.'}
+          </div>
+        </label>
         <button onClick={salvar} disabled={salvando} style={{
           minHeight: 48, padding: '12px 18px', borderRadius: 10, background: salvando ? C.cream : C.gold,
           color: salvando ? C.espressoL : C.white, border: 'none', fontSize: 14, fontWeight: 700, cursor: salvando ? 'not-allowed' : 'pointer',

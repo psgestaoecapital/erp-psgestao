@@ -12,6 +12,9 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { AbasRH, useAbaRH, CASCA_RH_BG, type AbaRH } from '@/components/rh/AbasRH'
+import { VagasView } from '@/components/rh/VagasView'
+import { ImportarPostosView } from '@/components/produtividade/ImportarPostosView'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { CelulaEditavel } from '@/components/produtividade/CelulaEditavel'
 import { PostoPessoas } from '@/components/produtividade/PostoPessoas'
@@ -51,7 +54,7 @@ type FluxoCompleto = {
 }
 type Prontidao = { ok: boolean; pronto_para_medir: boolean; falta: string[]; tem: { setores_com_vinculo: number; postos: number; quadros: number; dias_com_ponto: number; datas_distintas: number; vinculos_ponto: number; producao_chaves: string[]; fluxos: number } }
 
-export default function ProdutividadePage() {
+function PostosConteudo() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
 }
 
@@ -1243,3 +1246,36 @@ function Th({ children, w, ajuda }: { children?: React.ReactNode; w?: number; aj
 function Td({ children }: { children?: React.ReactNode }) { return <td style={{ padding: '6px 9px', color: C.esp }}>{children}</td> }
 function L({ label, ajuda, children }: { label: string; ajuda?: string; children: React.ReactNode }) { return <label style={{ fontSize: 11, color: C.espM, display: 'block' }}>{label}{ajuda && <Aj k={ajuda} />}<div style={{ marginTop: 2 }}>{children}</div></label> }
 function Aviso({ texto }: { texto: string }) { return <div style={{ background: C.bg, minHeight: '100vh', padding: 28, color: C.espM, fontSize: 14 }}>{texto}</div> }
+
+
+// --- Landing "Postos e vagas" (CEO 25/11, RH em 5 itens): Postos (acima) + Vagas e reposição + Importar quadro.
+//     Conteúdo de Postos fica inline (tela própria desta rota); as outras abas reusam os componentes (RD-26).
+const ABAS_POSTOS: AbaRH[] = [
+  { chave: 'postos', rotulo: 'Postos', ajuda: 'industrial.rh.postos.aba.postos' },
+  { chave: 'vagas', rotulo: 'Vagas e reposição', ajuda: 'industrial.rh.postos.aba.vagas' },
+  { chave: 'importar', rotulo: 'Importar quadro', ajuda: 'industrial.rh.postos.aba.importar' },
+]
+
+function PostosEVagasInner() {
+  const aba = useAbaRH(ABAS_POSTOS, 'postos')
+  return (
+    <div style={{ background: CASCA_RH_BG, minHeight: '100vh' }}>
+      <div style={{ padding: '16px clamp(14px, 4vw, 40px) 0' }}>
+        <div style={{ maxWidth: 1180, margin: '0 auto' }}>
+          <AbasRH abas={ABAS_POSTOS} atual={aba} rota="/dashboard/produtividade" />
+        </div>
+      </div>
+      {aba === 'postos' && <PostosConteudo />}
+      {aba === 'vagas' && <VagasView />}
+      {aba === 'importar' && <ImportarPostosView />}
+    </div>
+  )
+}
+
+export default function ProdutividadePage() {
+  return (
+    <Suspense fallback={null}>
+      <PostosEVagasInner />
+    </Suspense>
+  )
+}

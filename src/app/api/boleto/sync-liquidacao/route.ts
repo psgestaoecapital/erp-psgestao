@@ -18,6 +18,9 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { ehChamadaServico, exigirUsuario, empresasDoUsuario } from '@/lib/auth/guardaApi'
 import { PROVEDORES_LIQUIDACAO, BANCOS_COM_CONSULTA, provedorPorBanco, situacaoPaga, statusExecucao, type Ambiente } from '@/lib/banco/liquidacao'
 import { executarBradesco, modoDoHorario, BANCO_BRADESCO } from '@/lib/banco/bradesco/executarLiquidacao'
+import { nossoNumeroDoConvenioBb } from '@/lib/banco/bb/cobrancaPura'
+
+const BANCO_BB = '001'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -62,8 +65,8 @@ async function executarAlvo(alvo: Alvo, agendado: boolean): Promise<Resultado> {
     .is('deleted_at', null).eq('boleto_status', 'registrado').in('status', ['aberto', 'vencido', 'parcial'])
     .not('boleto_nosso_numero', 'is', null)
   if (berr) return { ...base, status: 'erro', mensagem: berr.message }
-  const lista = (boletos ?? []) as { id: string; boleto_nosso_numero: string; valor: number }[]
-  if (lista.length === 0) return { ...base, status: 'sem_boletos' }
+  const listaBruta = (boletos ?? []) as { id: string; boleto_nosso_numero: string; valor: number }[]
+  if (listaBruta.length === 0) return { ...base, status: 'sem_boletos' }
 
   // credencial do banco (produção; se não houver, homologação)
   let ambiente: Ambiente = 'producao'
@@ -75,6 +78,21 @@ async function executarAlvo(alvo: Alvo, agendado: boolean): Promise<Resultado> {
   if (!credRow || credRow.ok === false) return { ...base, status: 'erro', mensagem: `credencial ${prov.provider} não configurada` }
   const montada = prov.montarCredencial(credRow, ambiente)
   if ('faltando' in montada) return { ...base, status: 'erro', mensagem: montada.faltando }
+
+  // BB (#9976, FC Pisos): o nosso número embute o convênio (posições 4..10). A consulta manda numeroConvenio do convênio
+  // da credencial; boleto emitido com OUTRO convênio (ex.: o compartilhado de homologação, antes de existir a credencial
+  // de produção) é rejeitado pelo BB ("nosso número preenchido com dados inválidos") TODO dia. Pula-se esse boleto — em vez
+  // de consultar e falhar — porque em produção ele nunca será consultável. Só o BB tem esse formato; os demais não filtram.
+  let pulados = 0
+  const lista = alvo.banco_codigo === BANCO_BB
+    ? listaBruta.filter((b) => {
+        const mesmo = nossoNumeroDoConvenioBb(b.boleto_nosso_numero, String((credRow as Record<string, unknown>).convenio ?? ''))
+        if (!mesmo) pulados++
+        return mesmo
+      })
+    : listaBruta
+  const notaPulados = pulados > 0 ? `${pulados} boleto(s) de outro convênio ignorado(s) (emitido(s) em ambiente diferente)` : null
+  if (lista.length === 0) return { ...base, status: 'sem_boletos', mensagem: notaPulados }
 
   let liquidados = 0
   const erros: Resultado['erros'] = []
@@ -93,7 +111,9 @@ async function executarAlvo(alvo: Alvo, agendado: boolean): Promise<Resultado> {
         const { data: liq } = await supabaseAdmin.rpc('fn_boleto_liquidar', {
           p_company_id: alvo.company_id, p_nosso_numero: nn,
           p_data_pagamento: r.dataLiquidacao ?? new Date().toISOString().slice(0, 10),
-          p_valor_pago: r.valorPago ?? b.valor, p_provider_raw: r.raw,
+          // Regra única (CEO 25/11): manda o valor PAGO pelo banco; a diferença vira juros/encargos e valor_pago = valor pago.
+          // Banco sem valor liquidado → null (NÃO o valor do título): a função baixa pelo título e marca "conferir juros na conciliação".
+          p_valor_pago: r.valorPago ?? null, p_provider_raw: r.raw,
           p_provider: prov.provider, p_banco_codigo: alvo.banco_codigo,
         })
         const j = liq as { sucesso?: boolean; ja_liquidado?: boolean; erro?: string } | null
@@ -108,8 +128,9 @@ async function executarAlvo(alvo: Alvo, agendado: boolean): Promise<Resultado> {
     .update({ ultimo_sync_em: new Date().toISOString(), ultimo_sync_status: erros.length > 0 ? 'parcial' : 'ok' })
     .eq('company_id', alvo.company_id).eq('banco_codigo', alvo.banco_codigo).eq('ambiente', ambiente).eq('ativo', true)
   const status = statusExecucao(lista.length, erros.length)
+  const msgBase = status === 'erro' ? (erros[0]?.erro ?? 'todas as consultas falharam') : null
   return { ...base, status, consultados: lista.length, liquidados, erros,
-    mensagem: status === 'erro' ? (erros[0]?.erro ?? 'todas as consultas falharam') : null }
+    mensagem: [msgBase, notaPulados].filter(Boolean).join(' · ') || null }
 }
 
 export async function POST(req: NextRequest) {

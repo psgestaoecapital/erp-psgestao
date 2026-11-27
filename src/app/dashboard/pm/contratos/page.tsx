@@ -13,6 +13,9 @@ import { erroAmigavel } from '@/lib/erroAmigavel'
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'; const RED = '#7A1F1F'; const AMBER = '#8A5A08'
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+// Datas em dd/mm/aaaa e "começa em …" quando o início é futuro (CEO 25/11, go-live P&M, item 5).
+const dmy = (iso: string | null | undefined) => { const s = String(iso ?? '').slice(0, 10); const [y, m, d] = s.split('-'); return y && m && d ? `${d}/${m}/${y}` : (s || '') }
+const hojeSP = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })
 const inp: CSSProperties = { padding: '8px 10px', fontSize: 13, border: `1px solid ${BORDA}`, borderRadius: 8, background: '#fff', color: ESPRESSO, outline: 'none' }
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const PERIODICIDADES = ['mensal', 'trimestral', 'projeto']
@@ -236,7 +239,7 @@ export default function ContratosPage() {
                         <div style={{ fontWeight: 700 }}>{c.cliente_nome} <span style={{ color: TEXTM, fontWeight: 400 }}>· {c.tipo === 'recorrente' ? 'recorrente' : 'projeto'}</span></div>
                         <div style={{ fontSize: 12, color: TEXTM, marginTop: 2 }}>
                           {c.tipo === 'recorrente' ? `${brl(Number(feeMostrar ?? 0))}/mês` : brl(Number(c.ge_valor_mensal ?? c.fee_mensal ?? 0))}
-                          {c.data_inicio ? ` · desde ${c.data_inicio}` : ''}
+                          {c.data_inicio ? ` · ${c.data_inicio.slice(0, 10) > hojeSP() ? 'começa em' : 'desde'} ${dmy(c.data_inicio)}` : ''}
                         </div>
                         {/* CEO 18/11 (Parte B) · elo contrato → financeiro: recorrente E projeto podem ir ao financeiro,
                             mas SÓ quando os obrigatórios estão completos. Falta algo → botão travado + lista do que falta. */}

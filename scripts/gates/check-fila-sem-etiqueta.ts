@@ -24,7 +24,7 @@ ok(!/api "repos\/\$REPO\/pulls\/\$n"\)/.test(sh) && /COTA_MINIMA/.test(sh) && /c
     'só a PR verde é atualizada com a main (checks antes do update-branch: sem empurrar commit em PR vermelha)')
 }
 ok(/comentar_uma_vez\(\)/.test(sh) && /<!-- fila:\$chave -->/.test(sh), 'comentários da fila levam marca escondida (sem repetir a cada rodada)')
-ok(/via=revisada/.test(sh) && /a=\$\(autorizacao "\$n"\)/.test(sh) && /patch-id/.test(sh), 'revisao-eng-chefe continua exigindo MERGE AUTORIZADO pelo patch-id')
+ok(/via=revisada/.test(sh) && /a=\$\{autoriz_cache:-\$\(autorizacao "\$n"\)\}/.test(sh) && /patch-id/.test(sh), 'revisao-eng-chefe continua exigindo MERGE AUTORIZADO pelo patch-id (autorização cacheada, item A)')
 ok(/m=\$\(estado_main( "\$(?:mig_)?via")?\)/.test(sh) && /deploy_travado=1/.test(sh) && /critica_na_main=1/.test(sh)
   && /deploy_travado" = 1 \][\s\S]*?continue/.test(sh), 'migrations: serialização pela main intacta (deploy_travado segura todas; @pos de crítica só as críticas)')
 const wf = readFileSync('.github/workflows/fila-merge.yml', 'utf8')
