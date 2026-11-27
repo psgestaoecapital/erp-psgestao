@@ -11,9 +11,10 @@ import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
 import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/types'
 import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
 import { SELECT_CONFIG_EMISSOR, dadosEmissorDaConfig } from '@/lib/fiscal/emissorConfig'
+import { municipioInformaIm } from '@/lib/fiscal/municipioInformaIm'
 import { dataBrasil } from '@/lib/fiscal/dataBrasil'
 import { CAMPOS_CADASTRO_TOMADOR, enderecoFiscalDoCliente, escolherCadastroTomador, filtroCadastroTomador, nomeCadastro, type CadastroTomador } from '@/lib/fiscal/tomadorEndereco'
-import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, totaisLiquidosNfse, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
+import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, normalizarCIndOp, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, totaisLiquidosNfse, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -72,6 +73,11 @@ interface EmitirNFSeBody {
   // Chamado #9724 (decisão B) · ESPELHO/PRÉVIA: só MONTA a nota e devolve em previa.nota (formato do espelhoPdf);
   // NÃO transmite, NÃO consome numeração/série, NÃO grava. Read-only — a prévia é o que SERIA transmitido.
   apenasPrevia?: boolean
+  // #bug NFS-e · vínculo de ORIGEM (genérico, erp_nfse_emitidas.origem_tipo/origem_id): liga a nota ao que a
+  // originou — ex.: a NFS-e de intermediação da revenda ao veículo ('veic_intermediacao' + veiculo_id) — para a
+  // ficha mostrar a nota com status/visualizar/acompanhar. Opcional; só grava quando os dois vierem.
+  origemTipo?: string
+  origemId?: string
 }
 
 interface DadosNFSeRPC {
@@ -100,6 +106,14 @@ interface DadosNFSeRPC {
 function humanizarErroFiscal(msg: string | null | undefined): string | null | undefined {
   if (!msg) return msg
   const m = String(msg)
+  // #11040: erro de pattern num campo de CÓDIGO (cTribMun = código de tributação municipal), NÃO no texto.
+  // A mensagem genérica de "símbolo no texto" abaixo confundia o atendente. Dá a ação certa.
+  if (/cTribMun/i.test(m)) {
+    return 'A prefeitura recusou a nota no código de tributação municipal (cTribMun): o formato do código não é ' +
+      'aceito por este município. Em geral é porque o município aderiu à NFS-e Nacional e a nota deve sair no padrão ' +
+      'nacional (sem código municipal). Avise o suporte para revisar a configuração fiscal do município da empresa. ' +
+      '(Detalhe técnico: ' + m.slice(0, 200) + ')'
+  }
   if (/facet '?pattern'?|is not accepted by the pattern|xInfComp|xDiscrim|caractere n[aã]o/i.test(m)) {
     return 'A prefeitura recusou a nota por um símbolo não permitido no texto (ex.: •, — ou aspas curvas). ' +
       'Revise a descrição do serviço e as observações, remova símbolos especiais, e emita de novo. ' +
@@ -171,9 +185,6 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     let cadastroTomadorUsado: string | null = null
     // IBPT por empresa: fonte dos tributos aproximados que foi na nota ('ibpt_empresa' | 'tabela_generica')
     let ibptFonte: 'ibpt_empresa' | 'tabela_generica' | null = null
-    const { data: cfgIbpt } = await supabaseAdmin.from('erp_fiscal_provider_config').select('ibpt_empresa_nas_notas')
-      .eq('company_id', body.companyId).eq('ativo', true).limit(1).maybeSingle()
-    const usarIbptEmpresa = !!(cfgIbpt as { ibpt_empresa_nas_notas?: boolean } | null)?.ibpt_empresa_nas_notas
     // #286 · retenções federais calculadas do cadastro do serviço (as mesmas da tela) e avisos de grupos não enviados
     let retencoesCalculadas: RetencoesFederaisNfse | null = null
     let retCadastro: RetencoesNota | null = null   // #339 · o que o cadastro diria (para o histórico do ajuste)
@@ -209,6 +220,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       const { data: cfgEmissor } = await supabaseAdmin.from('erp_fiscal_provider_config').select(SELECT_CONFIG_EMISSOR)
         .eq('company_id', body.companyId).eq('provider', 'focusnfe').eq('ativo', true).maybeSingle()
       const emissor = dadosEmissorDaConfig(cfgEmissor, body.manual.cnae)
+      // #9726 · a IM do prestador vai na DPS só se o município emissor informa IM (Guarujá do Sul → E0120).
+      const informaImEmissor = await municipioInformaIm(emissor.codigoMunicipio)
       nfseReq = {
         serie: emissor.serie,
         dataEmissao: new Date().toISOString(),
@@ -223,6 +236,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           razaoSocial: emp.razao_social,
           inscricaoMunicipal: emp.inscricao_municipal ?? undefined,
           codigoMunicipio: emissor.codigoMunicipio,
+          informaInscricaoMunicipal: informaImEmissor,
         },
         tomador: body.manual.tomador,
       }
@@ -639,9 +653,12 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
               const lc116Digits = (lc116 ?? '').replace(/\D/g, '')   // '07.05' -> '0705'
               type IbptRow = { federal?: unknown; estadual?: unknown; municipal?: unknown; versao?: unknown }
               let ibpt: IbptRow | null = null
-              // IBPT por empresa (CEO 28/09): com o uso liberado, 1º a consulta da PRÓPRIA empresa (cache → API);
-              // sem token/erro/IBPT fora do ar → tabela genérica. A nota nunca trava por causa do IBPT da empresa.
-              if (usarIbptEmpresa && lc116Digits.length === 4 && ufPrest.length === 2) {
+              // IBPT por empresa: 1º a consulta da PRÓPRIA empresa (cache → API do token); senão → tabela genérica (master).
+              // #bug NFS-e "sem tributos aproximados": o totTrib da NFS-e Nacional do NÃO optante é OBRIGATÓRIO (E0713) e
+              // NÃO depende da flag ibpt_empresa_nas_notas — essa flag governa a transparência OPCIONAL da Lei 12.741 na
+              // NF-e de produto, não este campo. Por isso consulta o IBPT-da-empresa SEMPRE que houver código/UF (o dado
+              // já vem do cache quando existe); a master é só último recurso. Sem token/erro → cai no fallback abaixo.
+              if (lc116Digits.length === 4 && ufPrest.length === 2) {
                 const emp = await aliquotaIbptEmpresa(body.companyId, String((empUf as { cnpj?: string | null } | null)?.cnpj ?? ''), {
                   tipo: 'servico', codigo: lc116Digits, uf: ufPrest, descricao: nfseReq.descricaoServico || 'serviço', valor: Number(nfseReq.valorServicos) || 1,
                 })
@@ -658,12 +675,19 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
                 if (row && row.federal != null) { ibpt = row; ibptFonte = 'tabela_generica' }
               }
               if (!ibpt) {
-                // trava mantida (decisão do CEO 28/09): sem o código nem na genérica, a NFS-e Nacional rejeitaria (E0713)
-                return NextResponse.json({
-                  ok: false,
-                  ibpt_pendente: true,
-                  mensagem: 'Este serviço não tem os tributos aproximados na tabela do IBPT. Cadastre o token do IBPT da empresa ou fale com a PS.',
-                }, { status: 400 })
+                // trava mantida (sem o tributo, a NFS-e Nacional rejeitaria — E0713). Mensagem CERTA (RD-74): token
+                // presente mas sem dado/vencido ≠ sem token — manda a pessoa ao lugar certo em vez de "cadastre o token".
+                const { data: ibptSt } = await supabaseAdmin
+                  .from('erp_ibpt_empresa_status')
+                  .select('token_salvo_em, ultima_vigencia_fim')
+                  .eq('company_id', body.companyId).maybeSingle()
+                const temToken = !!(ibptSt as { token_salvo_em?: string | null } | null)?.token_salvo_em
+                const vigFim = (ibptSt as { ultima_vigencia_fim?: string | null } | null)?.ultima_vigencia_fim ?? null
+                const venceuEm = vigFim ? new Date(String(vigFim) + 'T12:00:00').toLocaleDateString('pt-BR') : null
+                const mensagem = temToken
+                  ? `A tabela do IBPT não tem os tributos aproximados deste serviço${venceuEm ? ` (a última consulta venceu em ${venceuEm})` : ''}. Atualize em Configurações › Fiscal › Tributos aproximados (botão "Atualizar agora") e emita de novo. Se persistir, fale com a PS.`
+                  : 'Cadastre o token do IBPT da empresa em Configurações › Fiscal › Tributos aproximados (ou fale com a PS) — a NFS-e Nacional exige os tributos aproximados (Lei 12.741).'
+                return NextResponse.json({ ok: false, ibpt_pendente: true, mensagem }, { status: 400 })
               }
               nfseReq.tributosAproxPct = {
                 federal: Number(ibpt.federal ?? 0),
@@ -755,6 +779,27 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
                 nfseReq.reforma = ib.reforma
                 if (ib.aviso) avisosTributos.push(ib.aviso)
               }
+              // #bug IBSCBS vazio (seguimento #6379) · na DPS NACIONAL o grupo IBSCBS exige o cIndOp (indicador da
+              // operação) — o CST do IBS/CBS NEM É filho do IBSCBS aqui (≠ item da NF-e). A régua acima (reformaIbsCbsDoServico,
+              // feita para o item da NF-e) exige CST+cClassTrib+cIndOp JUNTOS e devolve undefined quando o serviço não tem
+              // rt_cst → o grupo saía VAZIO e o Ambiente Nacional rejeitava ("IBSCBS Missing child element(s): cIndOp/…").
+              // Então, quando o serviço traz o cIndOp (rt_indicador_operacao), garante o cIndOp (+ cClassTrib/CST quando
+              // houver) no grupo, usando SÓ os campos já mapeados no provider (codigo_indicador_operacao / ibs_cbs_*). NÃO
+              // envia alíquota/valores (o Ambiente Nacional calcula o IBS/CBS — NT da reforma). Sem cIndOp no cadastro do
+              // serviço, segue como antes (o contador completa o serviço; o grupo não sai pela metade inventando dado).
+              {
+                const cIndOpSv = normalizarCIndOp((sv as { rt_indicador_operacao?: string | null }).rt_indicador_operacao)
+                if (cIndOpSv) {
+                  const cClassSv = String((sv as { rt_classificacao_tributaria?: string | null }).rt_classificacao_tributaria ?? '').trim() || nfseReq.reforma?.ibsCbsClassifTrib || null
+                  const cstSv = String((sv as { rt_cst?: string | null }).rt_cst ?? '').trim() || nfseReq.reforma?.ibsCbsCst || reformaEmpresa?.ibsCbsCst || null
+                  nfseReq.reforma = {
+                    ...(nfseReq.reforma ?? {}),
+                    codigoIndicadorOperacao: cIndOpSv,
+                    ...(cClassSv ? { ibsCbsClassifTrib: cClassSv } : {}),
+                    ...(cstSv ? { ibsCbsCst: cstSv } : {}),
+                  }
+                }
+              }
             }
           }
           // #1944 · Simples Nacional: grupo IBS/CBS obrigatório a partir de 01/01/2027 — validação PRONTA e DESLIGADA
@@ -763,6 +808,25 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
             const optanteSN = nfseReq.opcaoSimplesNacional === 2 || nfseReq.opcaoSimplesNacional === 3
             const msgIbs = validarIbsCbsObrigatorio({ optanteSimples: optanteSN, dataEmissaoBR: dataBrasil(), reforma: nfseReq.reforma })
             if (msgIbs) return NextResponse.json({ ok: false, mensagem: msgIbs }, { status: 400 })
+          }
+          // #bug E1235 · indDest / indFinal / finNFSe são OBRIGATÓRIOS na DPS nacional (reforma), INDEPENDENTE do grupo
+          // IBS/CBS (que só vai quando o serviço tem o cadastro completo). Antes esses campos só iam JUNTO com o IBS/CBS
+          // (reformaIbsCbsDoServico devolve reforma=undefined sem o grupo) → sem cadastro, o Focus gerava o XML sem
+          // indDest e o nacional rejeitava ("E1235: infDPS tem filho inválido 'serv'; esperado 'indDest'"). Agora vão
+          // SEMPRE, com padrão seguro (valores explícitos da config, em reformaEmpresa, têm prioridade; o grupo IBS/CBS
+          // já resolvido acima é preservado):
+          //  • indDest (indicador_destinatario) = 0 → o tomador é o destinatário (caso da intermediação: tomador = banco).
+          //  • indFinal (consumidor_final) = 0 quando o tomador é PJ (CNPJ) ou contribuinte; PF (CPF) → 1.
+          //  • finNFSe (finalidadeEmissao) = 0 → NFS-e regular.
+          {
+            const tomadorPJ = !!nfseReq.tomador.cnpj   // tomador da NFS-e: PJ = tem CNPJ (banco na intermediação)
+            const indFinalPadrao = tomadorPJ ? 0 : (nfseReq.tomador.cpf ? 1 : 0)
+            nfseReq.reforma = {
+              ...(nfseReq.reforma ?? {}),
+              finalidadeEmissao: nfseReq.reforma?.finalidadeEmissao ?? reformaEmpresa?.finalidadeEmissao ?? 0,
+              consumidorFinal: nfseReq.reforma?.consumidorFinal ?? reformaEmpresa?.consumidorFinal ?? indFinalPadrao,
+              indicadorDestinatario: nfseReq.reforma?.indicadorDestinatario ?? reformaEmpresa?.indicadorDestinatario ?? 0,
+            }
           }
           // Guard XSD (RD-51): o layout nacional EXIGE cMun (IBGE) e nro do tomador. Sem eles o Focus rejeita
           // no XSD. Bloqueia ANTES de enviar, com mensagem clara — não deixa virar erro fiscal obscuro.
@@ -935,6 +999,15 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         },
         { status: 500 }
       )
+    }
+
+    // #bug NFS-e · vínculo de origem (ex.: intermediação da revenda → veículo), para a ficha mostrar a nota.
+    // Update leve pós-registro (a RPC de registro não grava origem); nunca derruba a emissão já autorizada.
+    if (registroId && typeof body.origemTipo === 'string' && body.origemTipo && typeof body.origemId === 'string' && body.origemId) {
+      const { error: origErr } = await supabaseAdmin.from('erp_nfse_emitidas')
+        .update({ origem_tipo: body.origemTipo, origem_id: body.origemId })
+        .eq('id', registroId).eq('company_id', body.companyId)
+      if (origErr) console.error('[nfse/emitir] origem não vinculada', registroId, origErr.message)
     }
 
     // #35 · MEDIÇÃO: grava pedido + parcelas + se gera o financeiro. Nota que já voltou autorizada efetiva

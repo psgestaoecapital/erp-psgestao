@@ -146,6 +146,19 @@ export default function PortalClienteObraPage({ params }: { params: Promise<{ id
   const ativos = useMemo(() => acessos.filter((a) => a.ativo), [acessos])
   const revogados = useMemo(() => acessos.filter((a) => !a.ativo), [acessos])
 
+  // Resumo do andamento (blueprint 326 · "painel de andamento com as últimas atualizações"):
+  // uma linha glanceável no topo da prévia, derivada SÓ do que já foi carregado (sem nova RPC).
+  const resumo = useMemo(() => {
+    const ultimaMedicao = [...medicoes].sort((a, b) =>
+      (b.aprovada_em || b.competencia || '').localeCompare(a.aprovada_em || a.competencia || ''),
+    )[0] ?? null
+    const ultimoDiario = [...fotos].sort((a, b) =>
+      (b.data || '').localeCompare(a.data || ''),
+    )[0] ?? null
+    const temAlgo = avanco != null || ultimaMedicao != null || ultimoDiario != null
+    return { ultimaMedicao, ultimoDiario, temAlgo }
+  }, [avanco, medicoes, fotos])
+
   const card: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 18 }
   const lbl: React.CSSProperties = { fontSize: 12, fontWeight: 700, color: ESP, display: 'flex', alignItems: 'center', gap: 4 }
   const inp: React.CSSProperties = { border: `1px solid ${LINE}`, borderRadius: 8, padding: '10px 12px', fontSize: 14, color: ESP, background: BG, width: '100%' }
@@ -254,6 +267,25 @@ export default function PortalClienteObraPage({ params }: { params: Promise<{ id
               <div style={{ ...card, marginTop: 12, color: MUT, fontSize: 13 }}>Carregando a prévia…</div>
             ) : (
               <div style={{ display: 'grid', gap: 12, marginTop: 12 }} data-testid="portal-previa">
+                {/* Resumo do andamento — as últimas atualizações num relance (blueprint 326) */}
+                {resumo.temAlgo && (
+                  <div style={{ ...card, display: 'flex', gap: 14, flexWrap: 'wrap' }} data-testid="previa-resumo">
+                    <div style={{ flex: '1 1 150px', minWidth: 120 }}>
+                      <div style={{ ...lbl, fontSize: 11, color: MUT }}>Avanço <AjudaCampo chave="obra.portal.avanco" rota={ROTA} /></div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: GOLD, marginTop: 2 }}>{avanco ? pct(avanco.pct_conclusao) : '—'}</div>
+                    </div>
+                    <div style={{ flex: '1 1 150px', minWidth: 120 }}>
+                      <div style={{ ...lbl, fontSize: 11, color: MUT }}>Última medição <AjudaCampo chave="obra.portal.medicoes" rota={ROTA} /></div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: ESP, marginTop: 2 }}>{resumo.ultimaMedicao ? fmtBRL(resumo.ultimaMedicao.valor_total) : '—'}</div>
+                      <div style={{ fontSize: 11, color: MUT }}>{resumo.ultimaMedicao ? `${resumo.ultimaMedicao.competencia ? fmtData(resumo.ultimaMedicao.competencia) + ' · ' : ''}${resumo.ultimaMedicao.status || 'rascunho'}` : 'sem medição ainda'}</div>
+                    </div>
+                    <div style={{ flex: '1 1 150px', minWidth: 120 }}>
+                      <div style={{ ...lbl, fontSize: 11, color: MUT }}>Último registro no diário <AjudaCampo chave="obra.portal.fotos" rota={ROTA} /></div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: ESP, marginTop: 2 }}>{resumo.ultimoDiario ? fmtData(resumo.ultimoDiario.data) : '—'}</div>
+                      <div style={{ fontSize: 11, color: MUT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{resumo.ultimoDiario?.atividades || (resumo.ultimoDiario ? 'sem descrição' : 'sem diário ainda')}</div>
+                    </div>
+                  </div>
+                )}
                 {/* Avanço */}
                 <div style={card} data-testid="previa-avanco">
                   <div style={{ ...lbl, marginBottom: 10 }}>Avanço da obra <AjudaCampo chave="obra.portal.avanco" rota={ROTA} /></div>

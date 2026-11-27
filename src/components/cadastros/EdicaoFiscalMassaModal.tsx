@@ -5,10 +5,16 @@
 // dentro e fora do estado, CEO 30/09) → PRÉVIA de quantos produtos mudam →
 // aplica. Tudo pela fn_produtos_fiscal_massa (valida contra a tabela oficial e o regime da empresa, registra quem
 // alterou e o antes/depois de cada campo). Por padrão só PREENCHE o que está vazio. Serve para qualquer empresa.
+// Chamado #11065: a prévia só conta e resume; a aplicação grande roda em LOTES (barra de progresso, retomada, cancelar) —
+// a função antiga materializava tudo numa transação só e estourava o tempo do banco (8 s) em catálogo de 10 mil produtos.
 import { useEffect, useMemo, useState } from 'react'
 import { X, Loader2, Eye, Check, History } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CAMPOS_FISCAIS, type CampoFiscal, ehSimples, opcoesDoCampo, rotuloCampo } from '@/lib/produtos/fiscalMassa'
+import { emAndamento, mensagemDoErro, type LoteFiscal } from '@/lib/produtos/fiscalMassaLotes'
+import { useLoteFiscal } from './useLoteFiscal'
+import ProgressoLoteFiscal from './ProgressoLoteFiscal'
 
 type SemCampo = '' | 'algum' | CampoFiscal
 type Previa = {
@@ -20,6 +26,11 @@ type Previa = {
 type Lote = { lote_id: string; criado_em: string; usuario_email: string | null; valores: Record<string, string>; filtro: Record<string, unknown>; sobrescrever: boolean; observacao?: string | null; produtos_alterados: number; campos_alterados: number }
 
 interface Props { companyId: string; onClose: () => void; onAplicado?: () => void }
+
+const ROTA = '/dashboard/cadastros/produtos'
+const A = 'cadastros.produtos.fiscal_massa.'
+// até este volume a aplicação é direta (uma transação curta); acima, em lotes (mesmo teto do servidor)
+const LIMITE_DIRETO = 500
 
 const lbl = 'text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium'
 const inp = 'w-full px-2 py-1.5 text-[12.5px] border border-[#3D2314]/15 rounded bg-white text-[#3D2314]'
@@ -47,6 +58,8 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
   const [erro, setErro] = useState<string | null>(null)
   const [aplicado, setAplicado] = useState<Previa | null>(null)
   const [historico, setHistorico] = useState<Lote[]>([])
+  const lote = useLoteFiscal(companyId, () => { void carregarHistorico(); onAplicado?.() })
+  const emLote = emAndamento(lote.job)
 
   const simples = ehSimples(regime)
 
@@ -60,17 +73,13 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
     let vivo = true
     supabase.from('companies').select('regime_tributario').eq('id', companyId).maybeSingle()
       .then(({ data }) => { if (vivo) setRegime((data as { regime_tributario: string | null } | null)?.regime_tributario ?? null) })
-    supabase.from('erp_produtos').select('ncm, grupo').eq('company_id', companyId).limit(10000)
+    // NCMs (com contagem) e grupos numa agregação só — ler 10 mil linhas de produto daqui estourava o tempo em catálogo grande
+    supabase.rpc('fn_produtos_fiscal_filtros', { p_company_id: companyId })
       .then(({ data }) => {
         if (!vivo) return
-        const cont = new Map<string, number>(); const gs = new Set<string>()
-        for (const r of (data ?? []) as Array<{ ncm: string | null; grupo: string | null }>) {
-          const n = (r.ncm ?? '').replace(/\D/g, '')
-          if (n) cont.set(n, (cont.get(n) ?? 0) + 1)
-          if (r.grupo) gs.add(r.grupo)
-        }
-        setNcms([...cont.entries()].map(([n, q]) => ({ ncm: n, qtd: q })).sort((a, b) => a.ncm.localeCompare(b.ncm)))
-        setGrupos([...gs].sort((a, b) => a.localeCompare(b, 'pt-BR')))
+        const d = (data ?? { ncms: [], grupos: [] }) as { ncms: Array<{ ncm: string; qtd: number }>; grupos: string[] }
+        setNcms(d.ncms ?? [])
+        setGrupos(d.grupos ?? [])
       })
     return () => { vivo = false }
   }, [companyId])
@@ -107,10 +116,13 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
         p_company_id: companyId, p_filtro: filtro, p_valores: valoresEscolhidos, p_sobrescrever: sobrescrever, p_aplicar: aplicar,
         p_observacao: observacao.trim() || null,
       })
-      if (error) { setErro(error.message); return null }
+      if (error) { setErro(mensagemDoErro(error)); return null }
       const r = data as Previa
       if (!r.ok) { setErro(r.mensagem ?? r.erro ?? 'Não foi possível'); return null }
       return r
+    } catch (e) {
+      setErro(mensagemDoErro(e))
+      return null
     } finally {
       setCarregando(false)
     }
@@ -124,8 +136,10 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
   }
 
   async function aplicar() {
-    if (!previaVale || !previa?.produtos_mudam) return
-    if (!window.confirm(`Aplicar em ${previa.produtos_mudam} produto(s)? A alteração fica registrada com o seu usuário.`)) return
+    if (!previaVale || !previa?.produtos_mudam || emLote) return
+    const grande = previa.produtos_mudam > LIMITE_DIRETO
+    if (!window.confirm(`Aplicar em ${previa.produtos_mudam.toLocaleString('pt-BR')} produto(s)? ${grande ? 'Vai em lotes, com barra de progresso; pode fechar a tela que o servidor termina. ' : ''}A alteração fica registrada com o seu usuário.`)) return
+    if (grande) { await aplicarEmLotes(); return }
     const r = await chamar(true)
     if (r) {
       setAplicado(r)
@@ -133,6 +147,33 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
       setPreviaChave('')
       await carregarHistorico()
       onAplicado?.()
+    }
+  }
+
+  // volume grande: o servidor cria a aplicação (valida de novo, confere o que muda) e a tela conduz os lotes
+  async function aplicarEmLotes() {
+    setErro(null)
+    setCarregando(true)
+    try {
+      const { data, error } = await supabase.rpc('fn_produtos_fiscal_job_criar', {
+        p_company_id: companyId, p_filtro: filtro, p_valores: valoresEscolhidos, p_sobrescrever: sobrescrever,
+        p_observacao: observacao.trim() || null,
+      })
+      if (error) { setErro(mensagemDoErro(error)); return }
+      const r = data as { ok: boolean; erro?: string; mensagem?: string; job_id?: string; aplicado?: boolean }
+      if (!r.ok) { setErro(r.mensagem ?? r.erro ?? 'Não foi possível'); return }
+      if (!r.job_id) { setErro(r.mensagem ?? 'Nada a alterar com esse filtro e esses valores.'); return }
+      setPrevia(null)
+      setPreviaChave('')
+      setAplicado(null)
+      const { data: est } = await supabase.rpc('fn_produtos_fiscal_job_obter', { p_company_id: companyId, p_job_id: r.job_id })
+      const job = (est as { job: LoteFiscal | null } | null)?.job
+      if (job) lote.iniciar(job)
+      await carregarHistorico()
+    } catch (e) {
+      setErro(mensagemDoErro(e))
+    } finally {
+      setCarregando(false)
     }
   }
 
@@ -156,26 +197,26 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
             <div className="text-[12px] font-semibold mb-3">1 · Quais produtos</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div>
-                <label className={lbl}>NCM</label>
+                <label className={lbl}>NCM<AjudaCampo chave={A + 'filtro_ncm'} rota={ROTA} /></label>
                 <select value={ncm} onChange={(e) => setNcm(e.target.value)} data-testid="fm-filtro-ncm" className={inp}>
                   <option value="">Qualquer</option>
                   {ncms.map((n) => <option key={n.ncm} value={n.ncm}>{n.ncm} ({n.qtd})</option>)}
                 </select>
               </div>
               <div>
-                <label className={lbl}>Prefixo do NCM</label>
+                <label className={lbl}>Prefixo do NCM<AjudaCampo chave={A + 'filtro_prefixo'} rota={ROTA} /></label>
                 <input value={prefixo} onChange={(e) => setPrefixo(e.target.value)} placeholder="um ou vários: 3208, 3209, 3214"
                   data-testid="fm-filtro-prefixo" className={inp} />
               </div>
               <div>
-                <label className={lbl}>Grupo</label>
+                <label className={lbl}>Grupo<AjudaCampo chave={A + 'filtro_grupo'} rota={ROTA} /></label>
                 <select value={grupo} onChange={(e) => setGrupo(e.target.value)} data-testid="fm-filtro-grupo" className={inp} disabled={grupos.length === 0}>
                   <option value="">{grupos.length === 0 ? 'Nenhum grupo cadastrado' : 'Qualquer'}</option>
                   {grupos.map((g) => <option key={g} value={g}>{g}</option>)}
                 </select>
               </div>
               <div>
-                <label className={lbl}>Só os que estão sem</label>
+                <label className={lbl}>Só os que estão sem<AjudaCampo chave={A + 'filtro_sem'} rota={ROTA} /></label>
                 <select value={semCampo} onChange={(e) => setSemCampo(e.target.value as SemCampo)} data-testid="fm-filtro-sem" className={inp}>
                   <option value="">Não filtrar por isso</option>
                   <option value="algum">Algum dos campos (tributação ou CFOP dentro do estado)</option>
@@ -184,14 +225,14 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
               </div>
             </div>
             <div className="mt-3 max-w-xs">
-              <label className={lbl}>Só os com {rotuloCampo('cst_icms', simples)} igual a</label>
+              <label className={lbl}>Só os com {rotuloCampo('cst_icms', simples)} igual a<AjudaCampo chave={A + 'filtro_icms_igual'} rota={ROTA} /></label>
               <input value={icmsIgual} onChange={(e) => setIcmsIgual(e.target.value)} placeholder={simples ? 'ex.: 500' : 'ex.: 60'}
                 inputMode="numeric" data-testid="fm-filtro-icms" className={inp} />
             </div>
             {!ncm && !prefixo && !grupo && !semCampo && !icmsIgual && (
               <label className="mt-3 flex items-center gap-2 text-[12.5px] cursor-pointer">
                 <input type="checkbox" checked={todos} onChange={(e) => setTodos(e.target.checked)} data-testid="fm-todos" className="accent-[#C8941A]" />
-                Todos os produtos da empresa (sem filtro)
+                Todos os produtos da empresa (sem filtro)<AjudaCampo chave={A + 'filtro_todos'} rota={ROTA} />
               </label>
             )}
             <div className="mt-2 text-[11px] text-[#3D2314]/55">Produtos inativos e serviços ficam de fora.</div>
@@ -203,7 +244,7 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {CAMPOS_FISCAIS.map((c) => (
                 <div key={c}>
-                  <label className={lbl}>{rotuloCampo(c, simples)}</label>
+                  <label className={lbl}>{rotuloCampo(c, simples)}<AjudaCampo chave={`${A}valor.${c}`} rota={ROTA} /></label>
                   <select value={valores[c]} onChange={(e) => setValores((v) => ({ ...v, [c]: e.target.value }))} data-testid={`fm-valor-${c}`} className={inp}>
                     <option value="">— não alterar —</option>
                     {opcoesDoCampo(c, simples).map((o) => <option key={o.codigo} value={o.codigo}>{o.codigo} · {o.rotulo}</option>)}
@@ -213,14 +254,19 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
             </div>
             <label className="mt-3 flex items-center gap-2 text-[12.5px] cursor-pointer">
               <input type="checkbox" checked={sobrescrever} onChange={(e) => setSobrescrever(e.target.checked)} data-testid="fm-sobrescrever" className="accent-[#C8941A]" />
-              Substituir também o que já está preenchido com outro valor (padrão: só preenche o vazio)
+              Substituir também o que já está preenchido com outro valor (padrão: só preenche o vazio)<AjudaCampo chave={A + 'sobrescrever'} rota={ROTA} />
             </label>
             <div className="mt-3">
-              <label className={lbl}>Marca em cada produto alterado (opcional)</label>
+              <label className={lbl}>Marca em cada produto alterado (opcional)<AjudaCampo chave={A + 'observacao'} rota={ROTA} /></label>
               <input value={observacao} onChange={(e) => setObservacao(e.target.value)} data-testid="fm-observacao" className={inp}
                 placeholder="ex.: regra provisória 30/09 — confirmar com o contador" />
             </div>
           </section>
+
+          {lote.job && (
+            <ProgressoLoteFiscal job={lote.job} rodando={lote.rodando} erro={lote.erro} onCancelar={lote.cancelar}
+              onContinuar={lote.continuar} onDispensar={lote.dispensar} />
+          )}
 
           {erro && <div data-testid="fm-erro" className="px-3 py-2 rounded bg-[#FCEBEB] text-[#791F1F] text-[12.5px] border border-[#E8A6A5]">{erro}</div>}
 
@@ -232,14 +278,16 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
 
           {/* 3 · prévia + aplicar */}
           <div className="flex items-center gap-2 flex-wrap">
-            <button type="button" onClick={verPrevia} disabled={carregando || !temValor || !temFiltro} data-testid="fm-previa"
+            <button type="button" onClick={verPrevia} disabled={carregando || emLote || !temValor || !temFiltro} data-testid="fm-previa"
               className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] disabled:opacity-40 flex items-center gap-2">
               {carregando ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />} Ver prévia
             </button>
-            <button type="button" onClick={aplicar} disabled={carregando || !previaVale || !previa?.produtos_mudam} data-testid="fm-aplicar"
+            <AjudaCampo chave={A + 'previa'} rota={ROTA} />
+            <button type="button" onClick={aplicar} disabled={carregando || emLote || !previaVale || !previa?.produtos_mudam} data-testid="fm-aplicar"
               className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-40 flex items-center gap-2">
-              <Check size={14} /> Aplicar{previaVale && previa?.produtos_mudam ? ` em ${previa.produtos_mudam} produto(s)` : ''}
+              <Check size={14} /> Aplicar{previaVale && previa?.produtos_mudam ? ` em ${previa.produtos_mudam.toLocaleString('pt-BR')} produto(s)` : ''}
             </button>
+            <AjudaCampo chave={A + 'aplicar'} rota={ROTA} />
             {previa && !previaVale && <span className="text-[11.5px] text-[#A32D2D]">Filtro ou valores mudaram — veja a prévia de novo.</span>}
           </div>
 
@@ -248,6 +296,7 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
               <div className="mb-2">
                 <b data-testid="fm-previa-mudam">{previa.produtos_mudam}</b> de <b>{previa.produtos_no_filtro}</b> produto(s) no filtro mudam
                 ({previa.campos_mudam} campo(s)).
+                {(previa.produtos_mudam ?? 0) > LIMITE_DIRETO && <> Volume grande: a aplicação vai em lotes, com barra de progresso.</>}
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3">
                 {CAMPOS_FISCAIS.filter((c) => previa.por_campo?.[c]).map((c) => (

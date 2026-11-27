@@ -355,6 +355,7 @@ function Inner() {
           rotuloStatus={(st) => st.replace(/_/g, ' ')}
           onAbrir={(numero) => { setBusca(String(numero)); setVisao('todos'); setFormato('lista') }}
           onMover={(card, de, para) => void moverNoQuadro(card, de, para)}
+          autorRespondeu={autorAguarda}
         />
       )}
       {formato === 'lista' && (<>

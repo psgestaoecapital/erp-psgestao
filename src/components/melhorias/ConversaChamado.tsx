@@ -27,6 +27,9 @@ type Msg = {
   ia_analise: Record<string, string> | null
   erro_comparacao: 'mesmo' | 'mudou' | 'sem_comparacao' | null
   erro_assinatura: string | null; erro_assinatura_anterior: string | null
+  // #7050 fatia2 · nota interna: só a equipe PS vê (RLS sugestao_msg_sel esconde do autor). Não muda o status
+  // nem avisa o autor; marca só a conversa internamente.
+  nota_interna: boolean
   anexos: Anexo[]
 }
 
@@ -41,6 +44,9 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
   const [msgs, setMsgs] = useState<Msg[]>([])
   const [carregando, setCarregando] = useState(true)
   const [texto, setTexto] = useState('')
+  // #7050 fatia2 · a equipe PS pode marcar a mensagem como NOTA INTERNA (só a fila vê; não avisa o autor
+  // nem move o chamado para "Aguardando usuário"). Default false = comportamento atual (mensagem visível).
+  const [notaInterna, setNotaInterna] = useState(false)
   const [fotos, setFotos] = useState<FotoItem[]>([])
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -57,7 +63,7 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
     const { data: sug } = await supabase.from('sugestoes').select('user_id').eq('id', sugestaoId).maybeSingle()
     setAutorChamadoId((sug as { user_id?: string } | null)?.user_id ?? null)
     const { data: rows } = await supabase.from('sugestao_mensagem')
-      .select('id,papel,texto,autor_email,criado_em,ia_analise,erro_comparacao,erro_assinatura,erro_assinatura_anterior')
+      .select('id,papel,texto,autor_email,criado_em,ia_analise,erro_comparacao,erro_assinatura,erro_assinatura_anterior,nota_interna')
       .eq('sugestao_id', sugestaoId).order('criado_em', { ascending: true })
     const base = (rows as Omit<Msg, 'anexos'>[] ?? [])
     // anexos das mensagens (foto com marcação) — assina cada URL do bucket privado
@@ -108,6 +114,8 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
       }
       const { data, error } = await supabase.rpc('fn_sugestao_mensagem_enviar', {
         p_sugestao_id: sugestaoId, p_user: userId, p_texto: texto.trim() || null, p_anexos: anexos,
+        // #7050 fatia2 · nota interna só vale quando quem envia é a equipe PS (o backend reforça por auth.uid()).
+        p_nota_interna: ehSuporte ? notaInterna : false,
       })
       const r = data as { ok?: boolean; erro?: string; mensagem_id?: string; tem_foto?: boolean } | null
       if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao enviar'); setEnviando(false); return }
@@ -115,11 +123,11 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
       if (r.tem_foto && r.mensagem_id) {
         void supabase.functions.invoke('sugestao-analisar', { body: { mensagem_id: r.mensagem_id } }).catch(() => {})
       }
-      setTexto(''); setFotos([])
+      setTexto(''); setFotos([]); setNotaInterna(false)
       await carregar()
       onAfterSend?.()
     } finally { setEnviando(false) }
-  }, [texto, fotos, sugestaoId, userId, autorChamadoId, carregar, onAfterSend])
+  }, [texto, fotos, sugestaoId, userId, autorChamadoId, ehSuporte, notaInterna, carregar, onAfterSend])
 
   // Desmembrar (só PS): erro diferente = chamado diferente. Sugerido; quem decide é o atendente.
   const desmembrar = useCallback(async (mensagemId: string) => {
@@ -145,8 +153,13 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
             const daPS = m.papel === 'ps'
             return (
               <div key={m.id} style={{ display: 'flex', justifyContent: daPS ? 'flex-start' : 'flex-end' }}>
-                <div style={{ maxWidth: '85%', background: daPS ? '#EEF3FB' : C.cream, border: `1px solid ${daPS ? '#D8E2F2' : C.border}`, borderRadius: 10, padding: '8px 10px' }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: daPS ? C.blue : C.espM, marginBottom: 2 }}>{daPS ? 'Equipe PS' : 'Você / autor'} · {brDate(m.criado_em)}</div>
+                <div style={{ maxWidth: '85%', background: m.nota_interna ? '#FFF7E6' : daPS ? '#EEF3FB' : C.cream, border: `1px solid ${m.nota_interna ? '#EBC77A' : daPS ? '#D8E2F2' : C.border}`, borderRadius: 10, padding: '8px 10px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: daPS ? C.blue : C.espM, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span>{daPS ? 'Equipe PS' : 'Você / autor'} · {brDate(m.criado_em)}</span>
+                    {/* #7050 fatia2 · nota interna só chega aqui para quem é da fila PS (RLS). Rótulo deixa claro
+                        que o autor NÃO vê esta mensagem. */}
+                    {m.nota_interna && <span style={{ fontSize: 9.5, fontWeight: 700, color: C.gold, background: '#FFF0CC', border: '1px solid #EBC77A', borderRadius: 999, padding: '1px 6px', textTransform: 'uppercase', letterSpacing: 0.3 }}>🔒 Nota interna · só a equipe</span>}
+                  </div>
                   {m.texto && <div style={{ fontSize: 12.5, color: C.esp, whiteSpace: 'pre-wrap' }}>{m.texto}</div>}
                   {m.anexos.map((a, ai) => (
                     a.pdf ? (
@@ -231,10 +244,21 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
           {/* #63 · ditar a mensagem por voz (fala→texto, editável antes de enviar) */}
           <BotaoDitar onTexto={(frag) => setTexto((p) => (p ? p.trimEnd() + ' ' : '') + frag)} disabled={enviando} />
         </div>
+        {/* #7050 fatia2 · só a equipe PS (ehSuporte) decide entre mensagem VISÍVEL ao autor e NOTA INTERNA.
+            Nota interna não avisa o autor nem leva o chamado para "Aguardando usuário". */}
+        {ehSuporte && (
+          <label data-testid="toggle-nota-interna" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12, color: C.espM, cursor: 'pointer' }}>
+            <input type="checkbox" checked={notaInterna} onChange={(e) => setNotaInterna(e.target.checked)} style={{ width: 16, height: 16, accentColor: C.gold, cursor: 'pointer' }} />
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              🔒 Nota interna (só a equipe vê; não avisa o autor)
+              <AjudaCampo chave="chamados.conversa.nota_interna" rota="/dashboard/atendimento" />
+            </span>
+          </label>
+        )}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
           <button disabled={enviando || (!texto.trim() && !fotos.length)} onClick={() => void enviar()}
-            style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: (enviando || (!texto.trim() && !fotos.length)) ? C.espL : C.gold, color: '#fff', fontWeight: 700, cursor: (enviando || (!texto.trim() && !fotos.length)) ? 'not-allowed' : 'pointer', fontSize: 12.5 }}>
-            {enviando ? 'Enviando…' : 'Enviar mensagem'}
+            style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: (enviando || (!texto.trim() && !fotos.length)) ? C.espL : (ehSuporte && notaInterna) ? '#8A6A1E' : C.gold, color: '#fff', fontWeight: 700, cursor: (enviando || (!texto.trim() && !fotos.length)) ? 'not-allowed' : 'pointer', fontSize: 12.5 }}>
+            {enviando ? 'Enviando…' : (ehSuporte && notaInterna) ? 'Salvar nota interna' : 'Enviar mensagem'}
           </button>
         </div>
       </div>

@@ -10,7 +10,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { nomeArquivoNota } from '@/lib/download/nomeArquivo'
-import { baixarUrlComNome } from '@/lib/download/baixarArquivo'
+import { baixarBlob, baixarUrlComNome } from '@/lib/download/baixarArquivo'
 import { fantasiaClientePorDoc } from '@/lib/download/fantasiaCliente'
 import FiscalStatusBadge from '@/components/fiscal/FiscalStatusBadge'
 import {
@@ -118,7 +118,10 @@ export default function NFeListClient() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [pagina, setPagina] = useState(1)
-  const [statusFiltro, setStatusFiltro] = useState<string>('')
+  const [statusFiltro, setStatusFiltro] = useState<string>(() => {
+    if (typeof window === 'undefined') return ''
+    return new URLSearchParams(window.location.search).get('status') ?? ''
+  })
   const [finalidadeFiltro, setFinalidadeFiltro] = useState<string>('')
   const [mostrarRecusadas, setMostrarRecusadas] = useState<boolean>(false) // visão antiga (1 linha/registro)
   const [dataInicio, setDataInicio] = useState('')
@@ -252,6 +255,14 @@ export default function NFeListClient() {
       // #2957: Cliente_NF<número>_DDMMAAAA.pdf/.xml (fantasia do cadastro; sem ele, a razão social da nota)
       const fantasia = await fantasiaClientePorDoc((() => { const r = resolveCompanyId(); return r.kind === 'ok' ? r.id : null })(), doc.contraparte_doc)
       const nome = nomeArquivoNota({ fantasia, razao: doc.contraparte_nome, numero: doc.numero, emissao: doc.data, ext: tipo })
+      // #11234 · DANFE no leiaute oficial do ERP (o mesmo do espelho), desenhado do que ficou gravado na emissão. Se não for
+      // possível (nota sem itens gravados, rede), segue o caminho de antes: o PDF do provedor.
+      if (tipo === 'pdf' && doc.status_principal === 'autorizada') {
+        try {
+          const r = await authFetch(`/api/fiscal/nfe/danfe/${notaId}`)
+          if (r.ok && (r.headers.get('content-type') ?? '').includes('application/pdf')) { baixarBlob(await r.blob(), nome); return }
+        } catch { /* cai no PDF do provedor */ }
+      }
       if (urlDireta) { await baixarUrlComNome(urlDireta, nome); return }
       const { data, error } = await supabase.rpc('fn_fiscal_get_storage_url', { p_tabela: 'nfe', p_doc_id: notaId, p_tipo: tipo })
       if (error) throw error

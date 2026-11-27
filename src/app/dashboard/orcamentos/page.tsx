@@ -13,6 +13,8 @@ import { useCompanyIds } from "@/lib/useCompanyIds";
 import ServicoAutocomplete, { type ServicoSelecionado } from "@/components/comum/ServicoAutocomplete";
 import ServicoEngenhariaAutocomplete, { type ServicoEngSelecionado } from "@/components/comum/ServicoEngenhariaAutocomplete";
 import NumeracaoConfigModal from "@/components/orcamento/NumeracaoConfigModal";
+import BuscaItemUnificada, { type ResultadoBusca } from "@/components/orcamento/BuscaItemUnificada";
+import { FinalizarOrcamentoModal, type OrcParaFinalizar } from "@/components/orcamento/FinalizarOrcamentoModal";
 import AnexosCard from "@/components/crm/AnexosCard";
 import { erroAmigavel } from "@/lib/erroAmigavel";
 
@@ -24,7 +26,10 @@ const G="#22C55E",R="#EF4444",B="#3B82F6",Y="#F59E0B",P="#8B5CF6",T="#14B8A6";
 // FEAT-OS-ONDA1-ITENS-SERVICO-BOM-v1 · item polimorfico
 type ItemOrc = {
   id?:string; ordem:number;
-  tipo_item:'produto'|'servico';
+  tipo_item:'produto'|'servico'|'despesa';
+  // Despesa/omisso (Diego/FC) — linha livre: descrição em produto_nome, categoria da lista fixa, reembolsável.
+  categoria_despesa?:string|null; reembolsavel?:boolean|null;
+  frente?:string|null; // divisão por área/parte (qualquer item), N partes livre
   produto_id?:string; produto_codigo:string; produto_nome:string; produto_descricao?:string;
   servico_id?:string; servico_codigo?:string; servico_descricao?:string;
   unidade:string; quantidade:number; preco_unitario:number; preco_custo?:number;
@@ -52,6 +57,7 @@ type Orcamento = {
   id:string; company_id:string; numero:string; versao:number;
   pdf_anexo_path?:string|null; // Tryo #264 · PDF do orçamento feito fora (fn_orcamento_anexar_pdf)
   cliente_id:string; cliente_nome:string; cliente_cnpj:string; cliente_email:string; cliente_telefone:string;
+  gestora_nome?:string|null; gestora_logo_url?:string|null; gestora_cadastro_id?:string|null; cliente_logo_url?:string|null; // logos das 3 partes
   data_emissao:string; data_validade:string; data_aprovacao:string; data_previsao_faturamento?:string|null;
   status:string; vendedor_nome:string; comissao_percentual:number;
   condicao_pagamento:string; prazo_entrega_dias:number; forma_pagamento:string;
@@ -109,6 +115,13 @@ const OBS_PADRAO="O presente orçamento pode sofrer variações durante a execu�
 const EMPTY_ITEM:ItemOrc = {ordem:0,tipo_item:'produto',produto_codigo:'',produto_nome:'',unidade:'UN',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
 const EMPTY_ITEM_SERVICO:ItemOrc = {ordem:0,tipo_item:'servico',produto_codigo:'',produto_nome:'',servico_codigo:'',servico_descricao:'',unidade:'UN',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
 const EMPTY_ITEM_SERVICO_ENG:ItemOrc = {ordem:0,tipo_item:'servico',_srv_eng:true,produto_codigo:'',produto_nome:'',servico_codigo:'',servico_descricao:'',unidade:'UN',quantidade:1,preco_unitario:0,preco_custo:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
+// Despesa/omisso (Diego/FC): custo indireto (hospedagem, alimentação, mobilização...). Linha livre, sem catálogo.
+const EMPTY_ITEM_DESPESA:ItemOrc = {ordem:0,tipo_item:'despesa',produto_codigo:'',produto_nome:'',unidade:'verba',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0,reembolsavel:false};
+// Lista fixa (bate com o CHECK chk_orc_item_categoria_despesa da migration da Parte 1 / #6056).
+const CATEGORIAS_DESPESA:{v:string;rotulo:string}[] = [
+  {v:'hospedagem',rotulo:'Hospedagem'},{v:'alimentacao',rotulo:'Alimentação'},{v:'deslocamento',rotulo:'Deslocamento/Mobilização'},
+  {v:'equipamento',rotulo:'Equipamento'},{v:'diarias',rotulo:'Diárias'},{v:'outros',rotulo:'Outros'},
+];
 
 export default function OrcamentosPage(){
   const router = useRouter();
@@ -147,7 +160,9 @@ export default function OrcamentosPage(){
 
   // Form state
   const [form,setForm]=useState<Partial<Orcamento>>({});
+  const [logoBusy,setLogoBusy]=useState<string|null>(null); // upload de logo da gestora/cliente em andamento
   const [itens,setItens]=useState<ItemOrc[]>([]);
+  const [dividirFrente,setDividirFrente]=useState(false); // mostra o campo "frente" por item + subtotal por frente
   // Centros de custo p/ rateio do item (erp_centros_custo — cadastro certo, não setor de RH)
   const [centrosCusto,setCentrosCusto]=useState<{id:string;nome:string;codigo:string|null}[]>([]);
   
@@ -162,6 +177,10 @@ export default function OrcamentosPage(){
   const [bdiPct,setBdiPct]=useState(0);
   const [temProjetos,setTemProjetos]=useState(false);
   const [podeAlterarPreco,setPodeAlterarPreco]=useState(true);
+  // Busca unificada (CEO 24/11): item escolhido vira linha do tipo certo reusando os selecionar* existentes.
+  const [pendingPick,setPendingPick]=useState<{idx:number;r:ResultadoBusca}|null>(null);
+  // Finalização (CEO 24/11): painel pós-salvar (imprimir/enviar). Nunca envia sozinho.
+  const [finalizarOrc,setFinalizarOrc]=useState<OrcParaFinalizar|null>(null);
 
   // Empresa individual para novos orçamentos
   const companyIdParaCadastro = useMemo(()=>{
@@ -380,6 +399,7 @@ export default function OrcamentosPage(){
       ...(clientePrefill?{cliente_id:clientePrefill.id,cliente_nome:nomeCli,cliente_cnpj:clientePrefill.cpf_cnpj||'',cliente_email:clientePrefill.email||'',cliente_telefone:clientePrefill.telefone||''}:{}),
     });
     setItens([{...EMPTY_ITEM,ordem:1}]);
+    setDividirFrente(false);
     setBuscaCliente(nomeCli);
     setShowForm(true);
   };
@@ -440,8 +460,9 @@ export default function OrcamentosPage(){
     const{data:itensData}=await supabase.from("erp_orcamentos_itens").select("*").eq("orcamento_id",o.id).order("ordem");
     setItens((itensData||[]).map(i=>({
       ...i,
-      tipo_item:(i.tipo_item==='servico'?'servico':'produto') as 'produto'|'servico',
+      tipo_item:(i.tipo_item==='servico'?'servico':i.tipo_item==='despesa'?'despesa':'produto') as 'produto'|'servico'|'despesa',
       _srv_eng: i.tipo_item==='servico' && Number(i.preco_custo||0)>0, // serviço com custo = engenharia (BDI)
+      categoria_despesa:i.categoria_despesa??null, frente:i.frente??null, reembolsavel:i.reembolsavel??null,
       quantidade:Number(i.quantidade),preco_unitario:Number(i.preco_unitario),
       desconto_percentual:Number(i.desconto_percentual),desconto_valor:Number(i.desconto_valor),
       subtotal:Number(i.subtotal),
@@ -449,6 +470,7 @@ export default function OrcamentosPage(){
       margem_percentual:i.margem_percentual!=null?Number(i.margem_percentual):undefined,
       aliquota_iss:i.aliquota_iss!=null?Number(i.aliquota_iss):undefined,
     })));
+    setDividirFrente((itensData||[]).some(i=>(i.frente??'').trim()!=='')); // reabre já dividido se tiver frente gravada
     setBuscaCliente(o.cliente_nome||'');
     setShowForm(true);
   };
@@ -459,6 +481,23 @@ export default function OrcamentosPage(){
     setShowBuscaCliente(false);
   };
 
+  // Logo da gestora/cliente por orçamento: bucket público company-assets (mesmo padrão do logo da empresa). PNG/JPG/SVG ≤ 2 MB.
+  async function enviarLogo(parte:"gestora"|"cliente", file:File){
+    const cid = editing?.company_id || clientesBusca.find(c=>c.id===form.cliente_id)?.company_id || companyIdParaCadastro;
+    if(!cid){setMsg("❌ Escolha a empresa antes de enviar o logo.");return;}
+    if(!/^image\/(png|jpe?g|svg\+xml)$/.test(file.type)){setMsg("❌ O logo deve ser PNG, JPG ou SVG.");return;}
+    if(file.size>2*1024*1024){setMsg("❌ O logo pode ter até 2 MB.");return;}
+    setLogoBusy(parte);
+    try{
+      const ext=(file.name.split(".").pop()||"png").toLowerCase();
+      const path=`orcamentos/${cid}/${parte}-${Date.now()}.${ext}`;
+      const up=await supabase.storage.from("company-assets").upload(path,file,{upsert:true,contentType:file.type});
+      if(up.error){setMsg("❌ "+erroAmigavel(up.error,"Não foi possível enviar o logo."));return;}
+      const pub=supabase.storage.from("company-assets").getPublicUrl(path);
+      setForm(f=>({...f,[parte==="gestora"?"gestora_logo_url":"cliente_logo_url"]:pub.data.publicUrl}));
+    } finally { setLogoBusy(null); }
+  }
+
   const selecionarProduto=(idx:number,p:any)=>{
     const novosItens=[...itens];
     novosItens[idx]={...novosItens[idx],produto_id:p.id,produto_codigo:p.codigo,produto_nome:p.nome,unidade:p.unidade||'UN',preco_unitario:Number(p.preco_venda)||0,preco_custo:Number(p.preco_custo)||0};
@@ -466,9 +505,9 @@ export default function OrcamentosPage(){
     setBuscaProduto(null);
   };
 
-  const addItem=()=>setItens([...itens,{...EMPTY_ITEM,ordem:itens.length+1}]);
-  const addItemServico=()=>setItens([...itens,{...EMPTY_ITEM_SERVICO,ordem:itens.length+1}]);
-  const addItemServicoEng=()=>setItens([...itens,{...EMPTY_ITEM_SERVICO_ENG,ordem:itens.length+1}]);
+  // CEO 26/11: adicionar produto/serviço = busca unificada (adicionarPorBusca). Só o omisso (texto livre)
+  // tem botão próprio, na seção de omissos.
+  const addItemDespesa=()=>setItens([...itens,{...EMPTY_ITEM_DESPESA,ordem:itens.length+1}]);
   // Serviço de ENGENHARIA (RD-26): consome a v_projetos_bdi_impacto — custo do BOM, BDI do catálogo e
   // preço de venda (= custo × (1+BDI)) já calculados pelo "cérebro" do BDI. Não recalcula BDI aqui; só
   // usa. Fallback: se o serviço não estiver na view (BOM incompleto), usa o BDI padrão da empresa.
@@ -532,7 +571,76 @@ export default function OrcamentosPage(){
     novosItens[idx]={...novosItens[idx],servico_id:undefined,servico_codigo:'',servico_descricao:'',produto_nome:''};
     setItens(novosItens);
   };
+  // Busca unificada: cria a linha do tipo certo e deixa o efeito abaixo chamar o selecionar* correspondente
+  // (reuso exato da lógica de preço/BDI/ISS já existente — não recria nada).
+  const adicionarPorBusca=(r:ResultadoBusca)=>{
+    const idx=itens.length;
+    const base = r.tipo==='produto'?EMPTY_ITEM : r.tipo==='catalogo'?EMPTY_ITEM_SERVICO_ENG : EMPTY_ITEM_SERVICO;
+    setItens(prev=>[...prev,{...base,ordem:prev.length+1}]);
+    setPendingPick({idx,r});
+  };
+  useEffect(()=>{
+    if(!pendingPick)return;
+    const {idx,r}=pendingPick;
+    if(itens.length>idx){
+      if(r.tipo==='produto')selecionarProduto(idx,r.produto);
+      else if(r.tipo==='servico')selecionarServico(idx,r.servico);
+      else selecionarServicoEng(idx,r.eng);
+      setPendingPick(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[itens,pendingPick]);
   const removerItem=(idx:number)=>setItens(itens.filter((_,i)=>i!==idx).map((it,i)=>({...it,ordem:i+1})));
+  // Reordenar (CEO 26/11): sobe/desce o item trocando com o vizinho do MESMO grupo (principal × omisso),
+  // para não misturar as seções. A ordem do array é a que o salvar grava em `ordem` (idx+1).
+  const moverItem=(idx:number,dir:-1|1)=>{
+    setItens(prev=>{
+      const arr=[...prev];
+      if(idx<0||idx>=arr.length)return prev;
+      const ehDespesa=arr[idx].tipo_item==='despesa';
+      let j=idx+dir;
+      while(j>=0&&j<arr.length&&((arr[j].tipo_item==='despesa')!==ehDespesa))j+=dir;
+      if(j<0||j>=arr.length)return prev;
+      [arr[idx],arr[j]]=[arr[j],arr[idx]];
+      return arr.map((it,i)=>({...it,ordem:i+1}));
+    });
+  };
+  // Arrastar (CEO 26/11): move o item de `from` para `to` SÓ dentro da mesma seção (principal × omisso),
+  // igual aos botões ▲/▼; regrava ordem. Pointer events (mouse + toque), pegando no "pega" (⠿).
+  const reordenarArrastar=(from:number,to:number)=>{
+    setItens(prev=>{
+      if(from===to||from<0||to<0||from>=prev.length||to>=prev.length)return prev;
+      if((prev[from].tipo_item==='despesa')!==(prev[to].tipo_item==='despesa'))return prev; // não cruza seção
+      const arr=[...prev];
+      const [m]=arr.splice(from,1);
+      arr.splice(to,0,m);
+      return arr.map((it,i)=>({...it,ordem:i+1}));
+    });
+  };
+  const [arrasto,setArrasto]=useState<{from:number;over:number}|null>(null);
+  const arrastoRef=useRef<{from:number;over:number}|null>(null);
+  const iniciarArrasto=(e:React.PointerEvent,idx:number)=>{
+    e.preventDefault();
+    try{(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);}catch{/* sem suporte */}
+    arrastoRef.current={from:idx,over:idx};
+    setArrasto({from:idx,over:idx});
+    const mover=(ev:PointerEvent)=>{
+      const alvo=(document.elementFromPoint(ev.clientX,ev.clientY) as HTMLElement|null)?.closest('[data-item-idx]') as HTMLElement|null;
+      if(!alvo)return;
+      const over=Number(alvo.getAttribute('data-item-idx'));
+      if(Number.isNaN(over))return;
+      const a=arrastoRef.current; if(!a||a.over===over)return;
+      arrastoRef.current={from:a.from,over}; setArrasto({from:a.from,over});
+    };
+    const soltar=()=>{
+      document.removeEventListener('pointermove',mover);
+      document.removeEventListener('pointerup',soltar);
+      const a=arrastoRef.current; arrastoRef.current=null; setArrasto(null);
+      if(a&&a.over!==a.from)reordenarArrastar(a.from,a.over);
+    };
+    document.addEventListener('pointermove',mover);
+    document.addEventListener('pointerup',soltar);
+  };
   
   const atualizarItem=(idx:number,campo:keyof ItemOrc,valor:any)=>{
     const novosItens=[...itens];
@@ -577,6 +685,9 @@ export default function OrcamentosPage(){
       versao:form.versao||1,
       cliente_id:form.cliente_id,cliente_nome:form.cliente_nome,cliente_cnpj:(form.cliente_cnpj||'').replace(/\D/g,''),
       cliente_email:form.cliente_email,cliente_telefone:form.cliente_telefone,
+      // Logos das 3 partes (nullable; proposta sem gestora/logo segue como antes)
+      gestora_nome:form.gestora_nome||null, gestora_logo_url:form.gestora_logo_url||null,
+      gestora_cadastro_id:form.gestora_cadastro_id||null, cliente_logo_url:form.cliente_logo_url||null,
       data_emissao:form.data_emissao,data_validade:form.data_validade,
       data_previsao_faturamento:form.data_previsao_faturamento||null,
       status:form.status||'rascunho',
@@ -617,13 +728,16 @@ export default function OrcamentosPage(){
     if(orcId){
       const usaRpc = !!editing && (editing.status && editing.status !== 'rascunho');
       const itensValidos=itens
-        .filter(i => i.tipo_item==='servico' ? !!i.servico_id : !!i.produto_nome);
+        .filter(i => i.tipo_item==='servico' ? !!i.servico_id : !!i.produto_nome)
+        // CEO 26/11: grava os omissos (despesa) DEPOIS dos itens principais (ordem), p/ a proposta
+        // listar o orçamento principal e depois os omissos. Estável dentro de cada grupo.
+        .sort((a,b)=>(a.tipo_item==='despesa'?1:0)-(b.tipo_item==='despesa'?1:0));
       if(usaRpc){
         const payload=itensValidos.map(i=>({
           tipo_item:i.tipo_item,
           produto_id:i.tipo_item==='produto'?i.produto_id:null,
           produto_codigo:i.tipo_item==='produto'?i.produto_codigo:null,
-          produto_nome:i.tipo_item==='produto'?i.produto_nome:null,
+          produto_nome:(i.tipo_item==='produto'||i.tipo_item==='despesa')?i.produto_nome:null,
           produto_descricao:i.tipo_item==='produto'?i.produto_descricao:null,
           servico_id:i.tipo_item==='servico'?i.servico_id:null,
           servico_codigo:i.tipo_item==='servico'?i.servico_codigo:null,
@@ -634,6 +748,9 @@ export default function OrcamentosPage(){
           aliquota_iss:i.tipo_item==='servico'?(i.aliquota_iss ?? null):null,
           iss_retido:i.tipo_item==='servico'?(i.iss_retido ?? null):null,
           setor_id:i.setor_id ?? null, centro_custo_id:i.centro_custo_id ?? null,
+          categoria_despesa:i.tipo_item==='despesa'?(i.categoria_despesa||null):null,
+          frente:(i.frente||'').trim()||null,
+          reembolsavel:i.tipo_item==='despesa'?(i.reembolsavel??false):null,
         }));
         const{data:rpc,error:rpcErr}=await supabase.rpc('fn_orcamento_salvar_itens',{p_orcamento_id:orcId,p_itens:payload});
         if(rpcErr){setMsg('Erro ao salvar itens: '+rpcErr.message);return;}
@@ -646,7 +763,7 @@ export default function OrcamentosPage(){
           tipo_item:i.tipo_item,
           produto_id:i.tipo_item==='produto'?i.produto_id:null,
           produto_codigo:i.tipo_item==='produto'?i.produto_codigo:null,
-          produto_nome:i.tipo_item==='produto'?i.produto_nome:null,
+          produto_nome:(i.tipo_item==='produto'||i.tipo_item==='despesa')?i.produto_nome:null,
           produto_descricao:i.tipo_item==='produto'?i.produto_descricao:null,
           servico_id:i.tipo_item==='servico'?i.servico_id:null,
           servico_codigo:i.tipo_item==='servico'?i.servico_codigo:null,
@@ -658,6 +775,9 @@ export default function OrcamentosPage(){
           iss_retido:i.tipo_item==='servico'?(i.iss_retido ?? null):null,
           valor_iss:i.tipo_item==='servico'&&(i.aliquota_iss??0)>0?Math.round(i.subtotal*(i.aliquota_iss??0)/100*100)/100:null,
           setor_id:i.setor_id ?? null, centro_custo_id:i.centro_custo_id ?? null,
+          categoria_despesa:i.tipo_item==='despesa'?(i.categoria_despesa||null):null,
+          frente:(i.frente||'').trim()||null,
+          reembolsavel:i.tipo_item==='despesa'?(i.reembolsavel??false):null,
         }));
         if(insertItens.length>0)await supabase.from("erp_orcamentos_itens").insert(insertItens);
       }
@@ -686,6 +806,8 @@ export default function OrcamentosPage(){
     setPdfNovo(null);setPdfValor("");
 
     setMsg(`✅ Orçamento ${form.numero} ${editing?'atualizado':'criado'}!${avisoPdf}`);
+    // Finalização (CEO 24/11): oferece imprimir/enviar. Salvar já está feito; enviar é opcional.
+    if(orcId)setFinalizarOrc({id:String(orcId),numero:String(form.numero||""),hash_publico:form.hash_publico||null,cliente_nome:form.cliente_nome||null,cliente_email:form.cliente_email||null,cliente_telefone:form.cliente_telefone||null});
     setShowForm(false);setEditing(null);setPermEdit(null);loadOrcamentos();
     setTimeout(()=>setMsg(""),3000);
   };
@@ -966,6 +1088,37 @@ export default function OrcamentosPage(){
               <input type="date" value={form.data_previsao_faturamento??''} onChange={e=>setForm({...form,data_previsao_faturamento:e.target.value||null})} style={inp}/></div>
           </div>
 
+          {/* Logomarcas da proposta (opcional) — Prestadora (logo da empresa) · Gestão da obra · Cliente */}
+          <div style={{background:BG3,borderRadius:8,padding:"10px 12px",marginBottom:12}}>
+            <div style={{fontSize:11,fontWeight:600,color:B,marginBottom:6}}>🏷️ Logomarcas da proposta (opcional)</div>
+            <div style={{fontSize:10.5,color:TXD,marginBottom:8}}>Até 3 logos no cabeçalho da proposta (tela, PDF e link público). A <b>Prestadora</b> usa o logo da sua empresa (Configurações › Empresa); informe abaixo <b>Gestão da obra</b> e <b>Cliente</b> se quiser.</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <label style={{fontSize:10,color:TXD}}><span style={{display:"flex",alignItems:"center",gap:3}}>Gestora da obra (nome)<AjudaCampo chave="orcamentos.logos.gestora_nome" rota="/dashboard/orcamentos"/></span>
+                <input value={form.gestora_nome??""} onChange={e=>setForm({...form,gestora_nome:e.target.value||null})} placeholder="Ex.: Construtora Alfa" data-testid="orc-gestora-nome" style={{...inp,marginTop:3}}/></label>
+              <div/>
+              <label style={{fontSize:10,color:TXD}}><span style={{display:"flex",alignItems:"center",gap:3}}>Logo da gestão da obra<AjudaCampo chave="orcamentos.logos.gestora_logo" rota="/dashboard/orcamentos"/></span>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3,flexWrap:"wrap"}}>
+                  {form.gestora_logo_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={form.gestora_logo_url} alt="Logo da gestora" style={{height:30,maxWidth:90,objectFit:"contain",background:"#fff",borderRadius:4,padding:2,border:`1px solid ${BD}`}}/>
+                  )}
+                  <input type="file" accept="image/png,image/jpeg,image/svg+xml" data-testid="orc-logo-gestora" disabled={logoBusy==="gestora"} onChange={e=>{const f=e.target.files?.[0]; if(f)void enviarLogo("gestora",f); e.currentTarget.value="";}} style={{fontSize:11}}/>
+                  {logoBusy==="gestora" && <span style={{fontSize:10,color:TXD}}>enviando…</span>}
+                  {form.gestora_logo_url && <button type="button" onClick={()=>setForm({...form,gestora_logo_url:null})} style={{fontSize:10,color:R,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>remover</button>}
+                </div></label>
+              <label style={{fontSize:10,color:TXD}}><span style={{display:"flex",alignItems:"center",gap:3}}>Logo do cliente<AjudaCampo chave="orcamentos.logos.cliente_logo" rota="/dashboard/orcamentos"/></span>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3,flexWrap:"wrap"}}>
+                  {form.cliente_logo_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={form.cliente_logo_url} alt="Logo do cliente" style={{height:30,maxWidth:90,objectFit:"contain",background:"#fff",borderRadius:4,padding:2,border:`1px solid ${BD}`}}/>
+                  )}
+                  <input type="file" accept="image/png,image/jpeg,image/svg+xml" data-testid="orc-logo-cliente" disabled={logoBusy==="cliente"} onChange={e=>{const f=e.target.files?.[0]; if(f)void enviarLogo("cliente",f); e.currentTarget.value="";}} style={{fontSize:11}}/>
+                  {logoBusy==="cliente" && <span style={{fontSize:10,color:TXD}}>enviando…</span>}
+                  {form.cliente_logo_url && <button type="button" onClick={()=>setForm({...form,cliente_logo_url:null})} style={{fontSize:10,color:R,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>remover</button>}
+                </div></label>
+            </div>
+          </div>
+
           {/* #82③ · obra é ESCOLHA: só aparece p/ empresa com Hub de Obras. Marcado = cria obra ao aprovar. */}
           {temProjetos && (
             <div style={{background:GO+"10",border:`1px solid ${GO}40`,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",alignItems:"flex-start",gap:8}}>
@@ -1028,25 +1181,51 @@ export default function OrcamentosPage(){
           )}
 
           {/* Itens */}
+          {/* Busca unificada (CEO 24/11): um campo só acha em Catálogo · Serviço fiscal · Produto — o usuário não precisa saber o tipo antes. */}
+          <div style={{marginBottom:10}}>
+            <BuscaItemUnificada companyId={companyIdParaCadastro} produtos={produtosCache} onPick={adicionarPorBusca} />
+            <div style={{display:"flex",flexWrap:"wrap",gap:12,marginTop:5,fontSize:10,color:TXD}}>
+              <span style={{display:"inline-flex",alignItems:"center",gap:3}}>Catálogo<AjudaCampo chave="orcamentos.item.fonte_catalogo" rota="/dashboard/orcamentos"/></span>
+              <span style={{display:"inline-flex",alignItems:"center",gap:3}}>Serviço fiscal<AjudaCampo chave="orcamentos.item.fonte_servico" rota="/dashboard/orcamentos"/></span>
+              <span style={{display:"inline-flex",alignItems:"center",gap:3}}>Produto<AjudaCampo chave="orcamentos.item.fonte_produto" rota="/dashboard/orcamentos"/></span>
+            </div>
+          </div>
           <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span>📦 Itens do Orçamento</span>
-            <div style={{display:"flex",gap:6}}>
-              <button onClick={addItem} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>+ Produto</button>
-              <button onClick={addItemServico} data-testid="orc-add-servico" style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:P+"15",color:P,border:`1px solid ${P}40`,cursor:"pointer",fontWeight:600}}>+ Serviço</button>
-              {temProjetos && (
-                <button onClick={addItemServicoEng} data-testid="orc-add-servico-eng" title={`Serviço do catálogo de engenharia (preço = custo + BDI ${bdiPct}%)`} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:"#7C3AED15",color:"#7C3AED",border:`1px solid #7C3AED40`,cursor:"pointer",fontWeight:600}}>+ Serviço eng.</button>
-              )}
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              {/* CEO 26/11: adicionar item = digitar na busca unificada acima (catálogo/serviço/produto).
+                  Os 4 botões saíram; omisso é texto livre → "+ adicionar omisso" na seção de omissos. */}
+              <span style={{fontSize:10,color:TXD,fontWeight:500}}>Para adicionar, use a busca acima ↑</span>
+              <label style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:TXD,cursor:"pointer",marginLeft:4}} title="Dividir o orçamento por frente/área e ver o subtotal de cada uma">
+                <input type="checkbox" checked={dividirFrente} onChange={e=>setDividirFrente(e.target.checked)} style={{accentColor:GO}}/>
+                <span style={{fontWeight:600}}>Dividir por frente</span>
+                <AjudaCampo chave="projetos.orcamento.frente_agrupar" rota="/dashboard/orcamentos"/>
+              </label>
             </div>
           </div>
           <div style={{background:BG3,borderRadius:8,padding:12,marginBottom:12}}>
-            <div style={{display:"grid",gridTemplateColumns:"40px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",fontSize:10,color:TXD,fontWeight:600,padding:"4px 0",borderBottom:`1px solid ${BD}`}}>
+            <div style={{display:"grid",gridTemplateColumns:"54px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",fontSize:10,color:TXD,fontWeight:600,padding:"4px 0",borderBottom:`1px solid ${BD}`}}>
               <div>#</div><div>Produto / Serviço</div><div style={{display:"flex",alignItems:"center",gap:3}}>Qtd<AjudaCampo chave="orcamentos.item.quantidade" rota="/dashboard/orcamentos"/></div><div>UN</div><div>Preço Unit</div><div>Desc %</div><div style={{textAlign:"right"}}>Subtotal</div><div></div>
             </div>
-            {itens.map((it,idx)=>(
-              <div key={idx} style={{display:"grid",gridTemplateColumns:"40px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",padding:"4px 0",borderBottom:`0.5px solid ${BD}`,position:"relative"}}>
-                <div style={{fontSize:10,color:TXD,textAlign:"center"}}>
-                  {it.ordem}
-                  <div style={{fontSize:8,fontWeight:700,color:it._srv_eng?"#7C3AED":(it.tipo_item==='servico'?P:GO),marginTop:2}}>{it._srv_eng?'SRV-ENG':(it.tipo_item==='servico'?'SRV':'PRD')}</div>
+            {itens.map((it,idx)=>({it,idx})).sort((a,b)=>(a.it.tipo_item==='despesa'?1:0)-(b.it.tipo_item==='despesa'?1:0)).map(({it,idx},pos,arr)=>(
+              <React.Fragment key={idx}>
+              {/* CEO 26/11: omissos (despesa) numa seção separada, com o "+ adicionar omisso" aqui */}
+              {it.tipo_item==='despesa' && (pos===0 || arr[pos-1].it.tipo_item!=='despesa') && (
+                <div style={{margin:"12px 0 4px",paddingTop:8,borderTop:`1px solid ${BD}`,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
+                  <span style={{fontSize:11,fontWeight:700,color:"#B45309"}}>🧾 Itens omissos — fora do orçamento principal</span>
+                  <button onClick={addItemDespesa} data-testid="orc-add-despesa" style={{fontSize:10,padding:"3px 10px",borderRadius:6,background:"#B4530915",color:"#B45309",border:"1px solid #B4530940",cursor:"pointer",fontWeight:600}}>+ adicionar omisso</button>
+                </div>
+              )}
+              <div data-item-idx={idx} data-item-grupo={it.tipo_item==='despesa'?'d':'p'} style={{display:"grid",gridTemplateColumns:"54px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",padding:"4px 0",borderBottom:`0.5px solid ${BD}`,position:"relative",opacity:arrasto?.from===idx?0.4:1,borderTop:(arrasto&&arrasto.over===idx&&arrasto.from!==idx)?`2px solid ${GO}`:undefined,background:(arrasto&&arrasto.over===idx&&arrasto.from!==idx)?GO+"0F":undefined}}>
+                <div style={{fontSize:10,color:TXD,textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                  {/* "pega" de arrastar (CEO 26/11): pointer events = mouse + toque; touchAction:none evita brigar com o scroll */}
+                  <button onPointerDown={(e)=>iniciarArrasto(e,idx)} title="Arrastar para reordenar" aria-label="Arrastar para reordenar" style={{background:"none",border:"none",cursor:arrasto?.from===idx?"grabbing":"grab",fontSize:12,color:TXD,lineHeight:1,padding:0,touchAction:"none"}}>⠿</button>
+                  <div style={{display:"flex",gap:3}}>
+                    <button onClick={()=>moverItem(idx,-1)} title="Subir" aria-label="Subir item" style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:TXD,lineHeight:1,padding:0}}>▲</button>
+                    <button onClick={()=>moverItem(idx,1)} title="Descer" aria-label="Descer item" style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:TXD,lineHeight:1,padding:0}}>▼</button>
+                  </div>
+                  <span>{it.ordem}</span>
+                  <div style={{fontSize:8,fontWeight:700,color:it._srv_eng?"#7C3AED":(it.tipo_item==='servico'?P:it.tipo_item==='despesa'?"#B45309":GO)}}>{it._srv_eng?'SRV-ENG':(it.tipo_item==='servico'?'SRV':it.tipo_item==='despesa'?'DSP':'PRD')}</div>
                 </div>
                 <div style={{position:"relative"}}>
                   {it._srv_eng ? (
@@ -1065,6 +1244,10 @@ export default function OrcamentosPage(){
                       onClear={()=>limparServico(idx)}
                       testId={`orc-servico-${idx}`}
                     />
+                  ) : it.tipo_item==='despesa' ? (
+                    <div data-ajuda="projetos.orcamento.despesa.descricao" style={{display:"contents"}}>
+                      <input value={it.produto_nome} onChange={e=>atualizarItem(idx,'produto_nome',e.target.value)} placeholder="Descreva a despesa/omisso (ex.: Hospedagem da equipe)" style={{...inp,padding:"6px 8px",fontSize:11}}/>
+                    </div>
                   ) : (<>
                     <input value={it.produto_nome} onChange={e=>{atualizarItem(idx,'produto_nome',e.target.value);setBuscaProduto({idx,termo:e.target.value});}} onFocus={()=>setBuscaProduto({idx,termo:it.produto_nome||''})} placeholder="Buscar produto ou digitar manualmente" style={{...inp,padding:"6px 8px",fontSize:11}}/>
                     {buscaProduto?.idx===idx&&produtosBusca.length>0&&(
@@ -1133,16 +1316,63 @@ export default function OrcamentosPage(){
                     </select>
                   </div>
                 )}
+                {/* Despesa/omisso: categoria + reembolsável (Diego/FC) */}
+                {it.tipo_item==='despesa' && (
+                  <div style={{gridColumn:"2 / -1",display:"flex",alignItems:"center",gap:10,fontSize:10,color:TXD,paddingTop:2,flexWrap:"wrap"}}>
+                    <label style={{display:"flex",alignItems:"center",gap:4}}>
+                      <span style={{fontWeight:600}}>Categoria</span>
+                      <select value={it.categoria_despesa??''} onChange={e=>atualizarItem(idx,'categoria_despesa',e.target.value||null)} style={{padding:"3px 6px",fontSize:10,border:`1px solid ${BD}`,borderRadius:4,background:'#fff',cursor:'pointer'}}>
+                        <option value="">— escolher —</option>
+                        {CATEGORIAS_DESPESA.map(c=><option key={c.v} value={c.v}>{c.rotulo}</option>)}
+                      </select>
+                      <AjudaCampo chave="projetos.orcamento.despesa.categoria" rota="/dashboard/orcamentos"/>
+                    </label>
+                    <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer"}} title="Despesa reembolsável pelo cliente (repassada), em vez de embutida no preço">
+                      <input type="checkbox" checked={!!it.reembolsavel} onChange={e=>atualizarItem(idx,'reembolsavel',e.target.checked)} style={{accentColor:"#B45309"}}/>
+                      <span style={{fontWeight:600,color:it.reembolsavel?"#B45309":TXD}}>Reembolsável</span>
+                      <AjudaCampo chave="projetos.orcamento.despesa.reembolsavel" rota="/dashboard/orcamentos"/>
+                    </label>
+                  </div>
+                )}
+                {/* Frente/parte (qualquer item) — visível quando "Dividir por frente" está ligado */}
+                {dividirFrente && (
+                  <div style={{gridColumn:"2 / -1",display:"flex",alignItems:"center",gap:6,fontSize:10,color:TXD,paddingTop:2}}>
+                    <label style={{flex:1,maxWidth:340,display:"flex",alignItems:"center",gap:4}}>
+                      <span style={{fontWeight:600,whiteSpace:"nowrap"}}>Frente/parte</span>
+                      <input value={it.frente??''} onChange={e=>atualizarItem(idx,'frente',e.target.value||null)} placeholder="Ex.: Área 1 · Pavimento térreo" style={{flex:1,padding:"3px 6px",fontSize:10,border:`1px solid ${BD}`,borderRadius:4}}/>
+                      <AjudaCampo chave="projetos.orcamento.frente" rota="/dashboard/orcamentos"/>
+                    </label>
+                  </div>
+                )}
               </div>
+              </React.Fragment>
             ))}
+            {/* "+ adicionar omisso" sempre disponível (inclusive quando ainda não há nenhum omisso) */}
+            {!itens.some(i=>i.tipo_item==='despesa') && (
+              <div style={{padding:"8px 0 0"}}>
+                <button onClick={addItemDespesa} data-testid="orc-add-despesa-vazio" style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:"#B4530915",color:"#B45309",border:"1px solid #B4530940",cursor:"pointer",fontWeight:600}}>+ adicionar item omisso</button>
+                <span style={{fontSize:9,color:TXD,marginLeft:8}}>custo indireto fora do orçamento principal (hospedagem, deslocamento, diárias…)</span>
+              </div>
+            )}
             {/* FEAT-OS-ONDA1: Subtotais separados Servicos vs Produtos */}
             {itens.length>0 && (
-              <div style={{display:"flex",justifyContent:"flex-end",gap:18,padding:"8px 4px 0",borderTop:`1px solid ${BD}`,marginTop:4,fontSize:10,color:TXD}}>
+              <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap",gap:18,padding:"8px 4px 0",borderTop:`1px solid ${BD}`,marginTop:4,fontSize:10,color:TXD}}>
+                {/* 3 blocos (Diego/FC): Serviços/M.O. · Materiais · Despesas/Omissos → Total geral */}
                 <span>Serviços: <strong style={{color:P}}>{fmtR(itens.filter(i=>i.tipo_item==='servico').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
-                <span>Produtos: <strong style={{color:GO}}>{fmtR(itens.filter(i=>i.tipo_item==='produto').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
+                <span>Materiais: <strong style={{color:GO}}>{fmtR(itens.filter(i=>i.tipo_item==='produto').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
+                <span data-testid="orc-subtotal-despesas">Despesas/Omissos: <strong style={{color:"#B45309"}}>{fmtR(itens.filter(i=>i.tipo_item==='despesa').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
                 {itens.some(i=>i.tipo_item==='servico'&&(i.aliquota_iss??0)>0) && (
                   <span title="ISS embutido (informativo) — não soma ao total">ISS (incl.): <strong style={{color:P}}>{fmtR(itens.filter(i=>i.tipo_item==='servico').reduce((s,i)=>s+(i.subtotal||0)*(i.aliquota_iss??0)/100,0))}</strong></span>
                 )}
+                <span data-testid="orc-total-geral" title="Serviços + Materiais + Despesas/Omissos">Total geral: <strong style={{color:G,fontSize:12}}>{fmtR(totalItens)}</strong></span>
+              </div>
+            )}
+            {itens.length>0 && dividirFrente && itens.some(i=>(i.frente??'').trim()) && (
+              <div data-testid="orc-subtotais-frente" style={{display:"flex",justifyContent:"flex-end",flexWrap:"wrap",gap:14,padding:"6px 4px 0",fontSize:10,color:TXD}}>
+                <span style={{fontWeight:600}}>Por frente:</span>
+                {Object.entries(itens.reduce((m,i)=>{const f=(i.frente??'').trim()||'(sem frente)';m[f]=(m[f]||0)+(i.subtotal||0);return m;},{} as Record<string,number>)).map(([f,v])=>(
+                  <span key={f}>{f}: <strong style={{color:GO}}>{fmtR(v)}</strong></span>
+                ))}
               </div>
             )}
           </div>
@@ -1369,6 +1599,8 @@ export default function OrcamentosPage(){
       )}
 
       <div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:20}}>PS Gestão e Capital — Orçamentos v1.0 · Link público · Histórico · IA de preço em breve</div>
+
+      {finalizarOrc && <FinalizarOrcamentoModal orc={finalizarOrc} onClose={()=>setFinalizarOrc(null)} />}
     </div>
   );
 }

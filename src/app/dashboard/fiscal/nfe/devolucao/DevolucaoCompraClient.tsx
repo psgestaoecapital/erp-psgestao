@@ -80,6 +80,20 @@ export default function DevolucaoCompraClient() {
   const [outras, setOutras] = useState(0)
   const [descontoNota, setDescontoNota] = useState(0)
   const [modalidadeFrete, setModalidadeFrete] = useState<number>(9)
+  // #5722 · grupo de transporte (opcional). Em branco = nota sai sem transportador/veículo (como hoje).
+  const [transpNome, setTranspNome] = useState('')
+  const [transpDoc, setTranspDoc] = useState('')   // CNPJ ou CPF (só dígitos no envio)
+  const [transpIe, setTranspIe] = useState('')
+  const [transpEndereco, setTranspEndereco] = useState('')
+  const [transpMunicipio, setTranspMunicipio] = useState('')
+  const [transpUf, setTranspUf] = useState('')
+  const [veicPlaca, setVeicPlaca] = useState('')
+  const [veicUf, setVeicUf] = useState('')
+  const [veicRntc, setVeicRntc] = useState('')
+  const [volQtd, setVolQtd] = useState('')
+  const [volEspecie, setVolEspecie] = useState('')
+  const [volPesoBruto, setVolPesoBruto] = useState('')
+  const [volPesoLiquido, setVolPesoLiquido] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [baixandoEspelho, setBaixandoEspelho] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -183,11 +197,15 @@ export default function DevolucaoCompraClient() {
     void (async () => {
       const { data: rec } = await supabase
         .from('erp_nfe_recebidas')
-        .select('id, chave_acesso, fornecedor_id, valor_frete, valor_seguro, valor_outras, valor_desconto, frete_modalidade')
+        .select('id, chave_acesso, fornecedor_id, valor_frete, valor_seguro, valor_outras, valor_desconto, frete_modalidade, transportadora, peso_bruto, volumes_qtd')
         .eq('id', recebidaId)
         .eq('company_id', companyId)
         .maybeSingle()
       if (!rec) { setPrefillMsg('Nota recebida não encontrada para pré-preencher.'); return }
+      // #5722 · pré-preenche transportador/volumes da nota de compra quando existirem (editável antes de emitir)
+      if ((rec as { transportadora?: string | null }).transportadora) setTranspNome(String((rec as { transportadora?: string | null }).transportadora))
+      if ((rec as { peso_bruto?: number | null }).peso_bruto != null) setVolPesoBruto(String((rec as { peso_bruto?: number | null }).peso_bruto))
+      if ((rec as { volumes_qtd?: number | null }).volumes_qtd != null) setVolQtd(String((rec as { volumes_qtd?: number | null }).volumes_qtd))
       if (rec.chave_acesso) setChaveCompra(maskChave(String(rec.chave_acesso)))
       if (rec.fornecedor_id) setFornecedorId(String(rec.fornecedor_id))
       // pré-preenche os valores que compõem o total (o operador confere/edita antes de emitir)
@@ -291,6 +309,31 @@ export default function DevolucaoCompraClient() {
           ...(base != null ? { icmsOverride: { base, aliquota: aliq, valor } } : {}),
         }
       }),
+      // #5722 · grupo de transporte — só vai quando algo foi preenchido (a rota revalida CNPJ/CPF/placa/UF).
+      ...(() => {
+        const docDig = transpDoc.replace(/\D/g, '')
+        const temTransp = !!(transpNome.trim() || docDig || transpIe.trim() || transpEndereco.trim() || transpMunicipio.trim() || transpUf.trim())
+        const placa = veicPlaca.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+        const temVeic = !!(placa || veicUf.trim() || veicRntc.trim())
+        const vol: Record<string, unknown> = {
+          ...(volQtd.trim() ? { quantidade: Number(volQtd) } : {}),
+          ...(volEspecie.trim() ? { especie: volEspecie.trim() } : {}),
+          ...(volPesoBruto.trim() ? { pesoBruto: Number(volPesoBruto.replace(',', '.')) } : {}),
+          ...(volPesoLiquido.trim() ? { pesoLiquido: Number(volPesoLiquido.replace(',', '.')) } : {}),
+        }
+        const t: Record<string, unknown> = {}
+        if (temTransp) t.transportador = {
+          nome: transpNome.trim() || undefined,
+          ...(docDig.length === 14 ? { cnpj: docDig } : docDig.length === 11 ? { cpf: docDig } : {}),
+          inscricaoEstadual: transpIe.trim() || undefined,
+          endereco: transpEndereco.trim() || undefined,
+          municipio: transpMunicipio.trim() || undefined,
+          uf: transpUf.trim().toUpperCase() || undefined,
+        }
+        if (temVeic) t.veiculo = { placa, uf: veicUf.trim().toUpperCase() || undefined, rntc: veicRntc.trim() || undefined }
+        if (Object.keys(vol).length) t.volumes = [vol]
+        return Object.keys(t).length ? { transporte: t } : {}
+      })(),
     }
   }
 
@@ -569,6 +612,56 @@ export default function DevolucaoCompraClient() {
                   {' '}· Base ICMS informada: {fmtBRL(baseIcmsTotal)} — {Math.abs(baseIcmsTotal - totalNota) <= 0.01 ? 'bate ✓' : 'NÃO bate com o total ✗'}
                 </span>
               )}
+            </div>
+          </div>
+
+          {/* #5722 · grupo de transporte (opcional). Pré-preenchido da nota de compra quando houver; em branco a
+              nota sai sem transportador/veículo (como hoje). A modalidade do frete está no bloco acima. */}
+          <div className="sm:col-span-2 rounded-lg border border-[#3D2314]/15 bg-[#FAF7F2] p-3">
+            <div className="text-[11px] font-semibold text-[#3D2314] mb-1 flex items-center gap-1.5">
+              Transportador e veículo (opcional) <AjudaCampo chave="fiscal.nfe.devolucao.transporte" />
+            </div>
+            <p className="text-[10.5px] text-[#3D2314]/55 mb-2">Preencha só se a devolução tem transporte. CNPJ OU CPF (nunca os dois); placa sem hífen (7 caracteres); UF com 2 letras.</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <label className="block text-[10.5px] text-[#3D2314]/70 sm:col-span-2">Nome / razão social <AjudaCampo chave="fiscal.nfe.devolucao.transp_nome" />
+                <input type="text" value={transpNome} maxLength={60} onChange={(e) => setTranspNome(e.target.value)} className="w-full mt-1 px-2 py-1.5 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
+              <label className="block text-[10.5px] text-[#3D2314]/70">CNPJ ou CPF <AjudaCampo chave="fiscal.nfe.devolucao.transp_doc" />
+                <input type="text" inputMode="numeric" value={transpDoc} onChange={(e) => setTranspDoc(e.target.value.replace(/\D/g, '').slice(0, 14))} placeholder="só números" className="w-full mt-1 px-2 py-1.5 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
+              <label className="block text-[10.5px] text-[#3D2314]/70">Inscrição estadual <AjudaCampo chave="fiscal.nfe.devolucao.transp_ie" />
+                <input type="text" value={transpIe} maxLength={14} onChange={(e) => setTranspIe(e.target.value)} className="w-full mt-1 px-2 py-1.5 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
+              <label className="block text-[10.5px] text-[#3D2314]/70 sm:col-span-2">Endereço <AjudaCampo chave="fiscal.nfe.devolucao.transp_endereco" />
+                <input type="text" value={transpEndereco} maxLength={60} onChange={(e) => setTranspEndereco(e.target.value)} className="w-full mt-1 px-2 py-1.5 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
+              <label className="block text-[10.5px] text-[#3D2314]/70">Município <AjudaCampo chave="fiscal.nfe.devolucao.transp_municipio" />
+                <input type="text" value={transpMunicipio} maxLength={60} onChange={(e) => setTranspMunicipio(e.target.value)} className="w-full mt-1 px-2 py-1.5 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
+              <label className="block text-[10.5px] text-[#3D2314]/70">UF transportador <AjudaCampo chave="fiscal.nfe.devolucao.transp_uf" />
+                <input type="text" value={transpUf} maxLength={2} onChange={(e) => setTranspUf(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} className="w-full mt-1 px-2 py-1.5 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
+              <label className="block text-[10.5px] text-[#3D2314]/70">Placa do veículo <AjudaCampo chave="fiscal.nfe.devolucao.veic_placa" />
+                <input type="text" value={veicPlaca} maxLength={8} onChange={(e) => setVeicPlaca(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="sem hífen" className="w-full mt-1 px-2 py-1.5 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
+              <label className="block text-[10.5px] text-[#3D2314]/70">UF da placa <AjudaCampo chave="fiscal.nfe.devolucao.veic_uf" />
+                <input type="text" value={veicUf} maxLength={2} onChange={(e) => setVeicUf(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} className="w-full mt-1 px-2 py-1.5 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
+              <label className="block text-[10.5px] text-[#3D2314]/70">RNTC <AjudaCampo chave="fiscal.nfe.devolucao.veic_rntc" />
+                <input type="text" value={veicRntc} maxLength={20} onChange={(e) => setVeicRntc(e.target.value)} className="w-full mt-1 px-2 py-1.5 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
+              <label className="block text-[10.5px] text-[#3D2314]/70">Volumes (qtd) <AjudaCampo chave="fiscal.nfe.devolucao.vol_qtd" />
+                <input type="text" inputMode="numeric" value={volQtd} onChange={(e) => setVolQtd(e.target.value.replace(/\D/g, ''))} className="w-full mt-1 px-2 py-1.5 text-[13px] text-right tabular-nums border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
+              <label className="block text-[10.5px] text-[#3D2314]/70">Espécie <AjudaCampo chave="fiscal.nfe.devolucao.vol_especie" />
+                <input type="text" value={volEspecie} maxLength={60} onChange={(e) => setVolEspecie(e.target.value)} placeholder="ex.: caixa" className="w-full mt-1 px-2 py-1.5 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
+              <label className="block text-[10.5px] text-[#3D2314]/70">Peso bruto (kg) <AjudaCampo chave="fiscal.nfe.devolucao.vol_peso_bruto" />
+                <input type="text" inputMode="decimal" value={volPesoBruto} onChange={(e) => setVolPesoBruto(e.target.value)} placeholder="0,000" className="w-full mt-1 px-2 py-1.5 text-[13px] text-right tabular-nums border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
+              <label className="block text-[10.5px] text-[#3D2314]/70">Peso líquido (kg) <AjudaCampo chave="fiscal.nfe.devolucao.vol_peso_liquido" />
+                <input type="text" inputMode="decimal" value={volPesoLiquido} onChange={(e) => setVolPesoLiquido(e.target.value)} placeholder="0,000" className="w-full mt-1 px-2 py-1.5 text-[13px] text-right tabular-nums border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
             </div>
           </div>
 
