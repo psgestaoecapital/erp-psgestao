@@ -42,6 +42,7 @@ type Plano = {
   status: Status; prioridade: Prioridade; origem: Origem | null; origem_ref: string | null
   indicador_vinculado: string | null; resultado_obtido: string | null
   reuniao_id: string | null; reuniao_codigo: string | null; reuniao_titulo: string | null
+  obra_id: string | null; obra_numero: string | null; obra_nome: string | null
   concluida_em: string | null; criado_em: string; atualizado_em: string
   atrasada: boolean; arquivada?: boolean; arquivada_em?: string | null
 }
@@ -60,7 +61,7 @@ const FORM_REUNIAO_VAZIO: FormReuniao = { titulo: '', data_hora: '', local: '', 
 type Form = {
   titulo: string; o_que: string; por_que: string; onde: string; setor_id: string; quando: string
   responsavel_nome: string; como: string; custo_estimado: string; custo_real: string
-  prioridade: Prioridade; origem: string; origem_ref: string; indicador_vinculado: string; reuniao_id: string
+  prioridade: Prioridade; origem: string; origem_ref: string; indicador_vinculado: string; reuniao_id: string; obra_id: string
 }
 
 const STATUS_ROTULO: Record<Status, string> = { aberta: 'Aberta', em_andamento: 'Em andamento', concluida: 'Concluída', cancelada: 'Cancelada' }
@@ -79,7 +80,7 @@ const ORIGEM_ROTULO: Record<Origem, string> = { reuniao: 'Reunião', indicador: 
 const FORM_VAZIO: Form = {
   titulo: '', o_que: '', por_que: '', onde: '', setor_id: '', quando: '',
   responsavel_nome: '', como: '', custo_estimado: '', custo_real: '',
-  prioridade: 'media', origem: '', origem_ref: '', indicador_vinculado: '', reuniao_id: '',
+  prioridade: 'media', origem: '', origem_ref: '', indicador_vinculado: '', reuniao_id: '', obra_id: '',
 }
 
 const brl = (v: number | null) => v == null ? '—' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -94,6 +95,9 @@ const rotulo: React.CSSProperties = { display: 'flex', alignItems: 'center', fon
 export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } = {}) {
   // Rota da tela que monta o componente (Indústria ou Hub): alimenta o rastro/rota de cada "?" (AjudaCampo).
   const ROTA = rota
+  // No Hub de Projetos a ação/reunião do 5W2H pode se ligar a uma OBRA (projetos_obras) — elo opcional
+  // (CEO 20/11, msg eng_chefe 112b6b3a). Na Indústria o campo não aparece: a tela segue idêntica.
+  const isHub = ROTA.includes('/hub/')
   const { selInfo, sel: selId, companies } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' && selId ? selId : null
   const empresaNome = selInfo.nome || companies.find((c) => c.id === companyId)?.nome_fantasia || ''
@@ -101,6 +105,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
   const [resumo, setResumo] = useState<Resumo | null>(null)
   const [planos, setPlanos] = useState<Plano[]>([])
   const [setores, setSetores] = useState<Setor[]>([])
+  const [obras, setObras] = useState<{ id: string; numero: string | null; nome: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -156,8 +161,13 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
     else { setPlanos([]); setErro(l.data?.erro || 'Não foi possível carregar o plano de ação.') }
     setSetores((s.data ?? []) as Setor[])
     if (reu.data?.ok) setReunioes((reu.data.reunioes ?? []) as Reuniao[])
+    // Obras do Hub para o seletor opcional (só no Hub; RLS por empresa de projetos_obras já filtra).
+    if (isHub) {
+      const ob = await supabase.from('projetos_obras').select('id, numero, nome').eq('company_id', companyId).is('deleted_at', null).order('numero')
+      setObras((ob.data ?? []) as { id: string; numero: string | null; nome: string }[])
+    }
     setLoading(false)
-  }, [companyId, reuniaoSel, incluirArq])
+  }, [companyId, reuniaoSel, incluirArq, isHub])
 
   useEffect(() => { void carregar() }, [carregar])
 
@@ -201,7 +211,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
       setor_id: p.setor_id ?? '', quando: p.quando?.slice(0, 10) ?? '', responsavel_nome: p.responsavel_nome ?? '',
       como: p.como ?? '', custo_estimado: p.custo_estimado?.toString() ?? '', custo_real: p.custo_real?.toString() ?? '',
       prioridade: p.prioridade, origem: p.origem ?? '', origem_ref: p.origem_ref ?? '', indicador_vinculado: p.indicador_vinculado ?? '',
-      reuniao_id: p.reuniao_id ?? '',
+      reuniao_id: p.reuniao_id ?? '', obra_id: p.obra_id ?? '',
     })
     setFormAberto(true)
   }
@@ -216,6 +226,8 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
       custo_estimado: form.custo_estimado, custo_real: form.custo_real, prioridade: form.prioridade,
       origem: form.origem, origem_ref: form.origem_ref, indicador_vinculado: form.indicador_vinculado,
       reuniao_id: form.reuniao_id,
+      // obra_id só vai no Hub; na Indústria o payload fica idêntico ao de antes (sem a chave).
+      ...(isHub ? { obra_id: form.obra_id } : {}),
     }
     const { data, error } = await supabase.rpc('fn_plano_acao_salvar', { p_company_id: companyId, p_plano: payload, p_id: editId })
     setSalvando(false)
@@ -562,6 +574,15 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
                   {setores.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
                 </select>
               </label>
+              {isHub && (
+                <label>
+                  <span style={rotulo}>Obra (opcional)<AjudaCampo chave="plano_acao.obra" rota={ROTA} /></span>
+                  <select data-testid="campo-obra" value={form.obra_id} onChange={(e) => setForm({ ...form, obra_id: e.target.value })} style={{ ...inp, padding: '8px 10px' }}>
+                    <option value="">—</option>
+                    {obras.map((o) => <option key={o.id} value={o.id}>{o.numero ? `${o.numero} · ` : ''}{o.nome}</option>)}
+                  </select>
+                </label>
+              )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
               <label>
@@ -735,6 +756,7 @@ function CardAcao({ p, arrastando, onArrastar, onEditar, onStatus, onConcluir, o
       )}
       <div style={{ fontSize: 12, lineHeight: 1.5, color: MUT, display: 'flex', alignItems: 'center', gap: '2px 6px', flexWrap: 'wrap', overflowWrap: 'anywhere' }}>
         {(p.setor_nome || p.onde) && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><MapPin size={12} strokeWidth={1.5} /> {p.setor_nome || p.onde} ·</span>}
+        {p.obra_nome && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: ESP, fontWeight: 600 }}>Obra: {p.obra_numero ? `${p.obra_numero} ` : ''}{p.obra_nome} ·</span>}
         {p.responsavel_nome ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><User size={12} strokeWidth={1.5} /> {p.responsavel_nome}</span> : <span style={{ color: VERM }}>sem responsável</span>}
       </div>
       <div style={{ fontSize: 12, color: p.atrasada ? VERM : MUT, fontWeight: p.atrasada ? 700 : 400, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
