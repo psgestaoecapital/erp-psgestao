@@ -73,6 +73,11 @@ interface EmitirNFSeBody {
   // Chamado #9724 (decisão B) · ESPELHO/PRÉVIA: só MONTA a nota e devolve em previa.nota (formato do espelhoPdf);
   // NÃO transmite, NÃO consome numeração/série, NÃO grava. Read-only — a prévia é o que SERIA transmitido.
   apenasPrevia?: boolean
+  // #bug NFS-e · vínculo de ORIGEM (genérico, erp_nfse_emitidas.origem_tipo/origem_id): liga a nota ao que a
+  // originou — ex.: a NFS-e de intermediação da revenda ao veículo ('veic_intermediacao' + veiculo_id) — para a
+  // ficha mostrar a nota com status/visualizar/acompanhar. Opcional; só grava quando os dois vierem.
+  origemTipo?: string
+  origemId?: string
 }
 
 interface DadosNFSeRPC {
@@ -783,6 +788,25 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
             const msgIbs = validarIbsCbsObrigatorio({ optanteSimples: optanteSN, dataEmissaoBR: dataBrasil(), reforma: nfseReq.reforma })
             if (msgIbs) return NextResponse.json({ ok: false, mensagem: msgIbs }, { status: 400 })
           }
+          // #bug E1235 · indDest / indFinal / finNFSe são OBRIGATÓRIOS na DPS nacional (reforma), INDEPENDENTE do grupo
+          // IBS/CBS (que só vai quando o serviço tem o cadastro completo). Antes esses campos só iam JUNTO com o IBS/CBS
+          // (reformaIbsCbsDoServico devolve reforma=undefined sem o grupo) → sem cadastro, o Focus gerava o XML sem
+          // indDest e o nacional rejeitava ("E1235: infDPS tem filho inválido 'serv'; esperado 'indDest'"). Agora vão
+          // SEMPRE, com padrão seguro (valores explícitos da config, em reformaEmpresa, têm prioridade; o grupo IBS/CBS
+          // já resolvido acima é preservado):
+          //  • indDest (indicador_destinatario) = 0 → o tomador é o destinatário (caso da intermediação: tomador = banco).
+          //  • indFinal (consumidor_final) = 0 quando o tomador é PJ (CNPJ) ou contribuinte; PF (CPF) → 1.
+          //  • finNFSe (finalidadeEmissao) = 0 → NFS-e regular.
+          {
+            const tomadorPJ = !!nfseReq.tomador.cnpj   // tomador da NFS-e: PJ = tem CNPJ (banco na intermediação)
+            const indFinalPadrao = tomadorPJ ? 0 : (nfseReq.tomador.cpf ? 1 : 0)
+            nfseReq.reforma = {
+              ...(nfseReq.reforma ?? {}),
+              finalidadeEmissao: nfseReq.reforma?.finalidadeEmissao ?? reformaEmpresa?.finalidadeEmissao ?? 0,
+              consumidorFinal: nfseReq.reforma?.consumidorFinal ?? reformaEmpresa?.consumidorFinal ?? indFinalPadrao,
+              indicadorDestinatario: nfseReq.reforma?.indicadorDestinatario ?? reformaEmpresa?.indicadorDestinatario ?? 0,
+            }
+          }
           // Guard XSD (RD-51): o layout nacional EXIGE cMun (IBGE) e nro do tomador. Sem eles o Focus rejeita
           // no XSD. Bloqueia ANTES de enviar, com mensagem clara — não deixa virar erro fiscal obscuro.
           const endTom = nfseReq.tomador.endereco
@@ -954,6 +978,15 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         },
         { status: 500 }
       )
+    }
+
+    // #bug NFS-e · vínculo de origem (ex.: intermediação da revenda → veículo), para a ficha mostrar a nota.
+    // Update leve pós-registro (a RPC de registro não grava origem); nunca derruba a emissão já autorizada.
+    if (registroId && typeof body.origemTipo === 'string' && body.origemTipo && typeof body.origemId === 'string' && body.origemId) {
+      const { error: origErr } = await supabaseAdmin.from('erp_nfse_emitidas')
+        .update({ origem_tipo: body.origemTipo, origem_id: body.origemId })
+        .eq('id', registroId).eq('company_id', body.companyId)
+      if (origErr) console.error('[nfse/emitir] origem não vinculada', registroId, origErr.message)
     }
 
     // #35 · MEDIÇÃO: grava pedido + parcelas + se gera o financeiro. Nota que já voltou autorizada efetiva
