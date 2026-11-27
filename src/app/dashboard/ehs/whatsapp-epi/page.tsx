@@ -16,6 +16,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/ehs/whatsapp-epi'
 
 const C = {
   espresso: '#3D2314',
@@ -330,7 +333,8 @@ export default function WhatsAppEpiPage() {
             <h2 style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: C.espressoL, margin: '0 0 14px' }}>
               Nova entrega
             </h2>
-            <label style={labelStyle}>Funcionário</label>
+            <label style={labelStyle}>Funcionário <AjudaCampo chave="ehs.whatsapp_epi.funcionario" rota={ROTA_AJUDA} /></label>
+            <div data-ajuda="ehs.whatsapp_epi.funcionario">
             <select value={funcId} onChange={(e) => setFuncId(e.target.value)} style={inputStyle}>
               <option value="">— selecione —</option>
               {funcionarios.map((f) => (
@@ -342,14 +346,15 @@ export default function WhatsAppEpiPage() {
                 </option>
               ))}
             </select>
+            </div>
             {funcSel && !funcSel.telefone && (
               <div style={{ background: '#FEF3C7', color: '#92400E', padding: 10, borderRadius: 6, fontSize: 12, marginTop: 8, borderLeft: `3px solid ${C.amber}` }}>
                 ⚠ Funcionário sem WhatsApp cadastrado. <Link href="/dashboard/ehs/funcionarios" style={{ color: '#92400E', textDecoration: 'underline' }}>Cadastrar agora →</Link>
               </div>
             )}
 
-            <label style={{ ...labelStyle, marginTop: 16 }}>EPIs a entregar ({epiCount} selecionado{epiCount === 1 ? '' : 's'})</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 280, overflowY: 'auto', border: `1px solid ${C.borderLt}`, borderRadius: 8, padding: 8 }}>
+            <label style={{ ...labelStyle, marginTop: 16 }}>EPIs a entregar ({epiCount} selecionado{epiCount === 1 ? '' : 's'}) <AjudaCampo chave="ehs.whatsapp_epi.epis" rota={ROTA_AJUDA} /></label>
+            <div data-ajuda="ehs.whatsapp_epi.epis" style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 280, overflowY: 'auto', border: `1px solid ${C.borderLt}`, borderRadius: 8, padding: 8 }}>
               {catalogo.length === 0 ? (
                 <p style={{ margin: 0, fontSize: 12, color: C.muted, fontStyle: 'italic' }}>Nenhum EPI no catálogo. <Link href="/dashboard/ehs/epi/catalogo">Cadastrar →</Link></p>
               ) : (
@@ -377,7 +382,8 @@ export default function WhatsAppEpiPage() {
               )}
             </div>
 
-            <label style={{ ...labelStyle, marginTop: 16 }}>Observação (opcional)</label>
+            <label style={{ ...labelStyle, marginTop: 16 }}>Observação (opcional) <AjudaCampo chave="ehs.whatsapp_epi.observacao" rota={ROTA_AJUDA} /></label>
+            <div data-ajuda="ehs.whatsapp_epi.observacao">
             <textarea
               value={observacao}
               onChange={(e) => setObservacao(e.target.value)}
@@ -385,10 +391,14 @@ export default function WhatsAppEpiPage() {
               placeholder="Ex: troca preventiva semestral"
               style={{ ...inputStyle, resize: 'vertical' }}
             />
+            </div>
 
-            <button onClick={gerarLink} disabled={!podeGerar} style={{ ...btnPri, marginTop: 16, width: '100%', minHeight: 48, opacity: podeGerar ? 1 : 0.5, cursor: podeGerar ? 'pointer' : 'not-allowed' }}>
-              {gerando ? '⏳ Gerando…' : '💬 Gerar link WhatsApp'}
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 16 }}>
+              <button onClick={gerarLink} disabled={!podeGerar} style={{ ...btnPri, flex: 1, minHeight: 48, opacity: podeGerar ? 1 : 0.5, cursor: podeGerar ? 'pointer' : 'not-allowed' }}>
+                {gerando ? 'Gerando…' : 'Gerar link WhatsApp'}
+              </button>
+              <AjudaCampo chave="ehs.whatsapp_epi.gerar_link" rota={ROTA_AJUDA} />
+            </div>
           </section>
         )}
 

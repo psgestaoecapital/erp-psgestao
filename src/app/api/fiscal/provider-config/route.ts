@@ -52,6 +52,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       regime_tributario: typeof regimeTributario === 'string' ? regimeTributario : null,
       ativo: true,
       atualizado_por: userId,
+      atualizado_em: new Date().toISOString(),   // todo Salvar deixa rastro (antes só o token mexia na data)
     }
 
     if (providerFinal === 'gov_nfse_nacional') {

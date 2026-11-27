@@ -42,25 +42,29 @@ type Plano = {
   status: Status; prioridade: Prioridade; origem: Origem | null; origem_ref: string | null
   indicador_vinculado: string | null; resultado_obtido: string | null
   reuniao_id: string | null; reuniao_codigo: string | null; reuniao_titulo: string | null
+  obra_id?: string | null; obra_numero?: string | null; obra_nome?: string | null
   concluida_em: string | null; criado_em: string; atualizado_em: string
   atrasada: boolean; arquivada?: boolean; arquivada_em?: string | null
 }
 type Resumo = { abertas: number; em_andamento: number; atrasadas: number; concluidas_mes: number; pct_no_prazo: number | null }
 type Setor = { id: string; nome: string }
+type Obra = { id: string; numero: string | null; nome: string; status: string }
 type StatusReuniao = 'agendada' | 'realizada' | 'cancelada'
 type Reuniao = {
   id: string; codigo: string; titulo: string; data_hora: string | null; local: string | null
   dono_user_id: string | null; dono_nome: string | null; participantes: string | null; pauta: string | null
   ata: string | null; status: StatusReuniao
+  obra_id: string | null; obra_numero: string | null; obra_nome: string | null
   acoes_total: number; acoes_abertas: number; acoes_atrasadas: number; acoes_concluidas: number
 }
-type FormReuniao = { titulo: string; data_hora: string; local: string; dono_nome: string; participantes: string; pauta: string; ata: string; status: StatusReuniao }
+type FormReuniao = { titulo: string; data_hora: string; local: string; dono_nome: string; participantes: string; pauta: string; ata: string; status: StatusReuniao; obra_id: string }
 const STATUS_REUNIAO: Record<StatusReuniao, string> = { agendada: 'Agendada', realizada: 'Realizada', cancelada: 'Cancelada' }
-const FORM_REUNIAO_VAZIO: FormReuniao = { titulo: '', data_hora: '', local: '', dono_nome: '', participantes: '', pauta: '', ata: '', status: 'agendada' }
+const FORM_REUNIAO_VAZIO: FormReuniao = { titulo: '', data_hora: '', local: '', dono_nome: '', participantes: '', pauta: '', ata: '', status: 'agendada', obra_id: '' }
 type Form = {
   titulo: string; o_que: string; por_que: string; onde: string; setor_id: string; quando: string
   responsavel_nome: string; como: string; custo_estimado: string; custo_real: string
   prioridade: Prioridade; origem: string; origem_ref: string; indicador_vinculado: string; reuniao_id: string
+  obra_id: string
 }
 
 const STATUS_ROTULO: Record<Status, string> = { aberta: 'Aberta', em_andamento: 'Em andamento', concluida: 'Concluída', cancelada: 'Cancelada' }
@@ -80,6 +84,7 @@ const FORM_VAZIO: Form = {
   titulo: '', o_que: '', por_que: '', onde: '', setor_id: '', quando: '',
   responsavel_nome: '', como: '', custo_estimado: '', custo_real: '',
   prioridade: 'media', origem: '', origem_ref: '', indicador_vinculado: '', reuniao_id: '',
+  obra_id: '',
 }
 
 const brl = (v: number | null) => v == null ? '—' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -94,6 +99,8 @@ const rotulo: React.CSSProperties = { display: 'flex', alignItems: 'center', fon
 export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } = {}) {
   // Rota da tela que monta o componente (Indústria ou Hub): alimenta o rastro/rota de cada "?" (AjudaCampo).
   const ROTA = rota
+  // Só o Hub de Projetos tem obras: o seletor de obra do formulário aparece apenas nessa rota (slice 2).
+  const isHub = ROTA.startsWith('/dashboard/hub')
   const { selInfo, sel: selId, companies } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' && selId ? selId : null
   const empresaNome = selInfo.nome || companies.find((c) => c.id === companyId)?.nome_fantasia || ''
@@ -101,6 +108,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
   const [resumo, setResumo] = useState<Resumo | null>(null)
   const [planos, setPlanos] = useState<Plano[]>([])
   const [setores, setSetores] = useState<Setor[]>([])
+  const [obras, setObras] = useState<Obra[]>([]) // só carregadas na rota Hub
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -120,6 +128,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
   const [fSetor, setFSetor] = useState('')
   const [fPrioridade, setFPrioridade] = useState('')
   const [fOrigem, setFOrigem] = useState('')
+  const [fObra, setFObra] = useState('') // '' = Todas (só no Hub)
   const [soAtrasadas, setSoAtrasadas] = useState(false)
   const [incluirArq, setIncluirArq] = useState(false) // arquivo: concluída/cancelada >30 dias (nunca exclui)
 
@@ -145,19 +154,22 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
     const p_reuniao = reuniaoSel || null
     // arquivamento automático (idempotente): concluída/cancelada há mais de 30 dias vai para o arquivo
     await supabase.rpc('fn_plano_acao_arquivar_antigas', { p_company_id: companyId })
-    const [r, l, s, reu] = await Promise.all([
+    const [r, l, s, reu, ob] = await Promise.all([
       supabase.rpc('fn_plano_acao_resumo', { p_company_id: companyId, p_reuniao }),
       supabase.rpc('fn_plano_acao_listar', { p_company_id: companyId, p_reuniao, p_incluir_arquivadas: incluirArq }),
       supabase.from('prod_setor').select('id, nome').eq('company_id', companyId).order('nome'),
       supabase.rpc('fn_plano_acao_reuniao_listar', { p_company_id: companyId }),
+      // obras só existem no Hub de Projetos; fora dele não consulta (seletor nem aparece)
+      isHub ? supabase.rpc('fn_obras_listar', { p_company_ids: [companyId], p_status: null }) : Promise.resolve({ data: [] }),
     ])
     if (r.data?.ok) setResumo(r.data as Resumo); else setResumo(null)
     if (l.data?.ok) setPlanos((l.data.resultados ?? []) as Plano[])
     else { setPlanos([]); setErro(l.data?.erro || 'Não foi possível carregar o plano de ação.') }
     setSetores((s.data ?? []) as Setor[])
     if (reu.data?.ok) setReunioes((reu.data.reunioes ?? []) as Reuniao[])
+    setObras((ob.data ?? []) as Obra[])
     setLoading(false)
-  }, [companyId, reuniaoSel, incluirArq])
+  }, [companyId, reuniaoSel, incluirArq, isHub])
 
   useEffect(() => { void carregar() }, [carregar])
 
@@ -178,6 +190,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
       if (fSetor && p.setor_id !== fSetor) return false
       if (fPrioridade && p.prioridade !== fPrioridade) return false
       if (fOrigem && p.origem !== fOrigem) return false
+      if (fObra && p.obra_id !== fObra) return false
       if (soAtrasadas && !p.atrasada) return false
       if (q) {
         const alvo = norm(`${p.codigo} ${p.titulo} ${p.o_que ?? ''} ${p.responsavel_nome ?? ''} ${p.setor_nome ?? ''} ${p.onde ?? ''}`)
@@ -185,7 +198,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
       }
       return true
     })
-  }, [planos, busca, fStatus, fResp, fSetor, fPrioridade, fOrigem, soAtrasadas])
+  }, [planos, busca, fStatus, fResp, fSetor, fPrioridade, fOrigem, fObra, soAtrasadas])
 
   const porStatus = useMemo(() => {
     const m: Record<Status, Plano[]> = { aberta: [], em_andamento: [], concluida: [], cancelada: [] }
@@ -202,6 +215,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
       como: p.como ?? '', custo_estimado: p.custo_estimado?.toString() ?? '', custo_real: p.custo_real?.toString() ?? '',
       prioridade: p.prioridade, origem: p.origem ?? '', origem_ref: p.origem_ref ?? '', indicador_vinculado: p.indicador_vinculado ?? '',
       reuniao_id: p.reuniao_id ?? '',
+      obra_id: p.obra_id ?? '',
     })
     setFormAberto(true)
   }
@@ -216,6 +230,8 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
       custo_estimado: form.custo_estimado, custo_real: form.custo_real, prioridade: form.prioridade,
       origem: form.origem, origem_ref: form.origem_ref, indicador_vinculado: form.indicador_vinculado,
       reuniao_id: form.reuniao_id,
+      // obra só no Hub: fora dele a chave é omitida (o writer preserva o valor atual — nunca limpa)
+      ...(isHub ? { obra_id: form.obra_id } : {}),
     }
     const { data, error } = await supabase.rpc('fn_plano_acao_salvar', { p_company_id: companyId, p_plano: payload, p_id: editId })
     setSalvando(false)
@@ -268,6 +284,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
     setReuniaoForm({
       titulo: r.titulo, data_hora: r.data_hora ? r.data_hora.slice(0, 16) : '', local: r.local ?? '',
       dono_nome: r.dono_nome ?? '', participantes: r.participantes ?? '', pauta: r.pauta ?? '', ata: r.ata ?? '', status: r.status,
+      obra_id: r.obra_id ?? '',
     })
     setReuniaoFormAberto(true)
   }
@@ -278,6 +295,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
     const payload = {
       titulo: reuniaoForm.titulo, data_hora: reuniaoForm.data_hora, local: reuniaoForm.local, dono_nome: reuniaoForm.dono_nome,
       participantes: reuniaoForm.participantes, pauta: reuniaoForm.pauta, ata: reuniaoForm.ata, status: reuniaoForm.status,
+      ...(isHub ? { obra_id: reuniaoForm.obra_id } : {}),
     }
     const { data, error } = await supabase.rpc('fn_plano_acao_reuniao_salvar', { p_company_id: companyId, p_reuniao: payload, p_id: reuniaoEditId })
     setSalvandoReuniao(false)
@@ -490,6 +508,15 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
               {(Object.keys(ORIGEM_ROTULO) as Origem[]).map((o) => <option key={o} value={o}>{ORIGEM_ROTULO[o]}</option>)}
             </select>
           </label>
+          {isHub && (
+            <label>
+              <span style={rotulo}>Obra<AjudaCampo chave="plano_acao.f_obra" rota={ROTA} /></span>
+              <select data-testid="plano-f-obra" value={fObra} onChange={(e) => setFObra(e.target.value)} style={sel}>
+                <option value="">Todas</option>
+                {obras.map((o) => <option key={o.id} value={o.id}>{o.numero ? `${o.numero} · ` : ''}{o.nome}</option>)}
+              </select>
+            </label>
+          )}
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: ESP, padding: '7px 2px' }}>
             <input data-testid="plano-f-atrasadas" type="checkbox" checked={soAtrasadas} onChange={(e) => setSoAtrasadas(e.target.checked)} />
             Só atrasadas<AjudaCampo chave="industrial.plano_acao.f_so_atrasadas" rota={ROTA} />
@@ -562,6 +589,15 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
                   {setores.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
                 </select>
               </label>
+              {isHub && (
+                <label>
+                  <span style={rotulo}>Obra (opcional)<AjudaCampo chave="hub.plano_acao.obra" rota={ROTA} /></span>
+                  <select data-testid="campo-obra" value={form.obra_id} onChange={(e) => setForm({ ...form, obra_id: e.target.value })} style={{ ...inp, padding: '8px 10px' }}>
+                    <option value="">—</option>
+                    {obras.map((o) => <option key={o.id} value={o.id}>{o.numero ? `${o.numero} — ${o.nome}` : o.nome}</option>)}
+                  </select>
+                </label>
+              )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
               <label>
@@ -658,6 +694,15 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
                 <span style={rotulo}>Local<AjudaCampo chave="industrial.plano_acao.reuniao_local" rota={ROTA} /></span>
                 <input data-testid="reuniao-local" value={reuniaoForm.local} onChange={(e) => setReuniaoForm({ ...reuniaoForm, local: e.target.value })} placeholder="Ex.: Sala de reuniões" style={inp} />
               </label>
+              {isHub && (
+                <label>
+                  <span style={rotulo}>Obra da reunião (opcional)<AjudaCampo chave="plano_acao.reuniao_obra" rota={ROTA} /></span>
+                  <select data-testid="reuniao-obra" value={reuniaoForm.obra_id} onChange={(e) => setReuniaoForm({ ...reuniaoForm, obra_id: e.target.value })} style={{ ...inp, padding: '8px 10px' }}>
+                    <option value="">—</option>
+                    {obras.map((o) => <option key={o.id} value={o.id}>{o.numero ? `${o.numero} · ` : ''}{o.nome}</option>)}
+                  </select>
+                </label>
+              )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
               <label>
@@ -735,6 +780,7 @@ function CardAcao({ p, arrastando, onArrastar, onEditar, onStatus, onConcluir, o
       )}
       <div style={{ fontSize: 12, lineHeight: 1.5, color: MUT, display: 'flex', alignItems: 'center', gap: '2px 6px', flexWrap: 'wrap', overflowWrap: 'anywhere' }}>
         {(p.setor_nome || p.onde) && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><MapPin size={12} strokeWidth={1.5} /> {p.setor_nome || p.onde} ·</span>}
+        {p.obra_nome && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: ESP, fontWeight: 600 }}>Obra: {p.obra_numero ? `${p.obra_numero} ` : ''}{p.obra_nome} ·</span>}
         {p.responsavel_nome ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><User size={12} strokeWidth={1.5} /> {p.responsavel_nome}</span> : <span style={{ color: VERM }}>sem responsável</span>}
       </div>
       <div style={{ fontSize: 12, color: p.atrasada ? VERM : MUT, fontWeight: p.atrasada ? 700 : 400, display: 'inline-flex', alignItems: 'center', gap: 4 }}>

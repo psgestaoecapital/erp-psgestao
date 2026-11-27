@@ -9,6 +9,7 @@ import {
   statusTagClasses,
   statusTagLabel,
 } from '@/lib/menu/dashboard-menu-config'
+import { useEhEquipePS } from '@/lib/menu/equipe-ps'
 
 interface Props {
   group: MenuGroup
@@ -19,6 +20,11 @@ export default function TopNavDropdown({ group }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
   const Icon = group.icon
+  // selo-so-ps · o selo de estado (PRONTO/PARCIAL/EM DEV/PLANEJADO) é dado interno
+  // da PS — o cliente nunca vê (CEO 20/11, item 4 da auditoria do menu Hub). Mesma
+  // regra do menu vivo (SidebarSubItem usa useEhEquipePS p/ o selo "em breve"):
+  // só a equipe PS (PS_ADMIN/PS_ADMIN_CVM/PS_SUPPORT) recebe o selo no menu.
+  const ehPS = useEhEquipePS()
 
   const isGroupActive = group.items.some((i) => pathname?.startsWith(i.href))
 
@@ -94,7 +100,7 @@ export default function TopNavDropdown({ group }: Props) {
                   <ItemIcon size={16} className="text-[#C8941A]" />
                   <span>{item.label}</span>
                 </span>
-                {item.status && (
+                {ehPS && item.status && (
                   <span className={`text-[9.5px] font-medium px-2 py-[3px] rounded-full tracking-[0.4px] ${statusTagClasses(item.status)}`}>
                     {statusTagLabel(item.status)}
                   </span>

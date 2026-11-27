@@ -42,5 +42,18 @@ for (const chave of ['do_catalogo', 'composicao', 'margem'].map(c => `projetos.p
   ok(src.includes(`chave="${chave}"`) && mig.includes(`'${chave}'`), `"?" ${chave} na tela e no banco`)
 }
 
+// ── 3 blocos (Diego/FC 24/11): serviço/M.O. · material · despesa/omisso ──
+const tres = composicaoProposta([
+  it({ subtotal: 1000, servico_id: 's', tipo_item: 'servico' }),
+  it({ subtotal: 500, produto_id: 'p', tipo_item: 'produto' }),
+  it({ subtotal: 300, tipo_item: 'despesa' }),
+])
+ok(tres.blocoServicos === 1000 && tres.blocoMateriais === 500 && tres.blocoDespesas === 300, '3 blocos: subtotais por tipo_item (serviço/material/despesa)')
+ok(tres.blocoServicos + tres.blocoMateriais + tres.blocoDespesas === tres.preco, '3 blocos: soma dos 3 = total geral da proposta')
+const legado = composicaoProposta([it({ subtotal: 10, servico_id: 's' }), it({ subtotal: 20, produto_id: 'p' })])
+ok(legado.blocoServicos === 10 && legado.blocoMateriais === 20 && legado.blocoDespesas === 0,
+  'itens antigos sem tipo_item: serviço por servico_id, resto material, 0 despesa (não-regressão)')
+ok(src.includes('data-testid="hub-proposta-blocos"'), 'tela mostra os 3 blocos (M.O. · Material · Omissos)')
+
 if (falhas) { console.error(`\n${falhas} falha(s) — check-hub-propostas-composicao`); process.exit(1) }
 console.log('\ncheck-hub-propostas-composicao: verde')

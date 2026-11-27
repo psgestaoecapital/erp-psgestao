@@ -144,7 +144,10 @@ export default function NFSeListClient() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [pagina, setPagina] = useState(1)
-  const [statusFiltro, setStatusFiltro] = useState<string>('')
+  const [statusFiltro, setStatusFiltro] = useState<string>(() => {
+    if (typeof window === 'undefined') return ''
+    return new URLSearchParams(window.location.search).get('status') ?? ''
+  })
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
   const [busca, setBusca] = useState('')

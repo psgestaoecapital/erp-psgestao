@@ -1213,6 +1213,21 @@ function AbaConferencia({ companyId }: { companyId: string }) {
   const [erro, setErro] = useState(''); const [okMsg, setOkMsg] = useState('')
   // #256 · editor das marcações do dia (Saída / Retorno / Ignorar)
   const [editor, setEditor] = useState<{ cpf: string; data: string; colaborador: string; marcasIniciais?: Marca[] } | null>(null)
+  // #6727 (Frioeste · NR-36) · registrar uma pausa que faltou num dia SEM pendência: a lista abaixo só traz
+  // pausas pendentes, então um dia cujas pausas já têm saída não aparece e não havia como lançar uma pausa
+  // feita mas não registrada no ponto. Este seletor abre o editor do dia por colaborador + data, reusando o
+  // EditorMarcasDia e o fn_nr36_reler_dia_justificado já existentes (nenhuma escrita nova no banco).
+  const [elegiveis, setElegiveis] = useState<Colab[]>([])
+  const [avCpf, setAvCpf] = useState('')
+  const [avData, setAvData] = useState('')
+  useEffect(() => {
+    let vivo = true
+    ;(async () => {
+      try { const r = await rpc<{ colaboradores: Colab[] }>('fn_nr36_elegiveis_listar', { p_company_id: companyId }); if (vivo) setElegiveis(r.colaboradores || []) }
+      catch { /* lista opcional; sem ela o seletor fica vazio e a conferência segue normal */ }
+    })()
+    return () => { vivo = false }
+  }, [companyId])
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro(''); setOkMsg('')
@@ -1301,6 +1316,29 @@ function AbaConferencia({ companyId }: { companyId: string }) {
         <div style={{ fontSize: 13, color: C.gray }}>Dois tipos de item para resolver antes de fechar o mês, na mesma ordem em que aparecem abaixo: <b>1 · dias com batida faltando</b> (revisar o horário que ficou trocado) e <b>2 · pausas sem hora de saída</b> (confirmar ou corrigir o fim). O sistema <b>sugere</b> pela batida do ponto; <b>você confirma</b>, e cada horário guarda a origem — ponto ou estimativa.</div>
         {/* #256 · quando falta uma batida, os pares do relatório deslizam (retorno lido como saída) */}
         <div style={{ fontSize: 12.5, color: C.espresso, marginTop: 6 }}>Pausa de 1h ou mais, com intervalos de ~20 min entre elas? Provavelmente faltou uma batida e os horários ficaram trocados. Use <b>Saída/retorno</b> na linha para dizer o que cada horário do dia é.</div>
+      </div>
+
+      {/* #6727 (Frioeste) · lançar uma pausa que foi feita mas não ficou registrada no ponto. A lista de pendências
+          abaixo não traz dias sem pendência, então este bloco abre o editor do dia por colaborador + data — mesmo
+          fluxo do botão "Saída/retorno", que relê o dia com justificativa. */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', background: C.offwhite, border: `1px solid ${C.borderLt}`, borderRadius: 12, padding: 12, marginBottom: 14 }}>
+        <div style={{ flex: '1 1 100%', fontSize: 13, fontWeight: 700, color: C.espresso }}>Registrar uma pausa que faltou em um dia específico</div>
+        <div style={{ flex: '1 1 100%', fontSize: 12, color: C.gray, marginTop: -4 }}>Use quando a pausa foi feita mas não ficou registrada no ponto — o dia não aparece na lista abaixo porque não tem pendência. Escolha o colaborador e o dia para abrir o editor e lançar o horário com justificativa.</div>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: C.gray }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>Colaborador <AjudaCampo chave="compliance.pausas.conferencia.dia_colaborador" rota="/dashboard/ehs/pausas-tecnicas" /></span>
+          <select data-testid="conf-dia-colaborador" value={avCpf} onChange={e => setAvCpf(e.target.value)} style={{ ...inp(), minWidth: 220 }}>
+            <option value="">Selecione o colaborador…</option>
+            {elegiveis.map(c => <option key={c.cpf} value={c.cpf}>{c.nome}</option>)}
+          </select>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: C.gray }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>Dia <AjudaCampo chave="compliance.pausas.conferencia.dia_data" rota="/dashboard/ehs/pausas-tecnicas" /></span>
+          <input type="date" data-testid="conf-dia-data" value={avData} onChange={e => setAvData(e.target.value)} style={{ ...inp(), width: 160 }} />
+        </label>
+        <button data-testid="conf-dia-abrir" disabled={!avCpf || !avData} style={{ ...btn(C.gold), opacity: (!avCpf || !avData) ? 0.5 : 1, cursor: (!avCpf || !avData) ? 'not-allowed' : 'pointer' }}
+          onClick={() => { const c = elegiveis.find(x => x.cpf === avCpf); if (c && avData) setEditor({ cpf: c.cpf, data: avData, colaborador: c.nome }) }}>
+          <ClipboardList size={14} /> Abrir o dia
+        </button>
       </div>
 
       {erro && <div style={{ background: C.redBg, color: C.red, borderRadius: 8, padding: '9px 12px', fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}

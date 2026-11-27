@@ -39,7 +39,7 @@ const num = (v: unknown) => Number(v) || 0
 
 export default function CockpitEscolherObraPage() {
   const router = useRouter()
-  const { companyIds } = useCompanyIds()
+  const { companyIds, loading: ctxLoading } = useCompanyIds()
   const [obras, setObras] = useState<ObraLinha[]>([])
   const [info, setInfo] = useState<Record<string, ObraInfo>>({})
   const [loading, setLoading] = useState(true)
@@ -49,8 +49,13 @@ export default function CockpitEscolherObraPage() {
   const [filtroCliente, setFiltroCliente] = useState('')
 
   useEffect(() => {
-    if (!companyIds?.length) { setLoading(false); return }
+    // auditoria CEO 20/11: o estado vazio ("Nenhuma obra ainda") piscava 3-5 s antes de carregar porque o
+    // contexto de empresa ainda resolvia (companyIds vazio) e o loading era desligado cedo. Enquanto o contexto
+    // resolve (ctxLoading), mantém "Carregando…"; só mostra o vazio quando há empresa resolvida e zero obras.
+    if (ctxLoading) return
+    if (!companyIds?.length) { setObras([]); setLoading(false); return }
     let vivo = true
+    setLoading(true)
     ;(async () => {
       try {
         const { data, error } = await comPrazo(
@@ -78,7 +83,7 @@ export default function CockpitEscolherObraPage() {
       } catch { if (vivo) setErro(MSG_CARREGAMENTO_FALHOU) } finally { if (vivo) setLoading(false) }
     })()
     return () => { vivo = false }
-  }, [companyIds, router])
+  }, [ctxLoading, companyIds, router])
 
   const hoje = new Date().toISOString().slice(0, 10)
   const filtradas = useMemo(() => {

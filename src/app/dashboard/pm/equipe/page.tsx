@@ -39,6 +39,11 @@ export default function EquipePage() {
   const [papelSel, setPapelSel] = useState('')
   const [previa, setPrevia] = useState<PapelPrevia | null>(null)
   const [versao, setVersao] = useState(0) // recarrega a carga quando a equipe muda (jornada)
+  // Go-live P&M item 2 (CEO 25/11): "Trazer pessoas da empresa" — puxa os usuários da empresa (nome + e-mail)
+  // para a equipe da agência, em vez de redigitar. Cargo e custo/hora são definidos depois em cada membro.
+  const [trazerOpen, setTrazerOpen] = useState(false)
+  const [disp, setDisp] = useState<{ id: string; full_name: string | null; email: string | null }[] | null>(null)
+  const [sel, setSel] = useState<Set<string>>(new Set())
 
   const carregar = async () => {
     if (!empresa) { setMembros([]); setLoading(false); return }
@@ -121,6 +126,35 @@ export default function EquipePage() {
     setEdit(null); setToast('Membro EXCLUÍDO.'); void carregar()
   }
 
+  // Abre a janela e carrega os usuários da empresa que ainda não estão na equipe (reusa fn_usuarios_da_empresa,
+  // que já guarda por company_id). Não traz salário/custo — nome e e-mail só; LGPD mantida.
+  async function abrirTrazer() {
+    if (!empresa) return
+    setTrazerOpen(true); setDisp(null); setSel(new Set())
+    const { data, error } = await supabase.rpc('fn_usuarios_da_empresa', { p_company_id: empresa })
+    if (error) { setToast(erroAmigavel(error, 'Não foi possível listar os usuários da empresa. Tente de novo.')); setTrazerOpen(false); return }
+    const jaNaEquipe = new Set(membros.map((m) => m.user_id).filter(Boolean) as string[])
+    const rows = ((data ?? []) as { id: string; full_name: string | null; email: string | null; is_active: boolean }[])
+      .filter((u) => u.is_active !== false && !jaNaEquipe.has(u.id))
+      .map((u) => ({ id: u.id, full_name: u.full_name, email: u.email }))
+    setDisp(rows)
+  }
+  function toggleSel(id: string) { setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n }) }
+  async function trazerSelecionados() {
+    if (!empresa || sel.size === 0) return
+    setBusy(true)
+    const escolhidos = (disp ?? []).filter((u) => sel.has(u.id))
+    // upsert por (company_id, user_id): traz quem é novo e reativa quem tinha sido excluído, sem estourar 23505.
+    const payload = escolhidos.map((u) => ({
+      company_id: empresa, user_id: u.id, nome: (u.full_name?.trim() || u.email || 'Sem nome'),
+      cargo: null, setor: null, custo_hora: null, jornada_horas_dia: 8, ativo: true, excluido_em: null,
+    }))
+    const { error } = await supabase.from('agency_equipe').upsert(payload, { onConflict: 'company_id,user_id' })
+    setBusy(false)
+    if (error) { setToast(erroAmigavel(error, 'Não foi possível trazer as pessoas. Tente de novo.')); return }
+    setTrazerOpen(false); setToast(`${payload.length} pessoa(s) trazida(s) para a equipe. Defina cargo e custo/hora.`); void carregar()
+  }
+
   if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
 
   return (
@@ -132,7 +166,12 @@ export default function EquipePage() {
             <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Equipe</h1>
             <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Custo/hora por pessoa — a base do cálculo de margem.</p>
           </div>
-          {podeVer && <button onClick={() => { setEdit({ ativo: true, jornada_horas_dia: 8 }); setCustoHoraTxt('') }} style={btnPri}>+ Novo membro</button>}
+          {podeVer && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={() => void abrirTrazer()} style={btnGhost}>Trazer pessoas da empresa</button>
+              <button onClick={() => { setEdit({ ativo: true, jornada_horas_dia: 8 }); setCustoHoraTxt('') }} style={btnPri}>+ Novo membro</button>
+            </div>
+          )}
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 10, marginBottom: 14 }}>
@@ -215,6 +254,48 @@ export default function EquipePage() {
               <button onClick={() => setEdit(null)} style={btnGhost}>Cancelar</button>
               <button disabled={busy} onClick={salvar} style={btnPri}>{busy ? 'Salvando…' : (edit.id ? 'SALVAR' : 'CRIAR')}</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {trazerOpen && (
+        <div style={overlay} onClick={() => setTrazerOpen(false)}>
+          <div style={modal} onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 6px' }}>Trazer pessoas da empresa</h2>
+            <p style={{ fontSize: 12, color: TEXTM, margin: '0 0 12px' }}>
+              Selecione quem já usa o sistema na empresa para entrar na equipe da agência — sem redigitar.
+              Depois, defina o cargo e o custo/hora de cada pessoa (sem custo/hora a margem por job sai R$ 0).
+            </p>
+            {disp === null ? <div style={{ padding: 24, textAlign: 'center', color: TEXTM }}>Carregando usuários…</div>
+              : disp.length === 0 ? (
+                <div style={{ padding: 24, textAlign: 'center', color: TEXTM, background: OFFWHITE, border: `1px dashed ${BORDA}`, borderRadius: 12 }}>
+                  Todos os usuários da empresa já estão na equipe — ou ainda não há outros usuários. Use &quot;+ Novo membro&quot; para cadastrar alguém de fora do sistema.
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: 6, maxHeight: 320, overflow: 'auto' }}>
+                  {disp.map((u) => {
+                    const on = sel.has(u.id)
+                    return (
+                      <div key={u.id} role="button" tabIndex={0} onClick={() => toggleSel(u.id)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSel(u.id) } }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', cursor: 'pointer',
+                          border: `1px solid ${on ? DOURADO : BORDA}`, background: on ? '#FBF4E6' : '#fff', borderRadius: 10 }}>
+                        <span aria-hidden style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${on ? DOURADO : BORDA}`,
+                          background: on ? DOURADO : '#fff', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0 }}>{on ? '✓' : ''}</span>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.full_name?.trim() || u.email || 'Sem nome'}</div>
+                          {u.email && u.full_name && <div style={{ fontSize: 11, color: TEXTM }}>{u.email}</div>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+              <button onClick={() => setTrazerOpen(false)} style={btnGhost}>Cancelar</button>
+              <button disabled={busy || sel.size === 0} onClick={() => void trazerSelecionados()} style={{ ...btnPri, opacity: busy || sel.size === 0 ? 0.6 : 1 }}>
+                {busy ? 'Trazendo…' : sel.size ? `Trazer ${sel.size} selecionada(s)` : 'Trazer selecionadas'}
+              </button>
             </div>
           </div>
         </div>

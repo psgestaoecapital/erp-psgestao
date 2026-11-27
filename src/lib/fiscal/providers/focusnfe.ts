@@ -143,7 +143,9 @@ export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unkno
     const infoCompl = sanitizeTextoFiscal(req.observacoes).slice(0, 2000)
     if (infoCompl) p.informacoes_complementares = infoCompl
   }
-  if (req.prestador.inscricaoMunicipal && String(req.prestador.inscricaoMunicipal).trim()) {
+  // #9726 · a IM do prestador vai só se cadastrada E se o município emissor informa IM (por município:
+  // ausência evita E0120 onde a IM não deve ir; presença evita E0116 onde ela é exigida). Ausente/true = manda.
+  if (req.prestador.informaInscricaoMunicipal !== false && req.prestador.inscricaoMunicipal && String(req.prestador.inscricaoMunicipal).trim()) {
     p.inscricao_municipal_prestador = String(req.prestador.inscricaoMunicipal).trim()
   }
   // Tomador COMPLETO. ORDEM sensível ao XSD (endereço): cMun → cep → logradouro → numero → complemento → bairro.
@@ -389,6 +391,12 @@ export class FocusNFeProvider implements FiscalProvider {
         discriminacao: sanitizeTextoFiscal(req.descricaoServico),
         iss_retido: req.retemIss ? 'true' : 'false',
         codigo_cnae: req.cnaeServico,
+        // item_lista_servico (ABRASF): quando o município usa o Ambiente Nacional via Focus (ex.: Guarujá do
+        // Sul/SC · 163), o schema EXIGE o item de 6 dígitos (2 Item + 2 Subitem LC116 + 2 Desdobro Nacional).
+        // Sem ele a nota caía em "Item Lista Serviço com valor inválido" (provado no payload rejeitado da 163,
+        // RD-38). Usa o mesmo codigoServico já resolvido (erp_servicos.codigo_servico_municipio = "140101").
+        // Só envia quando há valor, para não introduzir campo vazio onde ele não existia.
+        ...(req.codigoServico ? { item_lista_servico: req.codigoServico } : {}),
         codigo_tributario_municipio: req.codigoServico,
         valor_servicos: req.valorServicos,
         valor_iss: req.valorIss,
@@ -554,6 +562,41 @@ export class FocusNFeProvider implements FiscalProvider {
       ...(req.totais?.seguro ? { valor_seguro: req.totais.seguro } : {}),
       ...(req.totais?.outrasDespesas ? { valor_outras_despesas: req.totais.outrasDespesas } : {}),
       ...(req.totais?.desconto ? { desconto: req.totais.desconto } : {}),
+      // #5722 · Grupo de transporte (nomes oficiais da Focus). Só vão os campos preenchidos; sem transporte = como hoje.
+      ...(() => {
+        const t = req.transporte
+        if (!t) return {}
+        const out: Record<string, unknown> = {}
+        const tr = t.transportador
+        if (tr) {
+          const doc = (tr.cnpj ?? tr.cpf ?? '').replace(/\D/g, '')
+          if (doc.length === 14) out.cnpj_transportador = doc
+          else if (doc.length === 11) out.cpf_transportador = doc
+          if (tr.nome?.trim()) out.nome_transportador = tr.nome.trim()
+          if (tr.inscricaoEstadual?.trim()) out.inscricao_estadual_transportador = tr.inscricaoEstadual.trim()
+          if (tr.endereco?.trim()) out.endereco_transportador = tr.endereco.trim()
+          if (tr.municipio?.trim()) out.municipio_transportador = tr.municipio.trim()
+          if (tr.uf?.trim()) out.uf_transportador = tr.uf.trim().toUpperCase()
+        }
+        const v = t.veiculo
+        if (v?.placa?.trim()) {
+          out.veiculo_placa = v.placa.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+          if (v.uf?.trim()) out.veiculo_uf = v.uf.trim().toUpperCase()
+          if (v.rntc?.trim()) out.veiculo_rntc = v.rntc.trim()
+        }
+        if (t.volumes?.length) {
+          const vols = t.volumes.map((vol) => ({
+            ...(vol.quantidade != null ? { quantidade: vol.quantidade } : {}),
+            ...(vol.especie?.trim() ? { especie: vol.especie.trim() } : {}),
+            ...(vol.pesoLiquido != null ? { peso_liquido: vol.pesoLiquido } : {}),
+            ...(vol.pesoBruto != null ? { peso_bruto: vol.pesoBruto } : {}),
+            ...(vol.marca?.trim() ? { marca: vol.marca.trim() } : {}),
+            ...(vol.numero?.trim() ? { numero: vol.numero.trim() } : {}),
+          })).filter((o) => Object.keys(o).length > 0)
+          if (vols.length) out.volumes = vols
+        }
+        return out
+      })(),
       // FIX-NFE-SERIE-PAYLOAD-v1
       // Sem este campo, Focus numerava na sua serie padrao (1) ·
       // colidia com numeracao Omie historica → rejeicao SEFAZ 539
@@ -563,7 +606,8 @@ export class FocusNFeProvider implements FiscalProvider {
       serie: Number(req.serie ?? '2'),
       data_emissao: isoBrasilia(),   // #1944 · horário de Brasília
       presenca_comprador: 1,
-      tipo_documento: 1,
+      // #9787 · tpNF: 1 = saída (padrão) · 0 = entrada (nota própria de entrada da revenda). Vem de req.tipoOperacao.
+      tipo_documento: req.tipoOperacao ?? 1,
       // indFinal (operação com consumidor final). Nome do campo Focus na NF-e modelo 55 A CONFIRMAR na
       // doc oficial (NotaFiscalXML.html/DSL 4.0) — o CEO confirma; usamos 'consumidor_final' porque é o
       // nome que a própria Focus usa no grupo equivalente (reforma da NFS-e neste arquivo). 0=não · 1=sim.

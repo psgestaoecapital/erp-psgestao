@@ -115,6 +115,19 @@ export default function OportunidadesPage() {
     window.history.replaceState(null, '', url.pathname + url.search)
   }, [empresaUnica])
 
+  // Vindo do Dashboard geral (Funil · número clicável, §310 "indicador clicável abre a lista filtrada"):
+  // abre o funil já filtrado pela etapa escolhida (ex.: "Ganhas" → ?etapa=ganho) e limpa o ?etapa= da URL
+  // para não refiltrar ao recarregar. Só aceita etapa conhecida (ETAPAS) — valor estranho é ignorado.
+  useEffect(() => {
+    if (!empresaUnica) return
+    const raw = new URLSearchParams(window.location.search).get('etapa')
+    if (!raw || !ETAPAS.some((e) => e.v === raw)) return
+    setFiltroEtapa(raw)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('etapa')
+    window.history.replaceState(null, '', url.pathname + url.search)
+  }, [empresaUnica])
+
   function rowParaForm(r: Row): OportunidadeRow {
     return {
       id: r.id,
