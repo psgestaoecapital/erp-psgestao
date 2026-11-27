@@ -39,6 +39,13 @@ const nextConfig: NextConfig = {
   // Next.js redirects() preserva query string automaticamente.
   async redirects() {
     return [
+      // CEO 27/11: Permutas saiu do Hub e passou para Gestão Empresarial › Financeiro (mudança de grupo no
+      // module_catalog). 308 oficial do caminho antigo; o stub em /dashboard/hub/permutas é defesa em profundidade.
+      {
+        source: '/dashboard/hub/permutas',
+        destination: '/dashboard/gestao-empresarial/permutas',
+        permanent: true,
+      },
       {
         source: '/dashboard/compras',
         destination: '/dashboard/commerce/compras',
