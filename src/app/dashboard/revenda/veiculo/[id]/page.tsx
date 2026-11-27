@@ -51,6 +51,8 @@ type Reserva = { id: string; cliente_nome: string | null; valor_sinal: number | 
 type Venda = { id: string; cliente_nome: string | null; valor_venda: number | null; desconto_embutido_troca: number | null; valor_entrada: number | null; valor_financiado: number | null; banco_nome: string | null; retorno_banco: number | null; situacao: string }
 // #9787 · visão por-veículo das notas fiscais (motor da revenda) — hoje a nota liga pelo veic_venda.nfe_id
 type Nota = { id: string; numero: string | null; serie: string | null; status: string | null; natureza_operacao: string | null; valor_total: number | null; danfe_url: string | null; xml_url: string | null; modelo: string | null }
+// #bug NFS-e · nota de serviço (intermediação) deste veículo — ligada por origem_tipo/origem_id em erp_nfse_emitidas
+type NotaServico = { id: string; numero: string | null; status: string | null; valor_servicos: number | null; data_emissao: string | null; pdf_url: string | null; xml_url: string | null; codigo_verificacao: string | null }
 // Onda 1 · composição real do negócio (fn_veic_venda_composicao). As duas margens, badge de incerteza honesto.
 type UsadoRecebido = { placa: string | null; marca: string | null; modelo: string | null; entrou_no_estoque_por: number | null }
 type Composicao = {
@@ -82,6 +84,8 @@ function Inner() {
   const [previaEnt, setPreviaEnt] = useState<{ loading: boolean; nota?: PreviaEntradaNota; avisos?: string[]; erro?: string } | null>(null)
   const [notas, setNotas] = useState<Nota[]>([])
   const [nfseAberto, setNfseAberto] = useState(false)   // #NFS-e · modal de emissão da nota de serviço (intermediação)
+  const [nfses, setNfses] = useState<NotaServico[]>([])  // #bug NFS-e · notas de serviço deste veículo
+  const [nfseBusy, setNfseBusy] = useState<string | null>(null)  // id da NFS-e sendo acompanhada
   const [compl, setCompl] = useState<Compl | null>(null)
   const [comp, setComp] = useState<Composicao | null>(null)
   const [margem, setMargem] = useState(20)
@@ -129,6 +133,12 @@ function Inner() {
     } else {
       setNotas([])
     }
+    // #bug NFS-e · notas de serviço (intermediação) deste veículo — ligadas por origem_tipo/origem_id (RLS escopa a empresa)
+    const { data: nfseRows } = await supabase.from('erp_nfse_emitidas')
+      .select('id,numero,status,valor_servicos,data_emissao,pdf_url,xml_url,codigo_verificacao')
+      .eq('origem_tipo', 'veic_intermediacao').eq('origem_id', id)
+      .order('data_emissao', { ascending: false })
+    setNfses((nfseRows as NotaServico[]) ?? [])
     setCompl((cp.data as Compl | null) ?? null)
     const m = (cfg.data as { margem_alvo_pct?: number } | null)?.margem_alvo_pct
     if (m != null) setMargem(Number(m))
@@ -138,6 +148,18 @@ function Inner() {
     setPm(pmr?.ok ? { preco_minimo: pmr.preco_minimo ?? null, piso_sem_margem: pmr.piso_sem_margem ?? null, margem_pct: pmr.margem_pct ?? null } : null)
     setContaKey((k) => k + 1)
   }, [id])
+
+  // #bug NFS-e · "Acompanhar": atualiza o status da NFS-e na prefeitura/ambiente nacional (rota que já serve Focus) e recarrega.
+  async function acompanharNfse(nfseId: string) {
+    setNfseBusy(nfseId); setErro(null)
+    try {
+      const res = await authFetch(`/api/fiscal/nfse/consultar/${nfseId}`)
+      if (!res.ok) { const j = await res.json().catch(() => ({})); setErro(j?.mensagem ?? `Não foi possível acompanhar a NFS-e (erro ${res.status}).`); return }
+      await carregar()
+    } catch (e) {
+      setErro('Erro ao acompanhar a NFS-e: ' + (e as Error).message)
+    } finally { setNfseBusy(null) }
+  }
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
 
@@ -500,8 +522,29 @@ function Inner() {
             <AjudaCampo chave="revenda.veiculo.nfse_intermediacao" rota="/dashboard/revenda/veiculo" />
           </div>
           <button onClick={() => setNfseAberto(true)} style={{ padding: '8px 14px', border: `1px solid ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, cursor: 'pointer' }}>
-            Emitir NFS-e de intermediação
+            {nfses.length > 0 ? 'Emitir outra NFS-e de intermediação' : 'Emitir NFS-e de intermediação'}
           </button>
+          {/* #bug NFS-e · notas de serviço já emitidas deste veículo: status + visualizar (DANFSe/PDF) + acompanhar */}
+          {nfses.map((n, i) => {
+            const st = (n.status ?? '').toLowerCase()
+            const cor = st === 'autorizada' ? C.green : (st === 'cancelada' || st === 'rejeitada' || st.includes('erro')) ? C.red : C.gold
+            return (
+              <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12.5, borderTop: `1px solid ${C.cream}`, paddingTop: 8, marginTop: 8 }}>
+                <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: cor, fontWeight: 700 }}>{(n.status ?? '—').toUpperCase()}</span>
+                <span style={{ fontFamily: 'monospace' }}>NFS-e{n.numero ? ` nº ${n.numero}` : ''}</span>
+                {n.valor_servicos != null && <span style={{ fontWeight: 700 }}>{brl(n.valor_servicos)}</span>}
+                {n.data_emissao && <span style={{ color: C.espM }}>{brDate(n.data_emissao)}</span>}
+                <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 10, alignItems: 'center' }}>
+                  {n.pdf_url
+                    ? <a href={n.pdf_url} target="_blank" rel="noopener noreferrer" style={{ color: C.gold, textDecoration: 'underline' }}>Visualizar nota</a>
+                    : <span style={{ color: C.espL }}>PDF quando autorizada</span>}
+                  <button onClick={() => void acompanharNfse(n.id)} disabled={nfseBusy === n.id} style={{ padding: '4px 10px', border: `1px solid ${C.border}`, borderRadius: 7, background: C.white, color: C.esp, fontWeight: 600, cursor: nfseBusy === n.id ? 'wait' : 'pointer', fontSize: 12 }}>
+                    {nfseBusy === n.id ? 'Acompanhando…' : 'Acompanhar'}
+                  </button>
+                </span>
+              </div>
+            )
+          })}
         </Bloco>
       )}
       {v && (
@@ -516,6 +559,8 @@ function Inner() {
           tomadorTipo={venda?.banco_nome ? 'cnpj' : undefined}
           tomadorNome={venda?.banco_nome ?? undefined}
           valorServicos={venda?.retorno_banco ?? undefined}
+          origemTipo="veic_intermediacao"
+          origemId={id}
         />
       )}
 
