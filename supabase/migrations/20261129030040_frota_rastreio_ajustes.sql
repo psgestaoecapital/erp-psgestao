@@ -63,8 +63,12 @@ AS $$
               ELSE (SELECT count(*)::int FROM generate_series(1, length(a)) i WHERE substr(a, i, 1) <> substr(b, i, 1)) END;
 $$;
 
-REVOKE ALL ON FUNCTION public.fn_frota_placa_canonica(text), public.fn_frota_placa_do_texto(text), public.fn_frota_placa_dif(text, text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_frota_placa_canonica(text), public.fn_frota_placa_do_texto(text), public.fn_frota_placa_dif(text, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_frota_placa_canonica(text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_frota_placa_do_texto(text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_frota_placa_dif(text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_frota_placa_canonica(text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_frota_placa_do_texto(text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_frota_placa_dif(text, text) TO authenticated, service_role;
 
 -- Vínculo manual rastreador × veículo cadastrado (vence o automático). veiculo_id NULL = "não é veículo da frota".
 CREATE TABLE IF NOT EXISTS public.frota_rastreio_vinculo (
@@ -323,6 +327,7 @@ BEGIN
   RETURN v;
 END $$;
 
+-- ci-sem-guarda: fn_frota_rastreio_token_gravar — só service_role (edge do sincronizador); sem EXECUTE para usuário.
 CREATE OR REPLACE FUNCTION public.fn_frota_rastreio_token_gravar(p_company_id uuid, p_token text, p_expira_em timestamptz)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'vault', 'pg_temp'
 AS $$
@@ -338,8 +343,10 @@ BEGIN
   INSERT INTO public.frota_rastreio_config (company_id, token_expira_em) VALUES (p_company_id, p_expira_em)
   ON CONFLICT (company_id) DO UPDATE SET token_expira_em = EXCLUDED.token_expira_em, atualizado_em = now();
 END $$;
-REVOKE ALL ON FUNCTION public.fn_frota_rastreio_token_ler(uuid), public.fn_frota_rastreio_token_gravar(uuid, text, timestamptz) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_frota_rastreio_token_ler(uuid), public.fn_frota_rastreio_token_gravar(uuid, text, timestamptz) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_frota_rastreio_token_ler(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fn_frota_rastreio_token_gravar(uuid, text, timestamptz) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_frota_rastreio_token_ler(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.fn_frota_rastreio_token_gravar(uuid, text, timestamptz) TO service_role;
 
 -- ------------------------------------------------------------------------------------------------------------
 -- c) Pendências da cópia diária + limpeza do bruto (só serviço)
@@ -376,8 +383,10 @@ BEGIN
   GET DIAGNOSTICS n_pos = ROW_COUNT;
   RETURN jsonb_build_object('pontos', n_ponto, 'posicoes', n_pos);
 END $$;
-REVOKE ALL ON FUNCTION public.fn_frota_rastreio_copias_pendentes(integer), public.fn_frota_rastreio_purgar() FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_frota_rastreio_copias_pendentes(integer), public.fn_frota_rastreio_purgar() TO service_role;
+REVOKE ALL ON FUNCTION public.fn_frota_rastreio_copias_pendentes(integer) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fn_frota_rastreio_purgar() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_frota_rastreio_copias_pendentes(integer) TO service_role;
+GRANT EXECUTE ON FUNCTION public.fn_frota_rastreio_purgar() TO service_role;
 
 CREATE OR REPLACE FUNCTION public.fn_frota_rastreio_dispatch_diario()
 RETURNS jsonb
