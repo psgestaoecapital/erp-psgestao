@@ -56,3 +56,7 @@ BEGIN
   );
 END;
 $function$;
+
+-- SECURITY DEFINER: fecha a função a anon/PUBLIC e libera só a logado/serviço (check-fn-guards).
+REVOKE ALL ON FUNCTION public.fn_onboarding_maturidade(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_onboarding_maturidade(uuid) TO authenticated, service_role;
