@@ -95,6 +95,10 @@ interface Props {
   medicao?: { parcelaIds: string[]; valor: number; rotulo: string }
   // #3774 · texto inicial das informações complementares (ex.: OS, modelo e placa do veículo da OS) — editável.
   observacoesIniciais?: string
+  // #bug NFS-e · vínculo de origem genérico (erp_nfse_emitidas.origem_tipo/origem_id): liga a nota ao que a
+  // originou (ex.: 'veic_intermediacao' + veiculo_id), para a ficha de origem mostrar a nota com status.
+  origemTipo?: string
+  origemId?: string
 }
 
 // RD-95: o modal abre em várias telas (OS, pedido, contas a receber, NFS-e) — os "?" usam uma rota própria de ajuda.
@@ -154,7 +158,7 @@ export default function NFSeEmitirGovModal({
   tomadorDocumento, tomadorTipo, tomadorNome, tomadorEmail, tomadorClienteId,
   descricaoServico, codigoServicoMunicipio, codigoLC116, aliquotaIss, valorServicos,
   servicoId, issNoLocalPrestacao = false, obraId, municipioPrestacaoIbge, municipioPrestacaoLabel,
-  permitirObra = false, pedidoId, pedidoNumero, medicao, observacoesIniciais,
+  permitirObra = false, pedidoId, pedidoNumero, medicao, observacoesIniciais, origemTipo, origemId,
 }: Props) {
   // FIX-NFSE-AMBIENTE-SEM-ESCOLHA-v1 (chamado #16, sugestão do Rodrigo): o ambiente NÃO é escolha na
   // emissão — vem da configuração da empresa. "Pensando como leigo, essa opção de alterar de homologação
@@ -762,6 +766,8 @@ export default function NFSeEmitirGovModal({
           observacoes: observacoes.trim() || undefined,
           // #339 · retenções desta nota (a rota aplica sobre o cadastro e registra o ajuste no histórico)
           ...(servicoIdEff && retNota ? { retencoesNota: retNota } : {}),
+          // #bug NFS-e · vínculo de origem (ex.: intermediação da revenda → veículo), p/ a ficha mostrar a nota.
+          ...(origemTipo && origemId ? { origemTipo, origemId } : {}),
         }
         if (medicao && pedidoId) {
           bodyFocus.medicao = { pedidoId, parcelaIds: medicao.parcelaIds, gerarFinanceiro: gerarFinMedicao }
