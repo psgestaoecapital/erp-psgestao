@@ -240,12 +240,18 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved, 
     if (d.length !== 11) { setDocMsg({ tipo: 'erro', texto: 'CPF precisa ter 11 números.' }); return }
     if (!cpfValido(d)) { setDocMsg({ tipo: 'erro', texto: 'CPF inválido — o dígito verificador não confere. Confira os números.' }); return }
     setChecandoDoc(true)
-    const { data: dup } = await supabase
+    const base = supabase
       .from(tabela)
       .select('nome_fantasia, razao_social')
       .eq('company_id', companyId)
-      // confere nas DUAS colunas de documento (cnpj_cpf do cadastro, cpf_cnpj do CRM)
-      .or(`cnpj_cpf.eq.${d},cpf_cnpj.eq.${d}`)
+    // erp_clientes tem a coluna canônica `documento_digitos` (gerada, só dígitos): casa mesmo quando a base
+    // guarda o documento FORMATADO (~metade dos cadastros). O pré-check batia na coluna CRUA com .eq.<dígitos>
+    // e não disparava o aviso amigável para esses — o usuário só era barrado pelo trigger no save (#5848, item 5).
+    // Fornecedor ainda não tem a coluna gerada → mantém a conferência nas duas colunas cruas.
+    const comDoc = ehCliente
+      ? base.eq('documento_digitos', d)
+      : base.or(`cnpj_cpf.eq.${d},cpf_cnpj.eq.${d}`)
+    const { data: dup } = await comDoc
       .neq('id', pessoa?.id ?? '00000000-0000-0000-0000-000000000000')
       .eq('ativo', true)
       .limit(1)
@@ -306,12 +312,17 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved, 
 
     // Duplicidade de CNPJ/CPF na empresa (so PJ ou PF com documento). Na EDIÇÃO só confere se o documento mudou (#130).
     if (deveConferirDuplicidade(pessoa, cnpjLimpo)) {
-      const { data: dup } = await supabase
+      const baseDup = supabase
         .from(tabela)
         .select('id, nome_fantasia, razao_social')
         .eq('company_id', companyId)
-        // confere nas DUAS colunas de documento (cnpj_cpf do cadastro, cpf_cnpj do CRM)
-        .or(`cnpj_cpf.eq.${cnpjLimpo},cpf_cnpj.eq.${cnpjLimpo}`)
+      // erp_clientes: casa pela coluna canônica de dígitos (pega também documento guardado FORMATADO); fornecedor
+      // segue nas colunas cruas (ainda sem a coluna gerada). Mesmo fix do item 5 (#5848) — o pré-check amigável
+      // "já existe, abrir?" passa a disparar para os ~50% de clientes com documento pontuado, não só o trigger.
+      const dupComDoc = ehCliente
+        ? baseDup.eq('documento_digitos', cnpjLimpo)
+        : baseDup.or(`cnpj_cpf.eq.${cnpjLimpo},cpf_cnpj.eq.${cnpjLimpo}`)
+      const { data: dup } = await dupComDoc
         .neq('id', pessoa?.id ?? '00000000-0000-0000-0000-000000000000')
         // Chamados #129/#130 (Jordana · KGF/Gean): a checagem de duplicidade só considera cadastros ATIVOS.
         // Um duplicado INATIVADO (ativo=false, usado para "arquivar" um cadastro errado sem perder histórico)
