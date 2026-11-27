@@ -11,6 +11,7 @@ import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
 import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/types'
 import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
 import { SELECT_CONFIG_EMISSOR, dadosEmissorDaConfig } from '@/lib/fiscal/emissorConfig'
+import { municipioInformaIm } from '@/lib/fiscal/municipioInformaIm'
 import { dataBrasil } from '@/lib/fiscal/dataBrasil'
 import { CAMPOS_CADASTRO_TOMADOR, enderecoFiscalDoCliente, escolherCadastroTomador, filtroCadastroTomador, nomeCadastro, type CadastroTomador } from '@/lib/fiscal/tomadorEndereco'
 import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, totaisLiquidosNfse, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
@@ -179,9 +180,6 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     let cadastroTomadorUsado: string | null = null
     // IBPT por empresa: fonte dos tributos aproximados que foi na nota ('ibpt_empresa' | 'tabela_generica')
     let ibptFonte: 'ibpt_empresa' | 'tabela_generica' | null = null
-    const { data: cfgIbpt } = await supabaseAdmin.from('erp_fiscal_provider_config').select('ibpt_empresa_nas_notas')
-      .eq('company_id', body.companyId).eq('ativo', true).limit(1).maybeSingle()
-    const usarIbptEmpresa = !!(cfgIbpt as { ibpt_empresa_nas_notas?: boolean } | null)?.ibpt_empresa_nas_notas
     // #286 · retenções federais calculadas do cadastro do serviço (as mesmas da tela) e avisos de grupos não enviados
     let retencoesCalculadas: RetencoesFederaisNfse | null = null
     let retCadastro: RetencoesNota | null = null   // #339 · o que o cadastro diria (para o histórico do ajuste)
@@ -217,6 +215,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       const { data: cfgEmissor } = await supabaseAdmin.from('erp_fiscal_provider_config').select(SELECT_CONFIG_EMISSOR)
         .eq('company_id', body.companyId).eq('provider', 'focusnfe').eq('ativo', true).maybeSingle()
       const emissor = dadosEmissorDaConfig(cfgEmissor, body.manual.cnae)
+      // #9726 · a IM do prestador vai na DPS só se o município emissor informa IM (Guarujá do Sul → E0120).
+      const informaImEmissor = await municipioInformaIm(emissor.codigoMunicipio)
       nfseReq = {
         serie: emissor.serie,
         dataEmissao: new Date().toISOString(),
@@ -231,6 +231,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           razaoSocial: emp.razao_social,
           inscricaoMunicipal: emp.inscricao_municipal ?? undefined,
           codigoMunicipio: emissor.codigoMunicipio,
+          informaInscricaoMunicipal: informaImEmissor,
         },
         tomador: body.manual.tomador,
       }
@@ -647,9 +648,12 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
               const lc116Digits = (lc116 ?? '').replace(/\D/g, '')   // '07.05' -> '0705'
               type IbptRow = { federal?: unknown; estadual?: unknown; municipal?: unknown; versao?: unknown }
               let ibpt: IbptRow | null = null
-              // IBPT por empresa (CEO 28/09): com o uso liberado, 1º a consulta da PRÓPRIA empresa (cache → API);
-              // sem token/erro/IBPT fora do ar → tabela genérica. A nota nunca trava por causa do IBPT da empresa.
-              if (usarIbptEmpresa && lc116Digits.length === 4 && ufPrest.length === 2) {
+              // IBPT por empresa: 1º a consulta da PRÓPRIA empresa (cache → API do token); senão → tabela genérica (master).
+              // #bug NFS-e "sem tributos aproximados": o totTrib da NFS-e Nacional do NÃO optante é OBRIGATÓRIO (E0713) e
+              // NÃO depende da flag ibpt_empresa_nas_notas — essa flag governa a transparência OPCIONAL da Lei 12.741 na
+              // NF-e de produto, não este campo. Por isso consulta o IBPT-da-empresa SEMPRE que houver código/UF (o dado
+              // já vem do cache quando existe); a master é só último recurso. Sem token/erro → cai no fallback abaixo.
+              if (lc116Digits.length === 4 && ufPrest.length === 2) {
                 const emp = await aliquotaIbptEmpresa(body.companyId, String((empUf as { cnpj?: string | null } | null)?.cnpj ?? ''), {
                   tipo: 'servico', codigo: lc116Digits, uf: ufPrest, descricao: nfseReq.descricaoServico || 'serviço', valor: Number(nfseReq.valorServicos) || 1,
                 })
@@ -666,12 +670,19 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
                 if (row && row.federal != null) { ibpt = row; ibptFonte = 'tabela_generica' }
               }
               if (!ibpt) {
-                // trava mantida (decisão do CEO 28/09): sem o código nem na genérica, a NFS-e Nacional rejeitaria (E0713)
-                return NextResponse.json({
-                  ok: false,
-                  ibpt_pendente: true,
-                  mensagem: 'Este serviço não tem os tributos aproximados na tabela do IBPT. Cadastre o token do IBPT da empresa ou fale com a PS.',
-                }, { status: 400 })
+                // trava mantida (sem o tributo, a NFS-e Nacional rejeitaria — E0713). Mensagem CERTA (RD-74): token
+                // presente mas sem dado/vencido ≠ sem token — manda a pessoa ao lugar certo em vez de "cadastre o token".
+                const { data: ibptSt } = await supabaseAdmin
+                  .from('erp_ibpt_empresa_status')
+                  .select('token_salvo_em, ultima_vigencia_fim')
+                  .eq('company_id', body.companyId).maybeSingle()
+                const temToken = !!(ibptSt as { token_salvo_em?: string | null } | null)?.token_salvo_em
+                const vigFim = (ibptSt as { ultima_vigencia_fim?: string | null } | null)?.ultima_vigencia_fim ?? null
+                const venceuEm = vigFim ? new Date(String(vigFim) + 'T12:00:00').toLocaleDateString('pt-BR') : null
+                const mensagem = temToken
+                  ? `A tabela do IBPT não tem os tributos aproximados deste serviço${venceuEm ? ` (a última consulta venceu em ${venceuEm})` : ''}. Atualize em Configurações › Fiscal › Tributos aproximados (botão "Atualizar agora") e emita de novo. Se persistir, fale com a PS.`
+                  : 'Cadastre o token do IBPT da empresa em Configurações › Fiscal › Tributos aproximados (ou fale com a PS) — a NFS-e Nacional exige os tributos aproximados (Lei 12.741).'
+                return NextResponse.json({ ok: false, ibpt_pendente: true, mensagem }, { status: 400 })
               }
               nfseReq.tributosAproxPct = {
                 federal: Number(ibpt.federal ?? 0),

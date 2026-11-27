@@ -5,14 +5,14 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { createFiscalService } from '@/lib/fiscal/service'
 import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-builder'
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
-import { isFiscalError } from '@/lib/fiscal/errors'
+import { isFiscalError, FiscalError } from '@/lib/fiscal/errors'
 import { notaEspelhoDeNFeReq } from '@/lib/fiscal/espelhoNota'
 import { danfeDeNFeRequest } from '@/lib/fiscal/danfeDados'
 import { carregarEmitenteDanfe } from '@/lib/fiscal/danfeEmitente'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { guardarXmlNota } from '@/lib/fiscal/guardarXmlNota'
 import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
-import { carregarVendaVeiculo, carregarEntradaVeiculo, type ItemVeiculoMontado, type ItemVeiculoEntradaMontado, type OperacaoEntrada } from '@/lib/fiscal/nfe-veiculo'
+import { carregarVendaVeiculo, carregarEntradaVeiculo, carregarConsignacaoRetorno, camposFaltandoRemetenteEntrada, mensagemRemetenteEntradaIncompleto, type ItemVeiculoMontado, type ItemVeiculoEntradaMontado, type OperacaoEntrada } from '@/lib/fiscal/nfe-veiculo'
 import { LIMITE_INF_CPL, excedeLimiteInfCpl, mensagemLimiteInfCpl, textoInformacoesComplementares } from '@/lib/fiscal/informacoesComplementares'
 
 export const dynamic = 'force-dynamic'
@@ -28,6 +28,8 @@ interface EmitirNFeBody {
   // #9787 marco 2 · ENTRADA do veículo (compra PF/PJ, troca) — SÓ prévia (não transmite). operacaoEntrada = a operação do perfil.
   entradaVeiculoId?: string
   operacaoEntrada?: OperacaoEntrada
+  // #9787 · DEVOLUÇÃO ao consignante (consignacao_retorno) — SAÍDA (tpNF=1), gated por emite_nfe_autorizada.
+  consignacaoRetornoVeiculoId?: string
   // chamado #20 Fase 3 · NF-e de peça a partir da OS: vincula a nota à OS e guarda a justificativa
   // de divergência de valor NO registro (recuperável depois — §8.1 detalhe #1 do CEO).
   osId?: string
@@ -76,6 +78,30 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfe', operacao: 'emissao', endpoint: 'nfe/emitir' } })
     if (negado) return negado
 
+    // #9726 · NF-e de peças da OS em empresa que baixa estoque pela OS (modo 'baixar_estoque'): item de
+    // faturamento tipo_item_sped '99 - Outras' (frio) NÃO pode ser faturado. Validação do SERVIDOR (não só
+    // do front): rejeita a emissão real quando algum produto enviado é '99' — o operador troca o item de
+    // faturamento na tela. Só vale para esse modo; as demais empresas seguem como hoje. A prévia/espelho não
+    // é barrada aqui (a tela já marca a linha e exige a troca antes de emitir).
+    if (body.osId && !body.apenasPrevia && body.manual?.itens?.length) {
+      const { data: paramBaixa } = await supabaseAdmin
+        .from('erp_oficina_parametros').select('modo_baixa_estoque').eq('company_id', body.companyId).maybeSingle()
+      if ((paramBaixa?.modo_baixa_estoque ?? 'faturamento') === 'baixar_estoque') {
+        const idsFat = [...new Set((body.manual.itens.map((i) => i.produtoId).filter(Boolean)) as string[])]
+        if (idsFat.length) {
+          const { data: prodsFat } = await supabaseAdmin
+            .from('erp_produtos').select('id, tipo_item_sped, descricao, nome').eq('company_id', body.companyId).in('id', idsFat)
+          const bloq99 = (prodsFat ?? []).filter((p) => (p.tipo_item_sped ?? '') === '99')
+          if (bloq99.length) {
+            const nomes = bloq99.map((p) => p.descricao || p.nome || p.id).join(', ')
+            return NextResponse.json(
+              { ok: false, mensagem: `Item 99 - Outras não pode ser faturado; troque o item de faturamento: ${nomes}` },
+              { status: 400 })
+          }
+        }
+      }
+    }
+
     // #5684 · venda de veículo: carrega venda/perfil/título (recusa nota autorizada/em processamento — sem duplicar).
     let vendaVeic: Awaited<ReturnType<typeof carregarVendaVeiculo>> | undefined
     let veicMontado: ItemVeiculoMontado | undefined
@@ -84,6 +110,9 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       if (vendaVeic.nfeStatusAtual === 'autorizada' || vendaVeic.nfeStatusAtual === 'processando') {
         return NextResponse.json({ ok: false, mensagem: `Esta venda já tem NF-e ${vendaVeic.nfeStatusAtual} — não emita de novo.` }, { status: 409 })
       }
+      // #9787 (ajuste) · TODAS as operações do perfil (venda, consignacao_venda, etc.) emitem pelo fluxo normal —
+      // o gate emite_nfe_autorizada foi removido: a única revenda (Alliance) está em homologação; o controle de
+      // "vale fiscal ou não" é o ambiente_nfe (homologação × produção). A operação/CFOP sai pela origem do veículo.
       // Nota ligada ao título da venda (sem criar título novo): vai no registro como erp_receber_id.
       body.erpReceberId = vendaVeic.receberId ?? undefined
     }
@@ -95,10 +124,16 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       if (!body.operacaoEntrada) {
         return NextResponse.json({ ok: false, mensagem: 'operacaoEntrada obrigatória (compra_pf | compra_pj | troca_entrada)' }, { status: 400 })
       }
-      if (!body.apenasPrevia) {
-        return NextResponse.json({ ok: false, mensagem: 'Entrada do veículo: apenas PRÉVIA neste marco (sem transmitir). A emissão real depende de homologação supervisionada com o certificado da empresa.' }, { status: 400 })
-      }
       entradaVeic = await carregarEntradaVeiculo(body.companyId, body.entradaVeiculoId, body.operacaoEntrada)
+      // #9787 (ajuste) · entrada (tpNF=0) emite pelo fluxo normal: apenasPrevia=true → espelho; false → transmite.
+      // Gate emite_nfe_autorizada removido (Alliance em homologação; ambiente_nfe controla produção × homologação).
+    }
+
+    // #9787 (ajuste) · DEVOLUÇÃO ao consignante (consignacao_retorno) — SAÍDA (tpNF=1), emite pelo fluxo normal.
+    // Gate emite_nfe_autorizada removido (Alliance em homologação; ambiente_nfe controla produção × homologação).
+    let retornoVeic: Awaited<ReturnType<typeof carregarConsignacaoRetorno>> | undefined
+    if (body.consignacaoRetornoVeiculoId) {
+      retornoVeic = await carregarConsignacaoRetorno(body.companyId, body.consignacaoRetornoVeiculoId)
     }
 
     const nfeReq = await buildNFeRequest({
@@ -107,6 +142,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       onVeiculoMontado: (m) => { veicMontado = m },
       entradaVeiculo: entradaVeic,
       onEntradaMontada: (m) => { entradaMontado = m },
+      consignacaoRetorno: retornoVeic,
       erpReceberId: vendaVeic ? undefined : body.erpReceberId,
       pedidoId: body.pedidoId,
       osId: body.osId,
@@ -115,10 +151,10 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       consumidorFinal: body.consumidorFinal,
     })
 
-    // #9787 marco 2 · ENTRADA: devolve só o ESPELHO para conferência (sem validar como saída, sem Lei 12.741,
-    // sem transmitir, sem gravar). A estrutura (tpNF=0, PIS/COFINS da entrada, remetente/destinatário da nota
-    // própria de entrada) é validada na emissão REAL em homologação supervisionada — fora desta prévia.
-    if (entradaVeic) {
+    // #9787 · ENTRADA em PRÉVIA: devolve só o ESPELHO para conferência (sem transmitir, sem gravar). Quando a
+    // operação está liberada (emite_nfe_autorizada) e apenasPrevia=false, NÃO retorna aqui — cai no caminho de
+    // validação + transmissão abaixo (o mesmo motor da venda), agora com tpNF=0 e PIS/COFINS do perfil.
+    if (entradaVeic && body.apenasPrevia) {
       const d = nfeReq.destinatario
       const end = d.endereco
       const valorProdutosEntrada = nfeReq.itens.reduce((acc, i) => acc + i.valorTotal, 0)
@@ -171,6 +207,16 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       },
     }
     try {
+      // #9787 (ajuste) · ENTRADA/DEVOLUÇÃO: a contraparte (vendedor PF / fornecedor) tem de estar completa. Diz QUAL
+      // campo falta (nome, documento, endereço com município/UF), em vez da mensagem genérica do validador. A prévia
+      // não chega aqui (retorna antes); vale para a emissão real (apenasPrevia=false).
+      const contraparte = entradaVeic ?? retornoVeic
+      if (contraparte) {
+        const faltam = camposFaltandoRemetenteEntrada(contraparte.remetente)
+        if (faltam.length) {
+          throw new FiscalError('PAYLOAD_INVALIDO', mensagemRemetenteEntradaIncompleto(contraparte.operacao, contraparte.remetente.tipo, faltam))
+        }
+      }
       validateNFeRequest(nfeReq)
     } catch (e) {
       if (!body.apenasPrevia) await registrarFalhaEmissaoNFe(ctxEmissao, e)

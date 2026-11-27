@@ -3,13 +3,20 @@
 // Folha de pagamento — importar planilha do Domínio (.xls/.xlsx) e extrair
 // custo/verbas por competência. LGPD: dado sensível (salário) — escopo por
 // empresa (RLS) + tela operacional de RH. O BI final expõe só agregado por setor.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { AbasRH, useAbaRH, type AbaRH } from '@/components/rh/AbasRH'
+import { EncargosTab } from './EncargosTab'
 
 const ROTA = '/dashboard/industrial/folha'
+// Abas da Folha (CEO 25/11, RH em 5 itens) — a aba vive no ?aba= da URL; "?" por aba (RD-95).
+const ABAS_FOLHA: AbaRH[] = [
+  { chave: 'folha', rotulo: 'Competências e verbas', ajuda: 'industrial.rh.folha.aba.folha' },
+  { chave: 'encargos', rotulo: 'Encargos', ajuda: 'industrial.rh.folha.aba.encargos' },
+]
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', GOLD_D = '#A57A15'
 const LINE = '#E7DECF', CREAM = '#F2EBDF', MUT = 'rgba(61,35,20,0.55)'
@@ -22,7 +29,7 @@ type CompRow = { matricula: number; nome: string | null; competencia: string; to
 type VerbaRow = { codigo_verba: string; descricao: string | null; valor: number; tipo: string | null }
 type Preview = { competencia: string; cnpj: string | null; funcionarios: number; total_geral: number; secoes?: string[]; via?: string }
 
-export default function FolhaPage() {
+function FolhaInner() {
   const { selInfo, sel } = useCompanyIds()
   const empresaUnica = selInfo.tipo === 'empresa' && sel ? sel : null
 
@@ -38,6 +45,7 @@ export default function FolhaPage() {
   const [podeVer, setPodeVer] = useState<boolean | null>(null)
   const [confirmExcluir, setConfirmExcluir] = useState(false)
   const [excluindo, setExcluindo] = useState(false)
+  const aba = useAbaRH(ABAS_FOLHA, 'folha')
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
@@ -123,6 +131,11 @@ export default function FolhaPage() {
 
   return (
     <Casca>
+      <AbasRH abas={ABAS_FOLHA} atual={aba} rota={ROTA} />
+
+      {aba === 'encargos' && empresaUnica && <EncargosTab companyId={empresaUnica} podeVer={podeVer === true} />}
+
+      {aba === 'folha' && <>
       {erro && <div style={aviso(RED, RED_BG)}>{erro}</div>}
       {ok && <div style={aviso(GREEN, GREEN_BG)}>✓ {ok}</div>}
 
@@ -226,7 +239,16 @@ export default function FolhaPage() {
           </div>
         </section>
       )}
+      </>}
     </Casca>
+  )
+}
+
+export default function FolhaPage() {
+  return (
+    <Suspense fallback={null}>
+      <FolhaInner />
+    </Suspense>
   )
 }
 

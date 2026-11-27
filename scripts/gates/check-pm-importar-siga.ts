@@ -1,5 +1,5 @@
 // Gate · PM-J — importador de jobs do SIGA (CEO 02/10). Sem rede.
-// Regra do CEO: últimos 60 dias + em aberto; "em aprovação" antigo fica de fora; nada gravado sem prévia; não duplica.
+// Regra do CEO (05/10, blueprint): últimos 180 dias + em aberto; "em aprovação" antigo fica de fora; nada gravado sem prévia; não duplica.
 import { readFileSync } from 'node:fs'
 import * as XLSX from 'xlsx'
 import { adivinharMapa, dataSiga, ehCsv, numeroSiga, selecionar, situacaoSiga, textoCsv } from '../../src/lib/pm/importSiga'
@@ -19,8 +19,8 @@ const hoje = '2026-10-02'
 const linhas = [
   ['1001', 'Aberto antigo', 'C', '', 'Em produção', '2026-01-10', '2026-01-02'],      // em aberto: entra (mesmo antigo)
   ['1002', 'Concluído recente', 'C', '', 'Concluído', '2026-09-20', '2026-09-10'],   // recente: entra
-  ['1003', 'Concluído antigo', 'C', '', 'Concluído', '2026-05-20', '2026-05-10'],    // fora da janela
-  ['1004', 'Em aprovação antigo', 'C', '', 'Em aprovação', '2026-06-01', '2026-05-01'], // fora (regra do CEO)
+  ['1003', 'Concluído antigo', 'C', '', 'Concluído', '2026-01-20', '2026-01-10'],    // fora da janela (>180 dias)
+  ['1004', 'Em aprovação antigo', 'C', '', 'Em aprovação', '2026-02-01', '2026-01-15'], // fora (regra do CEO, >180 dias)
   ['1005', 'Em aprovação recente', 'C', '', 'Em aprovação', '2026-09-30', '2026-09-25'], // entra
   ['1006', 'Cancelado', 'C', '', 'Cancelado', '2026-09-30', '2026-09-25'],          // fora
   ['1002', 'Repetido', 'C', '', 'Em produção', '', '2026-09-30'],                     // repetido
@@ -28,7 +28,7 @@ const linhas = [
   ['', '', '', '', '', '', ''],                                                        // linha vazia: ignorada
 ]
 const r = selecionar(linhas, mapa, hoje)
-ok(r.entra.map((l) => l.numero).join() === '1001,1002,1005', 'entram: em aberto + últimos 60 dias (inclusive em aprovação recente)')
+ok(r.entra.map((l) => l.numero).join() === '1001,1002,1005', 'entram: em aberto + últimos 180 dias (inclusive em aprovação recente)')
 const m = Object.fromEntries(r.fora.map((f) => [f.numero ?? 'x', f.motivo]))
 ok(m['1003'] === 'fora_da_janela' && m['1004'] === 'em_aprovacao_antigo' && m['1006'] === 'cancelado' && r.fora.some((f) => f.motivo === 'repetido_na_planilha') && r.fora.some((f) => f.motivo === 'sem_numero') && r.fora.length === 5,
   'ficam de fora: concluído antigo, em aprovação antigo, cancelado, repetido, sem número (linha vazia nem conta)')

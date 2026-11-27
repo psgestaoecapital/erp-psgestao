@@ -32,6 +32,12 @@ export interface PerfilVendaVeiculo {
     reducaoBasePct: number | null
     ibsCbsCst: string | null; ibsCbsCClassTrib: string | null
     naturezaOperacao: string | null; infComplementar: string | null
+    // #9787 · emissão autorizada da ENTRADA (opcionais; só a entrada os carrega — a venda não os usa).
+    // emiteNfeAutorizada = gate do perfil (default false): libera transmitir à SEFAZ (senão, só prévia).
+    // PIS/COFINS da entrada vêm do perfil por operação (sem hardcode).
+    emiteNfeAutorizada?: boolean
+    pisCst?: string | null; cofinsCst?: string | null
+    pisAliquota?: number | null; cofinsAliquota?: number | null
   }
 }
 
@@ -43,6 +49,8 @@ export interface DadosVendaVeiculo {
   numeroVenda: string | null
   clienteId: string
   receberId: string | null
+  // #9787 · operação escolhida pela ORIGEM do veículo: consignado → 'consignacao_venda' (CFOP 5949/6949) · senão 'venda' (5102/6102).
+  operacaoNome?: string
   veiculo: {
     id: string; chassi: string; placa: string | null; renavam: string | null
     marca: string | null; modelo: string | null; versao: string | null
@@ -107,6 +115,19 @@ export function infComplementarVeiculo(v: DadosVendaVeiculo['veiculo'], textoPer
  * Item único da NF-e do veículo. ICMS = valor × (1 − redução) × alíquota (R$ 100.000, 95%, 12% → base 5.000, ICMS 600).
  * CFOP: 5102 dentro da UF do emitente, 6102 fora (do perfil aprovado). Sem NCM → recusa (nunca inventa).
  */
+// #9787 (ajuste) · PIS/COFINS do item do veículo lidos do PERFIL por operação (sem hardcode). MESMO motor para a VENDA
+// e para a ENTRADA/DEVOLUÇÃO: CST do perfil quando configurado, senão o padrão tributável '01' (como a venda sempre fez);
+// alíquota do perfil, senão o fallback por regime (venda) ou o padrão presumido. A entrada NÃO tem pis_pct/cofins_pct
+// no perfil (só por operação), por isso os fallbacks por regime são opcionais. Nunca OMITE os grupos: item de veículo
+// sem PIS/COFINS caía na régua de "produto sem tributação" do nfe-validator (Edição fiscal em massa), que não se aplica
+// a veículo — a tributação do veículo é do perfil fiscal, não do cadastro de produto.
+export function pisCofinsDoPerfil(op: PerfilVendaVeiculo['operacao'], perfilPisPct?: number | null, perfilCofinsPct?: number | null) {
+  return {
+    pis: { cst: op.pisCst?.trim() || '01', aliquota: op.pisAliquota ?? perfilPisPct ?? PIS_PADRAO_PRESUMIDO },
+    cofins: { cst: op.cofinsCst?.trim() || '01', aliquota: op.cofinsAliquota ?? perfilCofinsPct ?? COFINS_PADRAO_PRESUMIDO },
+  }
+}
+
 export function montarItemVeiculo(d: DadosVendaVeiculo, ufEmitente: string | undefined, ufDestino: string | undefined, ehSimples: boolean): ItemVeiculoMontado {
   const op = d.perfil.operacao
   const avisos: string[] = []
@@ -163,8 +184,8 @@ export function montarItemVeiculo(d: DadosVendaVeiculo, ufEmitente: string | und
     ncm, cfop, unidade: 'UN', quantidade: 1, valorUnitario: valor, valorTotal: valor,
     origem: '0',
     icms,
-    pis: { cst: '01', aliquota: d.perfil.pisPct ?? PIS_PADRAO_PRESUMIDO },
-    cofins: { cst: '01', aliquota: d.perfil.cofinsPct ?? COFINS_PADRAO_PRESUMIDO },
+    // #9787 · PIS/COFINS da SAÍDA vêm do perfil por operação quando configurados (sem hardcode); senão, o padrão atual.
+    ...pisCofinsDoPerfil(op, d.perfil.pisPct, d.perfil.cofinsPct),
     ...(temIbsCbs ? {
       ibsCbs: {
         cst: op.ibsCbsCst as string, cClassTrib: op.ibsCbsCClassTrib as string, baseCalculo: valor,
@@ -200,9 +221,13 @@ export async function carregarVendaVeiculo(companyId: string, vendaId: string): 
 
   const { data: ve } = await supabaseAdmin
     .from('veic_veiculo')
-    .select('id, chassi, placa, renavam, marca, modelo, versao, ano_fabricacao, ano_modelo, cor, combustivel, potencia_cv, cilindradas, lugares, km_atual, ncm')
+    .select('id, chassi, placa, renavam, marca, modelo, versao, ano_fabricacao, ano_modelo, cor, combustivel, potencia_cv, cilindradas, lugares, km_atual, ncm, origem')
     .eq('id', v.veiculo_id).eq('company_id', companyId).maybeSingle()
   if (!ve) throw new FiscalError('PAYLOAD_INVALIDO', 'Veículo da venda não encontrado')
+
+  // #9787 · a operação (e o CFOP) saem da ORIGEM do veículo: consignado usa 'consignacao_venda' (CFOP 5949/6949),
+  // o resto usa 'venda' (5102/6102). Antes ficava fixo em 'venda' → consignado saía com 5102 (errado).
+  const operacaoNome = ve.origem === 'consignacao' ? 'consignacao_venda' : 'venda'
 
   const { data: perfil } = await supabaseAdmin
     .from('veic_perfil_fiscal')
@@ -212,9 +237,9 @@ export async function carregarVendaVeiculo(companyId: string, vendaId: string): 
   if (!perfil) throw new FiscalError('PAYLOAD_INVALIDO', 'Perfil fiscal da revenda não está aprovado — aprove o perfil fiscal antes de emitir a NF-e')
   const { data: op } = await supabaseAdmin
     .from('veic_perfil_fiscal_operacao')
-    .select('cfop_dentro_uf, cfop_fora_uf, cst_ou_csosn, cbenef, reducao_base_icms_pct, ibs_cbs_cst, ibs_cbs_cclasstrib, natureza_operacao, inf_complementar_texto')
-    .eq('perfil_id', perfil.id).eq('operacao', 'venda').maybeSingle()
-  if (!op) throw new FiscalError('PAYLOAD_INVALIDO', "A operação 'venda' não está configurada no perfil fiscal aprovado — complete o perfil com o contador")
+    .select('cfop_dentro_uf, cfop_fora_uf, cst_ou_csosn, cbenef, reducao_base_icms_pct, ibs_cbs_cst, ibs_cbs_cclasstrib, natureza_operacao, inf_complementar_texto, emite_nfe_autorizada, pis_cst, cofins_cst, pis_aliquota, cofins_aliquota')
+    .eq('perfil_id', perfil.id).eq('operacao', operacaoNome).maybeSingle()
+  if (!op) throw new FiscalError('PAYLOAD_INVALIDO', `A operação '${operacaoNome}' não está configurada no perfil fiscal aprovado — complete o perfil com o contador`)
 
   // Título que a venda JÁ criou no contas a receber do GE (fn_veic__receber → veic_venda_recebimento.receber_id).
   const { data: recs } = await supabaseAdmin
@@ -231,7 +256,7 @@ export async function carregarVendaVeiculo(companyId: string, vendaId: string): 
   return {
     vendaId, nfeIdAtual: v.nfe_id ?? null, nfeStatusAtual,
     valorVenda: Number(v.valor_venda ?? 0), numeroVenda: v.numero ?? null,
-    clienteId: v.cliente_id, receberId,
+    clienteId: v.cliente_id, receberId, operacaoNome,
     veiculo: {
       id: ve.id, chassi: ve.chassi, placa: ve.placa, renavam: ve.renavam, marca: ve.marca, modelo: ve.modelo, versao: ve.versao,
       anoFabricacao: ve.ano_fabricacao, anoModelo: ve.ano_modelo, cor: ve.cor, combustivel: ve.combustivel,
@@ -244,6 +269,10 @@ export async function carregarVendaVeiculo(companyId: string, vendaId: string): 
         cfopDentroUf: op.cfop_dentro_uf, cfopForaUf: op.cfop_fora_uf, cstOuCsosn: op.cst_ou_csosn, cbenef: op.cbenef ?? null,
         reducaoBasePct: num(op.reducao_base_icms_pct), ibsCbsCst: op.ibs_cbs_cst ?? null, ibsCbsCClassTrib: op.ibs_cbs_cclasstrib ?? null,
         naturezaOperacao: op.natureza_operacao ?? null, infComplementar: op.inf_complementar_texto ?? null,
+        // #9787 · gate + PIS/COFINS da SAÍDA (do perfil, por operação) — mesma leitura da entrada.
+        emiteNfeAutorizada: (op as { emite_nfe_autorizada?: boolean }).emite_nfe_autorizada === true,
+        pisCst: op.pis_cst ?? null, cofinsCst: op.cofins_cst ?? null,
+        pisAliquota: num(op.pis_aliquota), cofinsAliquota: num(op.cofins_aliquota),
       },
     },
   }
@@ -266,7 +295,8 @@ export interface RemetenteEntrada {
 
 export interface DadosEntradaVeiculo {
   veiculoId: string
-  operacao: OperacaoEntrada
+  // #9787 · 'compra_pf'|'compra_pj'|'troca_entrada' (entrada, tpNF=0) ou 'consignacao_retorno' (saída, tpNF=1).
+  operacao: OperacaoEntrada | 'consignacao_retorno'
   valor: number
   veiculo: DadosVendaVeiculo['veiculo']
   remetente: RemetenteEntrada
@@ -322,11 +352,21 @@ export function montarItemVeiculoEntrada(d: DadosEntradaVeiculo, ufEmitente: str
   }
   const nomeVeic = [d.veiculo.marca, d.veiculo.modelo, d.veiculo.versao].filter(Boolean).join(' ')
 
+  // #9787 (ajuste) · PIS/COFINS da ENTRADA vêm do PERFIL por operação, pelo MESMO motor da venda (CST do perfil, senão
+  // '01'; alíquota do perfil, senão o padrão presumido). Antes a entrada OMITIA pis/cofins quando o perfil não trazia o
+  // CST → o nfe-validator barrava com a mensagem de "produto sem tributação" (Edição fiscal em massa), que não faz
+  // sentido para veículo (a tributação é do perfil, não do cadastro de produto). Agora a nota sai; se o perfil não
+  // especificou o CST, avisa o contador para confirmar.
+  if (!op.pisCst?.trim() || !op.cofinsCst?.trim()) {
+    avisos.push('PIS/COFINS da entrada não configurados no perfil fiscal (CST) — a nota usa o padrão tributável (01); confirme a tributação da entrada com o contador.')
+  }
+
   const item: NFeProdutoItem = {
     codigo: d.veiculo.placa || d.veiculo.chassi,
     descricao: nomeVeic || 'Veículo',
     ncm, cfop, unidade: 'UN', quantidade: 1, valorUnitario: valor, valorTotal: valor,
     origem: '0', icms,
+    ...pisCofinsDoPerfil(op),
     ...(d.perfil.veicprodObrigatorioUsado ? { veiculo } : {}),
   }
 
@@ -336,6 +376,33 @@ export function montarItemVeiculoEntrada(d: DadosEntradaVeiculo, ufEmitente: str
     naturezaOperacao: natureza,
     avisos,
   }
+}
+
+// #9787 (ajuste) · A nota de ENTRADA exige a contraparte (vendedor PF na compra PF / fornecedor PJ) COMPLETA: nome,
+// documento (CPF/CNPJ) e endereço com município e UF. Diz QUAL campo falta — em vez da mensagem genérica
+// "Endereço completo do destinatário obrigatório" do validador, que não aponta onde preencher.
+export function camposFaltandoRemetenteEntrada(r: RemetenteEntrada): string[] {
+  const falta: string[] = []
+  if (!(r.nome ?? '').trim()) falta.push('nome')
+  const doc = (r.documento ?? '').replace(/\D/g, '')
+  if (!(doc.length === 11 || doc.length === 14)) falta.push(r.tipo === 'pf' ? 'CPF' : 'CNPJ')
+  const e = r.endereco
+  const endFalta: string[] = []
+  if (!(e?.logradouro ?? '').trim()) endFalta.push('logradouro')
+  if (!(e?.numero ?? '').trim()) endFalta.push('número')
+  if (!(e?.bairro ?? '').trim()) endFalta.push('bairro')
+  if (!(e?.cidade ?? '').trim()) endFalta.push('município')
+  if (!(e?.uf ?? '').trim()) endFalta.push('UF')
+  if (!(e?.cep ?? '').replace(/\D/g, '')) endFalta.push('CEP')
+  if (endFalta.length) falta.push(`endereço completo (${endFalta.join(', ')})`)
+  return falta
+}
+
+export function mensagemRemetenteEntradaIncompleto(operacao: string, tipo: 'pf' | 'pj', campos: string[]): string {
+  const quem = tipo === 'pf' ? 'o vendedor (pessoa física)' : 'o fornecedor'
+  const lista = campos.length <= 1 ? campos.join('') : `${campos.slice(0, -1).join(', ')} e ${campos[campos.length - 1]}`
+  return `Nota de entrada (${operacao}): ${quem} está incompleto — falta ${lista}. `
+    + 'Preencha os dados do vendedor no cadastro do veículo antes de emitir.'
 }
 
 /** Carrega veículo + perfil aprovado (operação de entrada) + remetente (vendedor PF na compra PF). Service role: a rota já checou a empresa. */
@@ -358,7 +425,7 @@ export async function carregarEntradaVeiculo(companyId: string, veiculoId: strin
   if (!perfil) throw new FiscalError('PAYLOAD_INVALIDO', 'Perfil fiscal da revenda não está aprovado — aprove o perfil fiscal antes de gerar a prévia')
   const { data: op } = await supabaseAdmin
     .from('veic_perfil_fiscal_operacao')
-    .select('cfop_dentro_uf, cfop_fora_uf, cst_ou_csosn, cbenef, reducao_base_icms_pct, ibs_cbs_cst, ibs_cbs_cclasstrib, natureza_operacao, inf_complementar_texto')
+    .select('cfop_dentro_uf, cfop_fora_uf, cst_ou_csosn, cbenef, reducao_base_icms_pct, ibs_cbs_cst, ibs_cbs_cclasstrib, natureza_operacao, inf_complementar_texto, emite_nfe_autorizada, pis_cst, cofins_cst, pis_aliquota, cofins_aliquota')
     .eq('perfil_id', perfil.id).eq('operacao', operacao).maybeSingle()
   if (!op) throw new FiscalError('PAYLOAD_INVALIDO', `A operação '${operacao}' não está configurada no perfil fiscal aprovado — complete o perfil com o contador`)
 
@@ -392,6 +459,68 @@ export async function carregarEntradaVeiculo(companyId: string, veiculoId: strin
         cfopDentroUf: op.cfop_dentro_uf, cfopForaUf: op.cfop_fora_uf, cstOuCsosn: op.cst_ou_csosn, cbenef: op.cbenef ?? null,
         reducaoBasePct: num(op.reducao_base_icms_pct), ibsCbsCst: op.ibs_cbs_cst ?? null, ibsCbsCClassTrib: op.ibs_cbs_cclasstrib ?? null,
         naturezaOperacao: op.natureza_operacao ?? null, infComplementar: op.inf_complementar_texto ?? null,
+        // #9787 · gate da emissão autorizada + PIS/COFINS da entrada (do perfil, por operação).
+        emiteNfeAutorizada: (op as { emite_nfe_autorizada?: boolean }).emite_nfe_autorizada === true,
+        pisCst: op.pis_cst ?? null, cofinsCst: op.cofins_cst ?? null,
+        pisAliquota: num(op.pis_aliquota), cofinsAliquota: num(op.cofins_aliquota),
+      },
+    },
+    avisos,
+  }
+}
+
+/** #9787 · DEVOLUÇÃO ao consignante (consignacao_retorno) — SAÍDA (tpNF=1). Reusa a estrutura da entrada, mas é saída.
+ *  Destinatário = consignante (cadastro do veículo). VALOR = valor_aquisicao (devolução espelha a ENTRADA em
+ *  consignação — decisão do CEO/Adriana: não é venda; se vazio, a tela pede preencher). CFOP/CST/natureza/PIS/COFINS
+ *  vêm do perfil (operação 'consignacao_retorno'); a contadora confirma o CFOP específico e o valor. Gated. */
+export async function carregarConsignacaoRetorno(companyId: string, veiculoId: string): Promise<DadosEntradaVeiculo> {
+  const avisos: string[] = []
+  const { data: ve } = await supabaseAdmin
+    .from('veic_veiculo')
+    .select('id, chassi, placa, renavam, marca, modelo, versao, ano_fabricacao, ano_modelo, cor, combustivel, potencia_cv, cilindradas, lugares, km_atual, ncm, valor_aquisicao, origem, consignante_nome, consignante_documento')
+    .eq('id', veiculoId).eq('company_id', companyId).is('deleted_at', null).maybeSingle()
+  if (!ve) throw new FiscalError('PAYLOAD_INVALIDO', 'Veículo não encontrado nesta empresa')
+  if (ve.origem !== 'consignacao') throw new FiscalError('PAYLOAD_INVALIDO', 'Devolução ao consignante só vale para veículo consignado (origem = consignação)')
+  const valor = Number(ve.valor_aquisicao ?? 0)
+  if (!(valor > 0)) throw new FiscalError('PAYLOAD_INVALIDO', 'Informe o valor de aquisição (valor pelo qual o veículo entrou em consignação) antes de emitir a devolução ao consignante')
+
+  const { data: perfil } = await supabaseAdmin
+    .from('veic_perfil_fiscal')
+    .select('id, veicprod_obrigatorio_usado, ncm_padrao')
+    .eq('company_id', companyId).eq('status', 'aprovado').lte('vigente_desde', new Date().toISOString().slice(0, 10))
+    .order('vigente_desde', { ascending: false }).order('versao', { ascending: false }).limit(1).maybeSingle()
+  if (!perfil) throw new FiscalError('PAYLOAD_INVALIDO', 'Perfil fiscal da revenda não está aprovado — aprove o perfil fiscal antes de emitir')
+  const { data: op } = await supabaseAdmin
+    .from('veic_perfil_fiscal_operacao')
+    .select('cfop_dentro_uf, cfop_fora_uf, cst_ou_csosn, cbenef, reducao_base_icms_pct, ibs_cbs_cst, ibs_cbs_cclasstrib, natureza_operacao, inf_complementar_texto, emite_nfe_autorizada, pis_cst, cofins_cst, pis_aliquota, cofins_aliquota')
+    .eq('perfil_id', perfil.id).eq('operacao', 'consignacao_retorno').maybeSingle()
+  if (!op) throw new FiscalError('PAYLOAD_INVALIDO', "A operação 'consignacao_retorno' não está configurada no perfil fiscal aprovado — complete o perfil com o contador")
+
+  const doc = (ve.consignante_documento ?? '').replace(/\D/g, '')
+  if (!ve.consignante_nome && !doc) avisos.push('Veículo sem consignante (nome/CPF-CNPJ) no cadastro — preencha a consignação antes de emitir a devolução.')
+  const remetente: RemetenteEntrada = {
+    tipo: doc.length === 14 ? 'pj' : 'pf',
+    nome: ve.consignante_nome ?? null, documento: doc || null, endereco: null,
+  }
+
+  return {
+    veiculoId, operacao: 'consignacao_retorno', valor,
+    veiculo: {
+      id: ve.id, chassi: ve.chassi, placa: ve.placa, renavam: ve.renavam, marca: ve.marca, modelo: ve.modelo, versao: ve.versao,
+      anoFabricacao: ve.ano_fabricacao, anoModelo: ve.ano_modelo, cor: ve.cor, combustivel: ve.combustivel,
+      potenciaCv: num(ve.potencia_cv), cilindradas: num(ve.cilindradas), lugares: ve.lugares, kmAtual: num(ve.km_atual), ncm: ve.ncm,
+    },
+    remetente,
+    perfil: {
+      veicprodObrigatorioUsado: perfil.veicprod_obrigatorio_usado === true,
+      ncmPadrao: perfil.ncm_padrao ?? null,
+      operacao: {
+        cfopDentroUf: op.cfop_dentro_uf, cfopForaUf: op.cfop_fora_uf, cstOuCsosn: op.cst_ou_csosn, cbenef: op.cbenef ?? null,
+        reducaoBasePct: num(op.reducao_base_icms_pct), ibsCbsCst: op.ibs_cbs_cst ?? null, ibsCbsCClassTrib: op.ibs_cbs_cclasstrib ?? null,
+        naturezaOperacao: op.natureza_operacao ?? null, infComplementar: op.inf_complementar_texto ?? null,
+        emiteNfeAutorizada: (op as { emite_nfe_autorizada?: boolean }).emite_nfe_autorizada === true,
+        pisCst: op.pis_cst ?? null, cofinsCst: op.cofins_cst ?? null,
+        pisAliquota: num(op.pis_aliquota), cofinsAliquota: num(op.cofins_aliquota),
       },
     },
     avisos,
