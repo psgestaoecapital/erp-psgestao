@@ -19,6 +19,7 @@ import { useOficinaRamo } from '@/lib/oficina/ramo'   // HB0 item 6 · campos de
 import { useOficinaModelo } from '@/lib/oficina/modelo'   // #135 · atendimento centralizado (sem tablet)
 import { itensPendentesOS, podeAprovarNaOS } from '@/lib/oficina/aprovarNaOS'
 import { edicaoInicialOS, idsRemovidosNaEdicao, itemEditavelNaOS, montarDadosDiagnosticoOS, motivoItensBloqueadosOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
+import ServicoAutocomplete, { type ServicoSelecionado } from '@/components/comum/ServicoAutocomplete'   // #centralizado · vínculo fiscal do serviço (erp_servicos/LC116)
 import { aprovaPendentesAoAvancar, proximoPassoOS } from '@/lib/oficina/avancoNaOS'   // #135 · Iniciar → Finalizar → Entregar na ficha
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import { TIPOS_ITEM_SPED } from '@/lib/produtos/fiscalMassa'   // #5452 item 2 · rótulo do Tipo de item (SPED) na linha da OS
@@ -177,7 +178,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [reabrindo, setReabrindo] = useState(false)
   const [selo, setSelo] = useState<{ user_email?: string; quando?: string } | null>(null)
   // RD-41 · itens do diagnóstico (peças + serviços). A ficha reabria SEM eles → impresso zerado.
-  const [itensDiag, setItensDiag] = useState<Array<{ id?: string | null; tipo?: string; produto_id?: string | null; descricao?: string; quantidade?: number | string | null; preco?: number | null; subtotal?: number | null; status_item?: string | null }>>([])
+  const [itensDiag, setItensDiag] = useState<Array<{ id?: string | null; tipo?: string; produto_id?: string | null; servico_fiscal_id?: string | null; descricao?: string; quantidade?: number | string | null; preco?: number | null; subtotal?: number | null; status_item?: string | null }>>([])
   // A2 Path 2 · substituir item texto-livre por peça do estoque (na tela de finalização, sem preço)
   const [substItem, setSubstItem] = useState<string | null>(null)
   const [substTermo, setSubstTermo] = useState('')
@@ -186,6 +187,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   // #135 (Triches) · etapa 2: incluir/editar itens, quantidade e preço na própria OS (atendimento centralizado)
   const [edItens, setEdItens] = useState<EdicaoItemOS[] | null>(null)
   const [salvandoItens, setSalvandoItens] = useState(false)
+  const [fiscalPickerChave, setFiscalPickerChave] = useState<string | null>(null)   // #centralizado · linha com o seletor de serviço fiscal aberto
   // OS avulsa · banco da cobrança escolhido no faturamento (OS via pedido usa a conta das parcelas, #1211)
   const [receitaAberta, setReceitaAberta] = useState(false)   // #20 §2.4 · form de receita a partir da OS
   // #108 · desconto na OS (ponto único, antes de faturar): entrada em R$ OU %, grava sempre em valor.
@@ -314,7 +316,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const editarItens = podeEditarItensNaOS(oficina.modelo, oficina.podePreco, String(os?.status ?? ''), faturada)
   const motivoItensBloq = motivoItensBloqueadosOS(oficina.modelo, String(os?.status ?? ''), faturada)
   function addItemOS(tipo: 'peca' | 'servico') {
-    setEdItens((p) => [...(p ?? []), { id: null, chave: `novo-${Date.now()}-${(p ?? []).length}`, tipo, descricao: '', quantidade: '1', preco: '' }])
+    setEdItens((p) => [...(p ?? []), { id: null, chave: `novo-${Date.now()}-${(p ?? []).length}`, tipo, descricao: '', quantidade: '1', preco: '', servico_fiscal_id: null, servico_fiscal_nome: null }])
   }
   function excluirItemOS(chave: string) {
     const it = (edItens ?? []).find((e) => e.chave === chave)
@@ -324,6 +326,22 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   }
   function mudarItemOS(chave: string, campo: 'descricao' | 'quantidade' | 'preco', valor: string) {
     setEdItens((p) => (p ?? []).map((e) => (e.chave === chave ? { ...e, [campo]: valor } : e)))
+  }
+  // #centralizado · liga (ou tira) o serviço fiscal (erp_servicos) do item de serviço. Ao ligar, preenche
+  // descrição/preço se ainda vazios (o usuário pode ajustar). Tirar volta a item de texto livre (sem vínculo).
+  function ligarServicoFiscalOS(chave: string, s: ServicoSelecionado | null) {
+    setEdItens((p) => (p ?? []).map((e) => {
+      if (e.chave !== chave) return e
+      if (!s) return { ...e, servico_fiscal_id: null, servico_fiscal_nome: null }
+      return {
+        ...e,
+        servico_fiscal_id: s.id,
+        servico_fiscal_nome: s.descricao_resumida,
+        descricao: e.descricao.trim() ? e.descricao : s.descricao_resumida,
+        preco: e.preco.trim() ? e.preco : (s.valor_unitario != null ? String(s.valor_unitario).replace('.', ',') : e.preco),
+      }
+    }))
+    setFiscalPickerChave(null)
   }
   async function salvarItensOS() {
     if (!os || !edItens) return
@@ -1075,7 +1093,8 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
               )}
               {edItens.map((e, i) => (
                 // RD-95: o "?" de cada coluna (descrição, qtd, preço) fica no cabeçalho logo acima
-                <div key={e.chave} data-ajuda="oficina.os.item_descricao oficina.os.item_quantidade oficina.os.item_preco" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <div key={e.chave} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div data-ajuda="oficina.os.item_descricao oficina.os.item_quantidade oficina.os.item_preco" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <span title={e.tipo === 'servico' ? 'Serviço' : 'Peça'} style={{ width: 16, display: 'inline-flex', color: C.espressoL }}>{e.tipo === 'servico' ? <Wrench size={14} strokeWidth={1.5} /> : <Package size={14} strokeWidth={1.5} />}</span>
                   <input data-testid={`os-item-ed-descricao-${i}`} value={e.descricao} onChange={(ev) => mudarItemOS(e.chave, 'descricao', ev.target.value)}
                     placeholder={e.tipo === 'servico' ? 'Ex.: Troca de embreagem' : 'Ex.: Filtro de óleo'}
@@ -1086,6 +1105,31 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
                     style={{ width: 96, minHeight: 36, padding: '6px 8px', fontSize: 12.5, border: '1px solid rgba(61,35,20,0.2)', borderRadius: 6, boxSizing: 'border-box' }} />
                   <button type="button" data-testid={`os-item-ed-excluir-${i}`} aria-label={`Excluir ${e.descricao.trim() || 'item'}`} title="Excluir item" onClick={() => excluirItemOS(e.chave)}
                     style={{ width: 36, minHeight: 36, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: C.red, background: 'none', border: '1px solid rgba(61,35,20,0.2)', borderRadius: 6, cursor: 'pointer' }}><Trash2 size={14} strokeWidth={1.5} /></button>
+                  </div>
+                  {/* #centralizado · serviço pode ser VINCULADO a um cadastro fiscal (erp_servicos/LC116) p/ a NFS-e sair preenchida. Texto livre = sem vínculo. */}
+                  {e.tipo === 'servico' && (
+                    <div style={{ paddingLeft: 22, fontSize: 11, color: C.espressoL, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      {fiscalPickerChave === e.chave ? (
+                        <div style={{ flex: 1, minWidth: 0, display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <ServicoAutocomplete companyId={os?.company_id ?? ''} selecionado={null} onSelect={(s) => ligarServicoFiscalOS(e.chave, s)} placeholder="Buscar serviço cadastrado (NFS-e)…" />
+                          </div>
+                          <button type="button" onClick={() => setFiscalPickerChave(null)} style={{ background: 'none', border: 'none', color: C.espressoL, cursor: 'pointer', fontSize: 11 }}>cancelar</button>
+                        </div>
+                      ) : e.servico_fiscal_id ? (
+                        <>
+                          <span>🧾 Serviço fiscal: <b style={{ color: C.espresso }}>{e.servico_fiscal_nome ?? 'vinculado'}</b></span>
+                          <button type="button" onClick={() => ligarServicoFiscalOS(e.chave, null)} style={{ background: 'none', border: 'none', color: C.red, cursor: 'pointer', fontSize: 11 }}>remover</button>
+                          <AjudaCampo chave="oficina.os.servico_fiscal" rota="/dashboard/os" />
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" data-testid={`os-item-fiscal-${i}`} onClick={() => setFiscalPickerChave(e.chave)} style={{ background: 'none', border: `1px dashed ${C.border}`, borderRadius: 6, padding: '3px 8px', color: C.espresso, cursor: 'pointer', fontSize: 11 }}>+ Vincular serviço fiscal (NFS-e)</button>
+                          <AjudaCampo chave="oficina.os.servico_fiscal" rota="/dashboard/os" />
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
