@@ -32,6 +32,14 @@ const EDIFICACAO = [
   { v: 'misto', l: 'Misto' },
 ]
 
+// Situação da obra — domínio existente da coluna projetos_obras.status (não inventar valor: há CHECK no banco).
+const SITUACAO = [
+  { v: 'em_andamento', l: 'Em andamento' },
+  { v: 'pausada', l: 'Pausada' },
+  { v: 'concluida', l: 'Concluída' },
+  { v: 'cancelada', l: 'Cancelada' },
+]
+
 // Dados técnicos da obra (tela 314 · escopo 5): padrão construtivo e sistema estrutural.
 const PADRAO = [
   { v: 'popular', l: 'Popular' },
@@ -58,6 +66,14 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [cliente, setCliente] = useState<string | null>(null)
   const [tipo, setTipo] = useState('')
   const [modelo, setModelo] = useState('')
+  // Andamento da obra — situação, datas e % de conclusão (tela 314 gaps 1-3; colunas já existentes)
+  const [status, setStatus] = useState('')
+  const [dataInicio, setDataInicio] = useState('')
+  const [dataPrevistaFim, setDataPrevistaFim] = useState('')
+  const [dataConclusao, setDataConclusao] = useState('')
+  const [pctConclusao, setPctConclusao] = useState('')
+  const [busyAnd, setBusyAnd] = useState(false)
+  const [okAnd, setOkAnd] = useState(false)
   // Identidade do imóvel
   const [matricula, setMatricula] = useState('')
   const [inscricao, setInscricao] = useState('')
@@ -88,7 +104,10 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [mapaMsg, setMapaMsg] = useState<string | null>(null)
   // Regularização na ficha (tela 314: "Na ficha: alvará e licenças com validade, CNO, ARTs e RRTs").
   // Resumo a partir do dado real já existente (fn_obra_licenca_listar); sem migration, só leitura.
-  const [reg, setReg] = useState<{ total: number; vencidos: number; vence30: number; proxima: string | null } | null>(null)
+  const [reg, setReg] = useState<{
+    total: number; vencidos: number; vence30: number; proxima: string | null
+    cno: string[]; artRrt: { tipo: string; numero: string; responsavel: string | null }[]; tecnicos: string[]
+  } | null>(null)
 
   // Área: aceita "1250" ou "1.250,50"; vira número só na hora de salvar (null quando vazio).
   const areaNum = (s: string): number | null => {
@@ -110,6 +129,13 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     setMatricula(j.matricula ?? ''); setInscricao(j.inscricao_imobiliaria ?? ''); setTipoEdif(j.tipo_edificacao ?? '')
     setAreaConstruida(j.area_construida_m2 != null ? String(j.area_construida_m2) : '')
     setAreaTerreno(j.area_terreno_m2 != null ? String(j.area_terreno_m2) : '')
+    // Andamento vem de leitor próprio (collision-free; fn_obra_ficha_ler não é tocado por esta fatia)
+    const { data: andData } = await supabase.rpc('fn_obra_ficha_andamento_ler', { p_obra_id: id })
+    const a = andData as { ok?: boolean; status?: string | null; data_inicio?: string | null; data_prevista_fim?: string | null; data_conclusao?: string | null; pct_conclusao?: number | null } | null
+    if (a && a.ok) {
+      setStatus(a.status ?? ''); setDataInicio(a.data_inicio ?? ''); setDataPrevistaFim(a.data_prevista_fim ?? '')
+      setDataConclusao(a.data_conclusao ?? ''); setPctConclusao(a.pct_conclusao != null ? String(a.pct_conclusao) : '')
+    }
     // Dados técnicos — leitor próprio (não depende de fn_obra_ficha_ler); falha aqui não derruba a ficha.
     const { data: t } = await supabase.rpc('fn_obra_ficha_tecnica_ler', { p_obra_id: id })
     const jt = t as { ok?: boolean; padrao_construtivo?: string | null; sistema_estrutural?: string | null } | null
@@ -124,7 +150,7 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     // Resumo da regularização (alvará e licenças) a partir do dado real. Falha aqui não derruba a ficha.
     try {
       const { data: licData } = await supabase.rpc('fn_obra_licenca_listar', { p_obra_id: id })
-      const lic = licData as { ok?: boolean; itens?: { validade: string | null; situacao: string }[] } | null
+      const lic = licData as { ok?: boolean; itens?: { tipo: string; numero: string | null; responsavel: string | null; validade: string | null; situacao: string }[] } | null
       if (lic && lic.ok) {
         const itens = lic.itens ?? []
         const vencidos = itens.filter((l) => l.situacao === 'vencido').length
@@ -133,11 +159,17 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
           .filter((l) => l.validade && l.situacao !== 'vencido')
           .map((l) => l.validade as string)
           .sort()[0] ?? null
-        setReg({ total: itens.length, vencidos, vence30, proxima })
+        // Gap 5 (requisito 167f8e9c): CNO, ART/RRT e responsáveis técnicos à vista na ficha (só leitura).
+        const cno = itens.filter((l) => l.tipo === 'cno' && l.numero).map((l) => l.numero as string)
+        const artRrt = itens
+          .filter((l) => (l.tipo === 'art' || l.tipo === 'rrt') && (l.numero || l.responsavel))
+          .map((l) => ({ tipo: l.tipo, numero: l.numero ?? '', responsavel: l.responsavel }))
+        const tecnicos = Array.from(new Set(itens.map((l) => (l.responsavel ?? '').trim()).filter((r) => r !== '')))
+        setReg({ total: itens.length, vencidos, vence30, proxima, cno, artRrt, tecnicos })
       } else {
-        setReg({ total: 0, vencidos: 0, vence30: 0, proxima: null })
+        setReg({ total: 0, vencidos: 0, vence30: 0, proxima: null, cno: [], artRrt: [], tecnicos: [] })
       }
-    } catch { setReg({ total: 0, vencidos: 0, vence30: 0, proxima: null }) }
+    } catch { setReg({ total: 0, vencidos: 0, vence30: 0, proxima: null, cno: [], artRrt: [], tecnicos: [] }) }
   }, [id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
@@ -174,6 +206,27 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     const j = data as Ficha | null
     if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar a ficha.')); return }
     setOk(true)
+  }
+
+  // % aceita "0".."100" (vírgula ou ponto); vazio → null
+  const pctNum = (s: string): number | null => {
+    const t = String(s).replace(/[^\d,.-]/g, '').replace(',', '.')
+    if (t.trim() === '') return null
+    const n = Number(t)
+    return Number.isFinite(n) ? n : null
+  }
+
+  const salvarAndamento = async () => {
+    setBusyAnd(true); setErro(null); setOkAnd(false)
+    const { data, error } = await supabase.rpc('fn_obra_ficha_andamento_salvar', {
+      p_obra_id: id, p_status: status || null,
+      p_data_inicio: dataInicio || null, p_data_prevista_fim: dataPrevistaFim || null,
+      p_data_conclusao: dataConclusao || null, p_pct_conclusao: pctNum(pctConclusao),
+    })
+    setBusyAnd(false)
+    const j = data as Ficha | null
+    if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar o andamento da obra.')); return }
+    setOkAnd(true)
   }
 
   const salvarIdentidade = async () => {
@@ -262,6 +315,47 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                     {busy ? 'Salvando…' : 'Salvar classificação'}
                   </button>
                   <AjudaCampo chave="projetos.obra_ficha.salvar" rota={ROTA} />
+                </div>
+              </div>
+
+              {/* Andamento da obra — situação, datas e % de conclusão (tela 314 gaps 1-3; colunas já existentes) */}
+              <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 14 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700 }}>Andamento da obra</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Situação da obra<AjudaCampo chave="projetos.obra_ficha.status" rota={ROTA} /></span>
+                    <select data-testid="ficha-status" style={campo} value={status} onChange={(e) => { setStatus(e.target.value); setOkAnd(false) }}>
+                      <option value="">Não informada</option>
+                      {SITUACAO.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>% de conclusão<AjudaCampo chave="projetos.obra_ficha.pct_conclusao" rota={ROTA} /></span>
+                    <input data-testid="ficha-pct-conclusao" inputMode="decimal" style={campo} value={pctConclusao} placeholder="0 a 100" onChange={(e) => { setPctConclusao(e.target.value); setOkAnd(false) }} />
+                  </label>
+                </div>
+                <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                  <span>Início (efetivo)<AjudaCampo chave="projetos.obra_ficha.data_inicio" rota={ROTA} /></span>
+                  <input data-testid="ficha-data-inicio" type="date" style={campo} value={dataInicio} onChange={(e) => { setDataInicio(e.target.value); setOkAnd(false) }} />
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Previsão de término<AjudaCampo chave="projetos.obra_ficha.data_prevista_fim" rota={ROTA} /></span>
+                    <input data-testid="ficha-data-prevista-fim" type="date" style={campo} value={dataPrevistaFim} onChange={(e) => { setDataPrevistaFim(e.target.value); setOkAnd(false) }} />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Conclusão (efetiva)<AjudaCampo chave="projetos.obra_ficha.data_conclusao" rota={ROTA} /></span>
+                    <input data-testid="ficha-data-conclusao" type="date" style={campo} value={dataConclusao} onChange={(e) => { setDataConclusao(e.target.value); setOkAnd(false) }} />
+                  </label>
+                </div>
+                <div style={{ fontSize: 11, color: MUT }}>A situação e o avanço aparecem nos painéis e nas listas de obras. Preencha a conclusão só quando a obra terminar.</div>
+                {okAnd && <div data-testid="ficha-andamento-ok" style={{ background: '#EAF6EC', color: VERDE, borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 600 }}>Andamento salvo.</div>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button data-testid="ficha-salvar-andamento" disabled={busyAnd} onClick={() => void salvarAndamento()}
+                    style={{ flex: 1, padding: '12px 16px', borderRadius: 8, border: 'none', background: ESP, color: '#fff', fontSize: 14, fontWeight: 700, cursor: busyAnd ? 'wait' : 'pointer' }}>
+                    {busyAnd ? 'Salvando…' : 'Salvar andamento'}
+                  </button>
+                  <AjudaCampo chave="projetos.obra_ficha.salvar_andamento" rota={ROTA} />
                 </div>
               </div>
 
@@ -430,6 +524,30 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                       )}
                     </div>
                     {reg.proxima && <div style={{ fontSize: 12, color: MUT }}>Próxima validade: {fmtData(reg.proxima)}.</div>}
+                    {/* Gap 5 (requisito 167f8e9c): CNO, ART/RRT e responsáveis técnicos à vista (só leitura) */}
+                    {(reg.cno.length > 0 || reg.artRrt.length > 0 || reg.tecnicos.length > 0) && (
+                      <div data-testid="ficha-reg-tecnicos" style={{ display: 'grid', gap: 6, marginTop: 2, paddingTop: 10, borderTop: `0.5px solid ${LINE}` }}>
+                        <div style={{ fontSize: 11, color: MUT, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          CNO, ART/RRT e responsáveis técnicos<AjudaCampo chave="projetos.obra_ficha.reg_tecnicos" rota={ROTA} />
+                        </div>
+                        {reg.cno.length > 0 && (
+                          <div data-testid="ficha-reg-cno" style={{ fontSize: 13, color: ESP }}>
+                            <strong style={{ fontWeight: 700 }}>CNO:</strong> {reg.cno.join(' · ')}
+                          </div>
+                        )}
+                        {reg.artRrt.map((a, i) => (
+                          <div key={i} data-testid="ficha-reg-artrrt" style={{ fontSize: 13, color: ESP }}>
+                            <strong style={{ fontWeight: 700 }}>{a.tipo.toUpperCase()}</strong>
+                            {a.numero ? ` ${a.numero}` : ''}{a.responsavel ? ` — ${a.responsavel}` : ''}
+                          </div>
+                        ))}
+                        {reg.tecnicos.length > 0 && (
+                          <div data-testid="ficha-reg-responsaveis" style={{ fontSize: 12, color: MUT }}>
+                            Responsáveis técnicos: {reg.tecnicos.join(', ')}.
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
