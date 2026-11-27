@@ -32,7 +32,7 @@ const EDIFICACAO = [
   { v: 'misto', l: 'Misto' },
 ]
 
-type Ficha = { ok: boolean; numero?: string; nome?: string | null; cliente_nome?: string | null; tipo_execucao?: string | null; modelo_contratacao?: string | null; matricula?: string | null; inscricao_imobiliaria?: string | null; tipo_edificacao?: string | null; area_construida_m2?: number | null; area_terreno_m2?: number | null; endereco?: string | null; bairro?: string | null; cidade?: string | null; uf?: string | null; cep?: string | null; erro?: string }
+type Ficha = { ok: boolean; numero?: string; nome?: string | null; cliente_nome?: string | null; tipo_execucao?: string | null; modelo_contratacao?: string | null; matricula?: string | null; inscricao_imobiliaria?: string | null; tipo_edificacao?: string | null; area_construida_m2?: number | null; area_terreno_m2?: number | null; pavimentos?: number | null; blocos?: number | null; unidades?: number | null; endereco?: string | null; bairro?: string | null; cidade?: string | null; uf?: string | null; cep?: string | null; erro?: string }
 
 export default function FichaObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -47,6 +47,9 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [tipoEdif, setTipoEdif] = useState('')
   const [areaConstruida, setAreaConstruida] = useState('')
   const [areaTerreno, setAreaTerreno] = useState('')
+  const [pavimentos, setPavimentos] = useState('')
+  const [blocos, setBlocos] = useState('')
+  const [unidades, setUnidades] = useState('')
   // Endereço da obra
   const [endereco, setEndereco] = useState('')
   const [bairro, setBairro] = useState('')
@@ -76,6 +79,14 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     return Number.isFinite(n) ? n : null
   }
 
+  // Contagem física (pavimentos/blocos/unidades): inteiro não-negativo; null quando vazio.
+  const inteiroNum = (s: string): number | null => {
+    const t = String(s).replace(/[^\d]/g, '')
+    if (t.trim() === '') return null
+    const n = Number(t)
+    return Number.isFinite(n) ? n : null
+  }
+
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
     setLoading(true); setErro(null)
@@ -88,6 +99,9 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     setMatricula(j.matricula ?? ''); setInscricao(j.inscricao_imobiliaria ?? ''); setTipoEdif(j.tipo_edificacao ?? '')
     setAreaConstruida(j.area_construida_m2 != null ? String(j.area_construida_m2) : '')
     setAreaTerreno(j.area_terreno_m2 != null ? String(j.area_terreno_m2) : '')
+    setPavimentos(j.pavimentos != null ? String(j.pavimentos) : '')
+    setBlocos(j.blocos != null ? String(j.blocos) : '')
+    setUnidades(j.unidades != null ? String(j.unidades) : '')
     // Endereço vem de um leitor próprio (collision-free; fn_obra_ficha_ler não é tocado por esta fatia)
     const { data: endData } = await supabase.rpc('fn_obra_ficha_endereco_ler', { p_obra_id: id })
     const e = endData as Ficha | null
@@ -155,6 +169,7 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     const { data, error } = await supabase.rpc('fn_obra_ficha_identidade_salvar', {
       p_obra_id: id, p_matricula: matricula || null, p_inscricao_imobiliaria: inscricao || null,
       p_tipo_edificacao: tipoEdif || null, p_area_construida_m2: areaNum(areaConstruida), p_area_terreno_m2: areaNum(areaTerreno),
+      p_pavimentos: inteiroNum(pavimentos), p_blocos: inteiroNum(blocos), p_unidades: inteiroNum(unidades),
     })
     setBusyId(false)
     const j = data as Ficha | null
@@ -256,6 +271,20 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                   <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
                     <span>Área do terreno (m²)<AjudaCampo chave="projetos.obra_ficha.area_terreno" rota={ROTA} /></span>
                     <input data-testid="ficha-area-terreno" inputMode="decimal" style={campo} value={areaTerreno} placeholder="m²" onChange={(e) => { setAreaTerreno(e.target.value); setOkId(false) }} />
+                  </label>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Pavimentos<AjudaCampo chave="projetos.obra_ficha.pavimentos" rota={ROTA} /></span>
+                    <input data-testid="ficha-pavimentos" inputMode="numeric" style={campo} value={pavimentos} placeholder="Nº" onChange={(e) => { setPavimentos(e.target.value); setOkId(false) }} />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Blocos<AjudaCampo chave="projetos.obra_ficha.blocos" rota={ROTA} /></span>
+                    <input data-testid="ficha-blocos" inputMode="numeric" style={campo} value={blocos} placeholder="Nº" onChange={(e) => { setBlocos(e.target.value); setOkId(false) }} />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Unidades<AjudaCampo chave="projetos.obra_ficha.unidades" rota={ROTA} /></span>
+                    <input data-testid="ficha-unidades" inputMode="numeric" style={campo} value={unidades} placeholder="Nº" onChange={(e) => { setUnidades(e.target.value); setOkId(false) }} />
                   </label>
                 </div>
                 {okId && <div data-testid="ficha-identidade-ok" style={{ background: '#EAF6EC', color: VERDE, borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 600 }}>Identidade salva.</div>}
