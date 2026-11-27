@@ -114,5 +114,5 @@ GRANT EXECUTE ON FUNCTION public.fn_pm_importar_jobs_siga(uuid, jsonb, boolean) 
 -- Blueprint vivo: tela 120 passa de "parcial" para "atendido" (fatia a conclui fornecedor/terceiros).
 UPDATE public.blueprint_tela_requisito
    SET status_baseline = 'atendido',
-       evidencia_baseline = 'PDCA 27/11 · /dashboard/pm/importar-sistema-anterior · fatia b título sem data (PR #6395) + fatia a fornecedor/terceiros (migration 20261129120050)'
+       evidencia_baseline = 'PDCA 27/11 · /dashboard/pm/importar-sistema-anterior · fatia b título sem data (PR #6395) + fatia a fornecedor/terceiros (migration 20261129200045)'
  WHERE id = '3bf076ab-1c45-4739-b291-7988a1a0107d';

@@ -25,7 +25,7 @@ ok(JSON.stringify(numeroSiga('113223B')) === JSON.stringify({ numero: '113223', 
   ], mapaFT, '2026-10-02')
   ok(rFT.entra.length === 1 && rFT.entra[0].fornecedor === 'Gráfica Boa Vista' && rFT.entra[0].terceiros === 'Freela João',
     'selecionar carrega fornecedor e terceiros para o job importado')
-  const migFT = readFileSync('supabase/migrations/20261129120050_pm_importar_siga_fornecedor_terceiros.sql', 'utf8')
+  const migFT = readFileSync('supabase/migrations/20261129200045_pm_importar_siga_fornecedor_terceiros.sql', 'utf8')
   ok(/ADD COLUMN IF NOT EXISTS fornecedor text/.test(migFT) && /ADD COLUMN IF NOT EXISTS terceiros text/.test(migFT), 'migration adiciona as colunas fornecedor e terceiros (idempotente)')
   ok(/l->>'fornecedor'/.test(migFT) && /l->>'terceiros'/.test(migFT) && /fornecedor, terceiros/.test(migFT), 'função grava fornecedor e terceiros no agency_jobs')
   ok(/REVOKE ALL ON FUNCTION public\.fn_pm_importar_jobs_siga\(uuid, jsonb, boolean\) FROM PUBLIC, anon;/.test(migFT), 'função continua fechada a anônimo')
