@@ -2,7 +2,9 @@
 // PS EHS · EHS-7 / M11 — Trabalhos de risco: Permissão de Trabalho (PT) · fatia 1
 // Libera serviços de alto risco (altura, confinado, elétrica, a quente...) com responsável, período e
 // medidas de controle conferidas. Backend: ehs_permissao_trabalho + ehs_pt_medida (RLS por empresa via
-// get_user_company_ids). Soft delete (ativo=false). Padrão visual PS EHS (RD-96), "?" em todo campo (RD-95).
+// get_user_company_ids). Exclusão rastreável (RD-98 p4): desativar a PT e reescrever as medidas passam por
+// RPC (fn_ehs_pt_desativar / fn_ehs_pt_medidas_salvar) com quem/quando + audit_log_global — sem DELETE físico.
+// Padrão visual PS EHS (RD-96), "?" em todo campo (RD-95).
 
 'use client'
 
@@ -123,7 +125,8 @@ export default function PermissoesTrabalhoPage() {
       if (error) throw error
       setLista((data || []) as PT[])
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao carregar as permissões de trabalho')
+      console.error('carregar permissões de trabalho', e)
+      setErro('Não foi possível carregar as permissões de trabalho. Tente novamente em instantes.')
     } finally {
       setLoading(false)
     }
@@ -145,14 +148,15 @@ export default function PermissoesTrabalhoPage() {
     if (motivo === null) return
     if (!motivo.trim()) { alert('Informe o motivo para desativar.'); return }
     try {
-      const { error } = await supabase
-        .from('ehs_permissao_trabalho')
-        .update({ ativo: false, observacoes: ((p.observacoes ? p.observacoes + ' ' : '') + `[desativada: ${motivo.trim()}]`).slice(0, 2000), atualizado_em: new Date().toISOString() })
-        .eq('id', p.id)
+      // RD-98 p4: a PT é documento de segurança — a desativação grava quem/quando/motivo e um registro
+      // em audit_log_global via RPC (soft-delete rastreável), nunca um UPDATE solto pelo cliente.
+      const { data, error } = await supabase.rpc('fn_ehs_pt_desativar', { p_id: p.id, p_motivo: motivo.trim() })
       if (error) throw error
+      if (data && data.ok === false) { alert(data.erro || 'Não foi possível desativar a permissão.'); return }
       carregar()
     } catch (e: any) {
-      alert(e?.message || 'Falha ao desativar')
+      console.error('fn_ehs_pt_desativar', e)
+      alert('Não foi possível desativar a permissão de trabalho. Tente novamente.')
     }
   }
 
@@ -335,22 +339,24 @@ function PTFormModal({ companyId, pt, onClose, onSaved }: { companyId: string; p
         const { error } = await supabase.from('ehs_permissao_trabalho')
           .update({ ...campos, atualizado_em: new Date().toISOString() }).eq('id', ptId)
         if (error) throw error
-        const { error: delErr } = await supabase.from('ehs_pt_medida').delete().eq('pt_id', ptId)
-        if (delErr) throw delErr
       } else {
         const { data, error } = await supabase.from('ehs_permissao_trabalho')
           .insert({ company_id: companyId, ...campos }).select('id').single()
         if (error) throw error
         ptId = data!.id
       }
-      if (linhas.length > 0) {
-        const payload = linhas.map((m, i) => ({ company_id: companyId, pt_id: ptId, ordem: i + 1, descricao: m.descricao, atendido: m.atendido }))
-        const { error: insErr } = await supabase.from('ehs_pt_medida').insert(payload)
-        if (insErr) throw insErr
-      }
+      // RD-98 p4: a coleção de medidas é reescrita por RPC (soft-delete das antigas + insert das novas,
+      // com rastro em audit_log_global) — nunca por DELETE físico de ehs_pt_medida.
+      const { data: medData, error: medErr } = await supabase.rpc('fn_ehs_pt_medidas_salvar', {
+        p_pt_id: ptId,
+        p_medidas: linhas.map((m) => ({ descricao: m.descricao, atendido: m.atendido })),
+      })
+      if (medErr) throw medErr
+      if (medData && medData.ok === false) { setErro(medData.erro || 'Não foi possível salvar as medidas de controle.'); setSalvando(false); return }
       onSaved()
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao salvar a permissão')
+      console.error('salvar permissão de trabalho', e)
+      setErro('Não foi possível salvar a permissão de trabalho. Confira os dados e tente novamente.')
       setSalvando(false)
     }
   }
