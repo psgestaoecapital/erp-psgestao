@@ -71,6 +71,9 @@ DECLARE
   v_emit_cnpj text := '11222333000181';   -- CNPJ fictício da DEMO (homologação)
   v_m1 timestamptz; v_m2 timestamptz; v_m3 timestamptz; v_prev timestamptz;
 BEGIN
+  -- ci-sem-guarda: fn_demo_seed_ge_fiscal — seed da DEMO fixado no id is_demo b0700000-…-0004 por trava dupla
+  -- (p_company = v_bot E companies.is_demo IS TRUE); nunca grava em tenant real e roda por service_role/reset
+  -- (sem auth.uid()), onde fn__guarda_empresa não se aplica. Acesso restrito a service_role (REVOKE no fim).
   IF p_company <> v_bot THEN RETURN jsonb_build_object('ok', false, 'erro', 'so_empresa_demo_ge'); END IF;
   -- trava dupla: a empresa precisa ser de demonstração (nunca roda em tenant real)
   IF NOT EXISTS (SELECT 1 FROM companies WHERE id = v_bot AND is_demo IS TRUE) THEN
@@ -251,3 +254,8 @@ END $function$;
 
 -- Reaplica o seed agora para a DEMO GE já nascer com o Hub Fiscal populado.
 SELECT public.fn_demo_seed_ge_fiscal('b0700000-0000-4000-a000-000000000004');
+
+-- ACL da função SECURITY DEFINER recriada (check_fn_guards regra 1): espelha a ACL viva
+-- (só service_role — seed de sistema; anon/PUBLIC/authenticated revogados).
+REVOKE ALL ON FUNCTION public.fn_demo_seed_ge_fiscal(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_demo_seed_ge_fiscal(uuid) TO service_role;
