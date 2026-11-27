@@ -10,6 +10,7 @@ import { supabaseBrowser } from "@/lib/authFetch";
 import { comPrazo } from "@/lib/comPrazo";
 import { CatalogoTable, type CatalogoColumn } from "@/components/projetos/CatalogoTable";
 import { CatalogoForm, type FormField } from "@/components/projetos/CatalogoForm";
+import { UNIDADES_PROJETOS } from "@/lib/projetos/unidades";
 import { EmptyStateImportar } from "@/components/projetos/EmptyStateImportar";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { CampoMoeda } from "@/components/comum/CampoMoeda";
@@ -66,20 +67,8 @@ interface Categoria {
   nome: string;
 }
 
-const UNIDADES = [
-  { value: "un", label: "un" },
-  { value: "m", label: "m" },
-  { value: "m2", label: "m²" },
-  { value: "m3", label: "m³" },
-  { value: "kg", label: "kg" },
-  { value: "L", label: "L" },
-  { value: "sc", label: "sc" },
-  { value: "cx", label: "cx" },
-  { value: "rl", label: "rl" },
-  { value: "gl", label: "gl" },
-  { value: "h", label: "h" },
-  { value: "dia", label: "dia" },
-];
+// Catálogo universal compartilhado (CEO 26/11) — todos os ramos; antes era uma lista curta local.
+const UNIDADES = UNIDADES_PROJETOS;
 
 function fmtBRL(v: number | null | undefined) {
   if (v === null || v === undefined) return "—";

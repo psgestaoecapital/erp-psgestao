@@ -64,7 +64,9 @@ if (!temFerramentas()) {
     // (c) falha NOVA no @pos após publicar → aciona o Code autor certo (jordana-code) com o spec
     x = rodar(
       [{ n: 1, draft: true, labels: [], autorCode: 'jordana-code' },
-       { n: 2, migration: true, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'success' }],
+       // conteúdo CRÍTICO (ALTER existente): só a migration crítica espera o @pos; após o item A (CEO 25/11) uma migration
+       // aditiva de PR autorizada batela sem esperar — por isso o cenário usa conteúdo crítico.
+       { n: 2, migration: true, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'success', sqlMigration: 'alter table erp_clientes add column z int;\n' }],
       false, 5000, naJanela({ SUPABASE_URL: 'http://sb.local', SUPABASE_SERVICE_ROLE_KEY: 'k', FILA_POS_BASELINE: BASE }),
       { conclusion: 'failure', specs: [NOVO], headPr: 1 })
     const ac = acionamentos(x.curl)
