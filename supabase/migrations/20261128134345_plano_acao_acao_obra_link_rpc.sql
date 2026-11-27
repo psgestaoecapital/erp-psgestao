@@ -260,3 +260,18 @@ SELECT 'plano_acao.f_obra', '/dashboard/hub/plano-acao', 'Plano de Ação 5W2H',
        'Esperar ver ações sem obra ao escolher uma obra — o filtro mostra só as daquela obra.',
        'hub', 62, 1, 'publicado'
 WHERE NOT EXISTS (SELECT 1 FROM public.erp_ajuda_campo WHERE chave = 'plano_acao.f_obra');
+
+-- 8) Guarda de funções (check_fn_guards · segurança): as 4 funções SECURITY DEFINER recriadas
+--    mantêm a ACL VIVA (authenticated + service_role; sem anon). REVOKE de PUBLIC/anon + GRANT explícito,
+--    espelhando o estado atual em produção. Idempotente.
+REVOKE ALL ON FUNCTION public.fn_plano_acao_salvar(uuid, jsonb, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_plano_acao_salvar(uuid, jsonb, uuid) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_plano_acao_listar(uuid, text, uuid, uuid, text, text, boolean, text, uuid, boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_plano_acao_listar(uuid, text, uuid, uuid, text, text, boolean, text, uuid, boolean) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_plano_acao_reuniao_salvar(uuid, jsonb, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_plano_acao_reuniao_salvar(uuid, jsonb, uuid) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_plano_acao_reuniao_listar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_plano_acao_reuniao_listar(uuid) TO authenticated, service_role;
