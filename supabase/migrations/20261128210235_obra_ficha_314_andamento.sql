@@ -131,7 +131,13 @@ VALUES
    'Persiste o andamento na ficha; o estado passa a valer nos painéis e nas listas de obras.',
    'Ajustou o % para 60 e marcou Em andamento → Salvar andamento.',
    'Esquecer de salvar após mudar a situação — a alteração só vale depois de salvar.',
-   'hub_projetos', 25, 1, 'publicado')
+   'hub_projetos', 25, 1, 'publicado'),
+  ('projetos.obra_ficha.reg_tecnicos', '/dashboard/projetos/obras/[id]/ficha', 'Regularização', 'CNO, ART/RRT e responsáveis técnicos',
+   'Esta é a vista só-leitura dos dados de regularização da obra: CNO, ART/RRT e responsáveis técnicos. Para cadastrar ou alterar, use a aba Regularização da obra.',
+   'Reúne, num só lugar da ficha, os registros legais da obra (CNO na Receita, ART/RRT no conselho) e quem responde tecnicamente — base para emitir documentos e comprovar regularidade.',
+   'Obra com CNO emitido e ART do engenheiro responsável vinculada → aparecem listados aqui; o cadastro é feito na Regularização.',
+   'Tentar editar por aqui — este bloco só exibe; a inclusão/alteração é na aba Regularização da obra.',
+   'hub_projetos', 30, 1, 'publicado')
 ON CONFLICT (chave) DO UPDATE SET
   rota = EXCLUDED.rota, grupo = EXCLUDED.grupo, rotulo = EXCLUDED.rotulo,
   o_que_preencher = EXCLUDED.o_que_preencher, para_que_serve = EXCLUDED.para_que_serve,
