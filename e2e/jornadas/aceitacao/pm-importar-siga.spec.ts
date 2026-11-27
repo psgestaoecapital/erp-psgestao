@@ -14,10 +14,10 @@ const dd = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getM
 const recente = dd(new Date(hoje.getTime() - 5 * 86_400_000))
 const antigo = dd(new Date(hoje.getTime() - 200 * 86_400_000))
 const CSV = [
-  'Nº Job,Título do Job,Cliente,Responsável,Status,Prazo,Data de Criação,Tipo de Peça',
-  `24101,Já existe na demo,Café Serra Azul,,Em produção,${recente},${recente},Post feed`,
-  `${NUM},Teste importação SIGA,Café Serra Azul,,Em aprovação,${recente},${recente},Reels`,
-  `${Number(NUM) + 1},Concluído há muito tempo,Café Serra Azul,,Concluído,${antigo},${antigo},Post feed`,
+  'Nº Job,Título do Job,Cliente,Responsável,Status,Prazo,Data de Criação,Tipo de Peça,Fornecedor,Terceiros',
+  `24101,Já existe na demo,Café Serra Azul,,Em produção,${recente},${recente},Post feed,,`,
+  `${NUM},Teste importação SIGA,Café Serra Azul,,Em aprovação,${recente},${recente},Reels,Gráfica Alfa,Freela João`,
+  `${Number(NUM) + 1},Concluído há muito tempo,Café Serra Azul,,Concluído,${antigo},${antigo},Post feed,,`,
 ].join('\n')
 
 test.describe('PM-J — importar jobs do SIGA', () => {
@@ -45,9 +45,12 @@ test.describe('PM-J — importar jobs do SIGA', () => {
     await page.screenshot({ path: 'e2e/diagnostico-host/pm-j-importar-siga-previa.png', fullPage: true })
     await page.getByTestId('siga-importar').click()
     await expect(page.getByTestId('siga-feito')).toContainText('1 job(s) importado(s)', { timeout: 15000 })
-    const [job] = await dbSelect<{ status: string; tags: string[]; cliente_id: string | null }>('agency_jobs', `company_id=eq.${DEMO_PM}&numero=eq.${NUM}&select=status,tags,cliente_id`)
+    const [job] = await dbSelect<{ status: string; tags: string[]; cliente_id: string | null; fornecedor: string | null; terceiros: string | null }>('agency_jobs', `company_id=eq.${DEMO_PM}&numero=eq.${NUM}&select=status,tags,cliente_id,fornecedor,terceiros`)
     expect(job.status).toBe('em_aprovacao')
     expect(job.tags).toContain('siga')
     expect(job.cliente_id, 'cliente achado no cadastro').toBeTruthy()
+    // PM-Q (PDCA 27/11): fornecedor e terceiros da planilha migram para o job.
+    expect(job.fornecedor, 'fornecedor importado').toBe('Gráfica Alfa')
+    expect(job.terceiros, 'terceiros importados').toBe('Freela João')
   })
 })

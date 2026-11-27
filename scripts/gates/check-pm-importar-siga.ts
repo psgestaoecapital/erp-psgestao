@@ -7,9 +7,11 @@ import { adivinharMapa, dataSiga, ehCsv, numeroSiga, selecionar, situacaoSiga, t
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (c) console.log('✓', m); else { falhas++; console.error('✗', m) } }
 
-const cab = ['Nº Job', 'Título do Job', 'Cliente', 'Responsável', 'Status', 'Prazo', 'Data de Criação', 'Tipo de Peça', 'Descrição']
+const cab = ['Nº Job', 'Título do Job', 'Cliente', 'Responsável', 'Status', 'Prazo', 'Data de Criação', 'Tipo de Peça', 'Descrição', 'Fornecedor', 'Terceiros']
 const mapa = adivinharMapa(cab)
 ok(mapa.numero === 0 && mapa.titulo === 1 && mapa.cliente === 2 && mapa.responsavel === 3 && mapa.situacao === 4 && mapa.prazo === 5 && mapa.criacao === 6 && mapa.peca === 7 && mapa.briefing === 8, 'reconhece os cabeçalhos comuns do SIGA')
+// PM-Q (PDCA 27/11): fornecedor e terceiros também são reconhecidos e mapeados.
+ok(mapa.fornecedor === 9 && mapa.terceiros === 10, 'reconhece as colunas de fornecedor e terceiros')
 ok(situacaoSiga('Em Aprovação') === 'em_aprovacao' && situacaoSiga('Finalizado') === 'concluida' && situacaoSiga('Aguardando cliente') === 'aguardando'
   && situacaoSiga('Em andamento') === 'em_producao' && situacaoSiga('Cancelado') === 'cancelado' && situacaoSiga('Publicado') === 'publicado' && situacaoSiga('') === 'nao_iniciada', 'situação do SIGA → situação da Pauta')
 ok(dataSiga('05/10/2026') === '2026-10-05' && dataSiga('2026-10-05') === '2026-10-05' && dataSiga(46300) !== null && dataSiga('05/10/26') === '2026-10-05' && dataSiga('abc') === null, 'datas dd/mm/aaaa, ISO, Excel e dd/mm/aa')
@@ -54,6 +56,25 @@ ok(m['1003'] === 'fora_da_janela' && m['1004'] === 'em_aprovacao_antigo' && m['1
   ok(rT.entra.length === 2 && rT.entra[0].titulo === 'Post carrossel' && rT.entra[1].titulo === '05/10/2026',
     'selecionar limpa a data do título e mantém o original quando o título é só a data')
 }
+
+// PM-Q (PDCA 27/11): selecionar carrega fornecedor e terceiros para o job importado (migram, não se perdem).
+{
+  const mapaF = { numero: 0, titulo: 1, situacao: 2, criacao: 3, fornecedor: 4, terceiros: 5 }
+  const rF = selecionar([
+    ['3001', 'Post', 'Em produção', '2026-09-30', 'Gráfica Alfa', 'Freela João'],
+    ['3002', 'Reels', 'Em produção', '2026-09-30', '', ''],
+  ], mapaF, hoje)
+  ok(rF.entra.length === 2 && rF.entra[0].fornecedor === 'Gráfica Alfa' && rF.entra[0].terceiros === 'Freela João'
+    && rF.entra[1].fornecedor === null && rF.entra[1].terceiros === null,
+    'selecionar carrega fornecedor/terceiros (vazio vira null)')
+}
+
+// PM-Q (PDCA 27/11): a migration aditiva cria as colunas e o INSERT grava fornecedor/terceiros no job.
+const migFT = readFileSync('supabase/migrations/20261128190445_pm_importar_jobs_fornecedor_terceiros.sql', 'utf8')
+ok(/ADD COLUMN IF NOT EXISTS fornecedor text/.test(migFT) && /ADD COLUMN IF NOT EXISTS terceiros\s+text/.test(migFT), 'migration cria as colunas fornecedor e terceiros (aditiva)')
+ok(/NULLIF\(btrim\(l->>'fornecedor'\), ''\)/.test(migFT) && /NULLIF\(btrim\(l->>'terceiros'\), ''\)/.test(migFT), 'o INSERT grava fornecedor e terceiros no job')
+ok(/REVOKE ALL ON FUNCTION public\.fn_pm_importar_jobs_siga\(uuid, jsonb, boolean\) FROM PUBLIC, anon;/.test(migFT), 'função continua fechada a anônimo após o CREATE OR REPLACE')
+ok(!/\b(DROP\s+(TABLE|COLUMN|FUNCTION)|TRUNCATE|DELETE\s+FROM)\b/i.test(migFT.split('\n').filter((ln) => !ln.trim().startsWith('--')).join('\n')), 'migration aditiva: nada apagado/truncado')
 
 const mig = readFileSync('supabase/migrations/20261002270000_pm_importar_jobs_siga.sql', 'utf8')
 ok(/PERFORM public\.fn__guarda_empresa\(p_company_id\);/.test(mig) && /fn_acessos_pode_gerir\(p_company_id\)/.test(mig), 'só gestor da empresa importa')
