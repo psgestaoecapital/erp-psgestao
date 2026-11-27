@@ -79,6 +79,10 @@ AS $function$
   WHERE (auth.role() = 'service_role' OR public.fn_eh_ps_admin());
 $function$;
 
+-- Mesmos grants de hoje (authenticated + service_role; anon/PUBLIC sem acesso).
+REVOKE ALL ON FUNCTION public.fn_dev_vertical_auditoria_status(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_dev_vertical_auditoria_status(text) TO authenticated, service_role;
+
 -- RD-95: "?" dos campos novos do "Gerenciar verticais" (texto novo, nenhuma linha existente alterada).
 INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem)
 VALUES
