@@ -43,10 +43,18 @@ interface Props {
   bom: BomLinha[];
   onChange: () => void | Promise<void>;
   // Para a calculadora de coeficiente (consumo por unidade): dados do serviço + config da empresa.
-  produtividade?: number | null; // produtividade_unidade_dia
+  produtividade?: number | null; // produtividade_unidade_dia (legado, equipe/dia)
   equipePadrao?: string | null;
   unidadeServico?: string | null; // unidade da produtividade (ex.: m²)
   diasUteisMes?: number | null; // config da empresa (padrão 22)
+  // Mão de obra por pessoa (CEO 26/11): parâmetros do serviço p/ a conversão automática.
+  produtividadePessoa?: number | null;
+  produtividadeBase?: "hora" | "dia" | null;
+  equipePessoas?: number | null;
+  jornadaHorasDia?: number | null;
+  // CEO 26/11: ao confirmar o card de produtividade, a página grava esses valores no serviço
+  // (projetos_servicos) para pré-preencher na próxima vez (fonte única).
+  onProdutividadeServico?: (v: { produtividade_pessoa: number | null; produtividade_base: "hora" | "dia"; equipe_pessoas: number | null; jornada_horas_dia: number | null }) => void | Promise<void>;
 }
 
 const METODO_LABEL: Record<string, string> = {
@@ -99,7 +107,7 @@ function parseNumero(s: string): number | null {
   return parseNumBR(s);
 }
 
-export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, equipePadrao, unidadeServico, diasUteisMes }: Props) {
+export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, equipePadrao, unidadeServico, diasUteisMes, produtividadePessoa, produtividadeBase, equipePessoas, jornadaHorasDia, onProdutividadeServico }: Props) {
   const [seletorOpen, setSeletorOpen] = useState(false);
   const [salvandoLinha, setSalvandoLinha] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -120,6 +128,15 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
         .eq("id", linha.id);
       if (error) throw error;
       await supabase.rpc("fn_projetos_atualizar_cache_bom", { p_servico_id: servicoId });
+      // CEO 26/11: grava os inputs no serviço p/ o card pré-preencher na próxima vez (fonte única).
+      if (onProdutividadeServico) {
+        await onProdutividadeServico({
+          produtividade_pessoa: r.produtividade_pessoa,
+          produtividade_base: r.produtividade_base,
+          equipe_pessoas: r.equipe_pessoas,
+          jornada_horas_dia: r.jornada_horas_dia,
+        });
+      }
       await onChange();
     } catch (e: any) {
       setErro(erroAmigavel(e, "Falha ao aplicar a produtividade"));
@@ -235,6 +252,19 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
         payload.produto_id = item.produto_id; // material/equipamento/EPI do estoque real (erp_produtos)
       } else {
         payload.insumo_id = item.item_id; // legado m16_insumos (itens antigos)
+      }
+      // Guarda bom_uma_referencia (chamado #11035 · RD-98): o CHECK exige UMA referência não vazia.
+      // Item sem id válido (manual sem nome, MO/insumo com id vazio) geraria 23514 cru ("algum valor
+      // está fora do permitido"). Barramos antes com mensagem clara em vez do erro de banco.
+      const ehRef = (v: unknown) => typeof v === "string" && v.trim() !== "";
+      const nRefs =
+        (ehRef(payload.item_nome_manual) ? 1 : 0) +
+        (ehRef(payload.mao_obra_id) ? 1 : 0) +
+        (ehRef(payload.produto_id) ? 1 : 0) +
+        (ehRef(payload.insumo_id) ? 1 : 0);
+      if (nRefs !== 1) {
+        setErro("Não consegui identificar o item selecionado. Escolha o item novamente.");
+        return;
       }
       const { error } = await supabase.from("projetos_servicos_bom").insert(payload);
       if (error) throw error;
@@ -479,7 +509,10 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
           onClose={() => setProdLinha(null)}
           itemNome={prodLinha.item_nome || "mão de obra"}
           unidadeServico={unidadeServico ?? null}
-          produtividade={produtividade ?? null}
+          produtividadePessoa={produtividadePessoa ?? null}
+          produtividadeBase={produtividadeBase ?? null}
+          equipePessoas={equipePessoas ?? null}
+          jornada={jornadaHorasDia ?? 8}
           onConfirm={(r) => salvarProd(prodLinha, r)}
         />
       )}

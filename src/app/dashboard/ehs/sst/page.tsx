@@ -6,9 +6,10 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import { Layers, RefreshCw, Download, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Layers, RefreshCw, Download, AlertTriangle, CheckCircle2, Calculator, ChevronRight } from 'lucide-react'
 import LtcatFuncoes from '@/components/compliance/LtcatFuncoes'
 
 const C = {
@@ -63,13 +64,14 @@ export default function ComplianceSstPage() {
   }
 
   if (loading) return <Wrap><div style={{ color: C.gray, padding: 40 }}>Carregando…</div></Wrap>
-  if (!companyId) return <Wrap><Header /><Vazio titulo="Selecione uma empresa" texto="O cadastro de setores é por empresa. Escolha uma empresa específica no topo (não Consolidado/Grupo)." /></Wrap>
+  if (!companyId) return <Wrap><Header /><FapRatCard /><Vazio titulo="Selecione uma empresa" texto="O cadastro de setores é por empresa. Escolha uma empresa específica no topo (não Consolidado/Grupo)." /></Wrap>
 
   const novos = cands.filter(c => !c.ja_existe)
 
   return (
     <Wrap>
       <Header />
+      <FapRatCard />
 
       <div style={{ display: 'flex', gap: 10, background: C.blueBg, border: `1px solid ${C.blue}33`, borderRadius: 12, padding: 12, marginBottom: 14 }}>
         <Layers size={18} style={{ color: C.blue, flexShrink: 0, marginTop: 1 }} />
@@ -131,6 +133,25 @@ export default function ComplianceSstPage() {
         O sistema organiza a informação do LTCAT por setor e função — <b>o laudo é assinado por engenheiro ou médico do trabalho</b>.
       </div>
     </Wrap>
+  )
+}
+
+// Atalho de descoberta: o Simulador FAP/RAT é uma calculadora própria (standalone) e só era alcançável
+// pela URL. Este card dá acesso a partir do SST (RD-98: tela precisa estar no alcance do usuário).
+function FapRatCard() {
+  return (
+    <Link href="/dashboard/ehs/sst/fap-rat" style={{ textDecoration: 'none' }} aria-label="Abrir o Simulador FAP/RAT">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fff', border: `1px solid ${C.borderLt}`, borderRadius: 12, padding: '14px 16px', marginBottom: 14, cursor: 'pointer' }}>
+        <div style={{ width: 40, height: 40, borderRadius: 10, background: C.beigeLt, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Calculator size={20} style={{ color: C.gold }} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.espresso }}>Simulador FAP/RAT</div>
+          <div style={{ fontSize: 12.5, color: C.gray, lineHeight: 1.45 }}>Calcule o RAT efetivo (RAT × FAP) e a economia na folha, por grau de risco — contribuição previdenciária.</div>
+        </div>
+        <ChevronRight size={18} style={{ color: C.gray, flexShrink: 0 }} />
+      </div>
+    </Link>
   )
 }
 

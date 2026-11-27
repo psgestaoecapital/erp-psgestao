@@ -109,7 +109,7 @@ export default function PainelProjetos() {
         const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }, { count: orcParados, error: eorc }, { count: revPend, error: erev }, { count: compromissos, error: eag }, { count: compromissosAtrasados, error: eag2 }, { count: obrasAtrasadas, error: eobr }, { data: obrasAvanco }] = await Promise.all([
           supabase.from("v_projetos_resumo_empresa").select("contas_pagar_abertas,contas_receber_abertas").eq("company_id", companyId).maybeSingle(),
           supabase.rpc("fn_obras_kpis", { p_company_ids: [companyId] }),
-          supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("status", ["rascunho", "enviado"]),
+          supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("status", ["rascunho", "enviado"]).is("deleted_at", null),
           supabase.from("v_obra_resultado").select("obra_id,numero,nome,status,receita_prevista,custo_previsto,receita_servico,receita_material,margem_realizada").eq("company_id", companyId).eq("status", "em_andamento"),
           supabase.from("erp_crm_oportunidade").select("etapa,valor_estimado").eq("company_id", companyId).is("deleted_at", null),
           supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "enviado").is("deleted_at", null).lt("updated_at", seteDiasAtras),
@@ -268,7 +268,7 @@ export default function PainelProjetos() {
             valor={!resumo ? "…" : resumo.margem_prevista_pct === null ? "—" : `${fmtPct(resumo.margem_prevista_pct)}`}
             href="/dashboard/projetos/obras/resultado?area=hub"
           />
-          <KpiPrincipal label="Propostas pendentes" chave="projetos.painel.kpi.propostas_pendentes" valor={resumo ? String(resumo.propostas_pendentes) : "…"} href="/dashboard/projetos/propostas" />
+          <KpiPrincipal label="Propostas pendentes" chave="projetos.painel.kpi.propostas_pendentes" valor={resumo ? String(resumo.propostas_pendentes) : "…"} href="/dashboard/projetos/propostas?status=pendente" />
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -338,7 +338,7 @@ export default function PainelProjetos() {
             valor={resumo ? resumo.orcamentos_parados : null}
             texto={(n) => n === 1 ? "proposta enviada há mais de 7 dias sem resposta" : "propostas enviadas há mais de 7 dias sem resposta"}
             vazioTexto="Nenhuma proposta enviada esperando resposta há mais de 7 dias."
-            href="/dashboard/projetos/propostas"
+            href="/dashboard/projetos/propostas?status=parado"
           />
         </div>
       </section>

@@ -1,12 +1,9 @@
-'use client'
+// Plano de Ação 5W2H — Indústria. 5W2H duplicado (ajuste do Eng. Chefe 25/11): a Indústria tinha DUAS entradas
+// pro mesmo motor (erp_plano_acao + fn_plano_acao_*): esta (/dashboard/industrial/plano-acao) e a compartilhada
+// (/dashboard/_compartilhado/plano-acao). Fica só a compartilhada. Esta rota redireciona pra lá (RD-30: nada
+// apagado — a tela não foi removida, virou redirect; o catálogo industrial_plano_acao fica ativo=false na migration).
+import { redirect } from 'next/navigation'
 
-// Plano de Ação 5W2H — Indústria. A tela é o componente compartilhado PlanoAcaoView
-// (src/components/plano-acao/PlanoAcaoView.tsx), reusado também pela rota do Hub
-// (/dashboard/hub/plano-acao). Mesmo motor (erp_plano_acao + reuniões, fn_plano_acao_*):
-// nenhuma rota/tabela/RPC renomeada; a Indústria continua idêntica.
-
-import PlanoAcaoView from '@/components/plano-acao/PlanoAcaoView'
-
-export default function PlanoAcaoIndustriaPage() {
-  return <PlanoAcaoView />
+export default function PlanoAcaoIndustriaRedirect() {
+  redirect('/dashboard/_compartilhado/plano-acao')
 }
