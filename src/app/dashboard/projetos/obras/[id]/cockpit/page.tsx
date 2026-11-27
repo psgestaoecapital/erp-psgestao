@@ -29,6 +29,8 @@ type Resultado = {
 }
 // Contexto da obra (avanço físico, prazo, cliente) — vem de projetos_obras, não da view de resultado financeiro.
 type ObraInfo = { pct_conclusao: number | null; data_inicio: string | null; data_prevista_fim: string | null; cliente_nome: string | null; cidade: string | null; area_construida_m2: number | null }
+// Ação 5W2H aberta ligada a esta obra (erp_plano_acao.obra_id). Leitura por fn_obra_plano_acao_abertas; não trava a tela.
+type AcaoObra = { id: string; codigo: string | null; titulo: string; quando: string | null; responsavel_nome: string | null; status: string; prioridade: string | null; atrasada: boolean }
 type Linha = { k: string; ajuda: string; l: string; v: number }
 type Card = { k: string; ajuda: string; l: string; v: string; sub: string; cor?: string; bar?: number | null; linhas?: Linha[] }
 
@@ -46,11 +48,13 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   // Breakdown financeiro do cockpit (§329 cbde929d): orçado × contratado × pago × pendente, lido por fn_obra_cockpit_orcamento
   // (guarda por empresa). Falha aqui não trava a tela — o bloco cai nos estados vazios.
   const [orc, setOrc] = useState<{ orcado: number; contratado: number; pago: number; pendente: number } | null>(null)
+  // Ações 5W2H abertas ligadas a esta obra (§112b6b3a): leitura por fn_obra_plano_acao_abertas. Falha aqui não trava a tela.
+  const [acoes, setAcoes] = useState<AcaoObra[] | null>(null)
 
   const consulta = useCallback(async () => await supabase.from('v_obra_resultado_alocado').select('*').eq('obra_id', id).maybeSingle(), [id])
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); setCodigoErro('OBRA-LINK'); return }
-    setLoading(true); setErro(null); setCodigoErro(null); setOrc(null)
+    setLoading(true); setErro(null); setCodigoErro(null); setOrc(null); setAcoes(null)
     let res: Awaited<ReturnType<typeof consulta>>
     try { res = await comPrazo(consulta, { ms: 8000, tentativas: 1, label: 'cockpit-obra' }) } catch { setLoading(false); setErro(MSG_CARREGAMENTO_FALHOU); setCodigoErro('OBRA-REDE'); return }
     const { data, error } = res
@@ -76,6 +80,12 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
       const j = od as { ok?: boolean; orcado?: number; contratado?: number; pago?: number; pendente?: number } | null
       if (j && j.ok) setOrc({ orcado: Number(j.orcado ?? 0), contratado: Number(j.contratado ?? 0), pago: Number(j.pago ?? 0), pendente: Number(j.pendente ?? 0) })
     } catch { /* breakdown é opcional no cockpit */ }
+    // Ações 5W2H abertas desta obra: leitura guardada por empresa. Não trava a tela — o bloco cai no estado vazio.
+    try {
+      const { data: ad } = await supabase.rpc('fn_obra_plano_acao_abertas', { p_obra_id: id })
+      const j = ad as { ok?: boolean; resultados?: AcaoObra[] } | null
+      if (j && j.ok) setAcoes(Array.isArray(j.resultados) ? j.resultados : [])
+    } catch { /* bloco de ações é opcional no cockpit */ }
     // Regularização: conta documentos vencidos / a vencer em 30 dias para virar pendência. Não trava a tela.
     try {
       const { data: licData } = await supabase.rpc('fn_obra_licenca_listar', { p_obra_id: id })
@@ -292,6 +302,31 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
                 {pendencias.length === 0
                   ? <div style={{ fontSize: 12, color: VERDE }}>Nenhuma pendência. Obra em ordem.</div>
                   : <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: ESP }}>{pendencias.map((p) => <li key={p}>{p}</li>)}</ul>}
+              </div>
+              {/* Ações 5W2H abertas desta obra (§112b6b3a): o que ainda está em aberto, com responsável e prazo, sem sair do cockpit. */}
+              <div data-testid="cockpit-acoes-obra" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>Ações abertas desta obra <AjudaCampo chave="projetos.cockpit.acoes_abertas" rota={ROTA} /></div>
+                  <Link href="/dashboard/hub/plano-acao?area=hub" data-testid="link-plano-acao-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>Plano de ação (5W2H) →</Link>
+                </div>
+                {acoes === null
+                  ? <div style={{ fontSize: 12, color: MUT }}>Carregando ações…</div>
+                  : acoes.length === 0
+                    ? <div style={{ fontSize: 12, color: MUT }}>Nenhuma ação aberta ligada a esta obra. Registre o que precisa resolver no <Link href="/dashboard/hub/plano-acao?area=hub" style={{ color: GOLD, fontWeight: 700, textDecoration: 'none' }}>plano de ação (5W2H)</Link> e ligue à obra.</div>
+                    : <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {acoes.map((a: AcaoObra) => (
+                          <li key={a.id} data-testid="cockpit-acao-item" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, borderTop: `0.5px solid ${LINE}`, paddingTop: 8 }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 12.5, color: ESP, fontWeight: 600 }}>{a.codigo ? `${a.codigo} · ` : ''}{a.titulo}</div>
+                              <div style={{ fontSize: 11, color: MUT, marginTop: 2 }}>
+                                {a.responsavel_nome || 'Sem responsável'}
+                                {a.quando ? ` · vence ${new Date(a.quando + 'T00:00:00').toLocaleDateString('pt-BR')}` : ' · sem prazo'}
+                              </div>
+                            </div>
+                            <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, borderRadius: 999, padding: '2px 8px', color: a.atrasada ? VERM : GOLD, background: a.atrasada ? 'rgba(185,28,28,0.10)' : 'rgba(200,148,26,0.12)' }}>{a.atrasada ? 'Atrasada' : (a.status === 'em_andamento' ? 'Em andamento' : 'Aberta')}</span>
+                          </li>
+                        ))}
+                      </ul>}
               </div>
               {/* Ações da obra: contêiner que quebra linha sem cortar (antes eram links soltos com margens inconsistentes que estouravam no mobile) */}
               <nav aria-label="Ações da obra" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px 18px', marginTop: 2 }}>
