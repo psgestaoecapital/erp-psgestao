@@ -8,6 +8,12 @@
 //           (até 1000 pontos por chamada; repetir com begintime = último gpstime enquanto vier 1000)
 
 export const BASE_URL = 'https://api.brasilsatgps.com.br'
+
+/** Endereço da API por empresa (família Protrack: BrasilSat e outras marcas com a mesma Open API). Só https; vazio = padrão. */
+export function baseUrlDe(cfg: unknown): string {
+  const s = String(cfg ?? '').trim().replace(/\/+$/, '')
+  return /^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(s) ? s : BASE_URL
+}
 export const IMEIS_POR_CHAMADA = 100
 export const PLAYBACK_PONTOS_POR_PAGINA = 1000
 
@@ -104,6 +110,28 @@ export function converterDispositivos(record: unknown): Dispositivo[] {
   return out
 }
 
+/** mileage/todaymileage vêm em METROS (Open API); -1 = sem dado → km com 3 casas. */
+export const metrosParaKm = (v: unknown): number | null => {
+  const n = num(v)
+  return n === null || n < 0 ? null : Math.round(n) / 1000
+}
+/** driver vem como objeto {id, name} ({} = sem cartão); aceita texto por compatibilidade. */
+export const motoristaDe = (d: unknown): string | null => {
+  if (d && typeof d === 'object') {
+    const o = d as Record<string, unknown>
+    const s = String(o.name ?? o.id ?? '').trim()
+    return s || null
+  }
+  const s = String(d ?? '').trim()
+  return s && s !== '[object Object]' ? s : null
+}
+/** temperature vem como lista de textos em °C ([] = sem sonda); guarda a 1ª sonda. Nunca vira 0 falso. */
+export const temperaturaDe = (t: unknown): number | null => {
+  const lista = Array.isArray(t) ? t : t === null || t === undefined || t === '' ? [] : [t]
+  for (const x of lista) { const n = num(x); if (n !== null) return n }
+  return null
+}
+
 export type Posicao = {
   imei: string; gps_em: string; servidor_em: string | null; latitude: number; longitude: number
   velocidade_kmh: number | null; curso: number | null; ignicao: boolean | null; odometro: number | null
@@ -123,8 +151,8 @@ export function converterPosicoes(record: unknown): Posicao[] {
     out.push({
       imei, gps_em: gps, servidor_em: unixParaIso(r.servertime), latitude: lat, longitude: lng,
       velocidade_kmh: num(r.speed), curso: num(r.course), ignicao: acc === 1 ? true : acc === 0 ? false : null,
-      odometro: num(r.mileage), km_hoje: num(r.todaymileage), combustivel: num(r.fuel), temperatura: num(r.temperature),
-      motorista: String(r.driver ?? '').trim() || null,
+      odometro: metrosParaKm(r.mileage), km_hoje: metrosParaKm(r.todaymileage), combustivel: num(r.fuel),
+      temperatura: temperaturaDe(r.temperature), motorista: motoristaDe(r.driver),
     })
   }
   return out
