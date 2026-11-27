@@ -253,6 +253,19 @@ export function BomEditor({ servicoId, companyId, bom, onChange, produtividade, 
       } else {
         payload.insumo_id = item.item_id; // legado m16_insumos (itens antigos)
       }
+      // Guarda bom_uma_referencia (chamado #11035 · RD-98): o CHECK exige UMA referência não vazia.
+      // Item sem id válido (manual sem nome, MO/insumo com id vazio) geraria 23514 cru ("algum valor
+      // está fora do permitido"). Barramos antes com mensagem clara em vez do erro de banco.
+      const ehRef = (v: unknown) => typeof v === "string" && v.trim() !== "";
+      const nRefs =
+        (ehRef(payload.item_nome_manual) ? 1 : 0) +
+        (ehRef(payload.mao_obra_id) ? 1 : 0) +
+        (ehRef(payload.produto_id) ? 1 : 0) +
+        (ehRef(payload.insumo_id) ? 1 : 0);
+      if (nRefs !== 1) {
+        setErro("Não consegui identificar o item selecionado. Escolha o item novamente.");
+        return;
+      }
       const { error } = await supabase.from("projetos_servicos_bom").insert(payload);
       if (error) throw error;
       await supabase.rpc("fn_projetos_atualizar_cache_bom", { p_servico_id: servicoId });
