@@ -14,7 +14,7 @@ import { SELECT_CONFIG_EMISSOR, dadosEmissorDaConfig } from '@/lib/fiscal/emisso
 import { municipioInformaIm } from '@/lib/fiscal/municipioInformaIm'
 import { dataBrasil } from '@/lib/fiscal/dataBrasil'
 import { CAMPOS_CADASTRO_TOMADOR, enderecoFiscalDoCliente, escolherCadastroTomador, filtroCadastroTomador, nomeCadastro, type CadastroTomador } from '@/lib/fiscal/tomadorEndereco'
-import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, totaisLiquidosNfse, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
+import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, normalizarCIndOp, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, totaisLiquidosNfse, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -778,6 +778,27 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
                 const ib = reformaIbsCbsDoServico(reformaEmpresa, sv as ServicoIbsCbs)
                 nfseReq.reforma = ib.reforma
                 if (ib.aviso) avisosTributos.push(ib.aviso)
+              }
+              // #bug IBSCBS vazio (seguimento #6379) · na DPS NACIONAL o grupo IBSCBS exige o cIndOp (indicador da
+              // operação) — o CST do IBS/CBS NEM É filho do IBSCBS aqui (≠ item da NF-e). A régua acima (reformaIbsCbsDoServico,
+              // feita para o item da NF-e) exige CST+cClassTrib+cIndOp JUNTOS e devolve undefined quando o serviço não tem
+              // rt_cst → o grupo saía VAZIO e o Ambiente Nacional rejeitava ("IBSCBS Missing child element(s): cIndOp/…").
+              // Então, quando o serviço traz o cIndOp (rt_indicador_operacao), garante o cIndOp (+ cClassTrib/CST quando
+              // houver) no grupo, usando SÓ os campos já mapeados no provider (codigo_indicador_operacao / ibs_cbs_*). NÃO
+              // envia alíquota/valores (o Ambiente Nacional calcula o IBS/CBS — NT da reforma). Sem cIndOp no cadastro do
+              // serviço, segue como antes (o contador completa o serviço; o grupo não sai pela metade inventando dado).
+              {
+                const cIndOpSv = normalizarCIndOp((sv as { rt_indicador_operacao?: string | null }).rt_indicador_operacao)
+                if (cIndOpSv) {
+                  const cClassSv = String((sv as { rt_classificacao_tributaria?: string | null }).rt_classificacao_tributaria ?? '').trim() || nfseReq.reforma?.ibsCbsClassifTrib || null
+                  const cstSv = String((sv as { rt_cst?: string | null }).rt_cst ?? '').trim() || nfseReq.reforma?.ibsCbsCst || reformaEmpresa?.ibsCbsCst || null
+                  nfseReq.reforma = {
+                    ...(nfseReq.reforma ?? {}),
+                    codigoIndicadorOperacao: cIndOpSv,
+                    ...(cClassSv ? { ibsCbsClassifTrib: cClassSv } : {}),
+                    ...(cstSv ? { ibsCbsCst: cstSv } : {}),
+                  }
+                }
               }
             }
           }
