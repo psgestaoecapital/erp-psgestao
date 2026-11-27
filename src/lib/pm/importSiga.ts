@@ -75,6 +75,19 @@ export function dataSiga(v: unknown): string | null {
   return null
 }
 
+// Remove a data embutida no título (PM-Q · regra 00.3: o sistema anterior grava data, rodada e status no título).
+// Tira só tokens em formato de DATA (dia 1–31, mês 1–12) entre parênteses/colchetes ou nas PONTAS do título
+// (ex.: "( 01/12) Post" → "Post"; "05/10/2026 - Campanha" → "Campanha"; "Banner 23/11" → "Banner"). Nunca mexe no
+// miolo nem em números que não são data ("Top 10/10 motivos" e "Peça 99/99" ficam iguais). Idempotente.
+export function tituloSemData(titulo: string): string {
+  const ehData = (d: string, m: string) => { const dd = +d, mm = +m; return dd >= 1 && dd <= 31 && mm >= 1 && mm <= 12 }
+  let t = String(titulo ?? '')
+  t = t.replace(/[([]\s*(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?\s*[)\]]/g, (full, d, m) => (ehData(d, m) ? ' ' : full))
+  t = t.replace(/^\s*(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?\s*[-–—·|:]*\s*/, (full, d, m) => (ehData(d, m) ? '' : full))
+  t = t.replace(/\s*[-–—·|]*\s*(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?\s*$/, (full, d, m) => (ehData(d, m) ? '' : full))
+  return t.replace(/\s+/g, ' ').trim()
+}
+
 // "113223B" → número 113223, rodada 2 (letra = rodada de ajuste).
 export function numeroSiga(v: unknown): { numero: string; rodada: number } | null {
   const t = String(v ?? '').trim().toUpperCase().replace(/\s+/g, '')
@@ -114,7 +127,8 @@ export function selecionar(linhas: unknown[][], mapa: Partial<Record<CampoSiga, 
     if (!recente && !emAberto(situacao)) { fora.push({ linha, numero: num.numero, motivo: 'fora_da_janela' }); return }
     if (vistos.has(num.numero)) { fora.push({ linha, numero: num.numero, motivo: 'repetido_na_planilha' }); return }
     vistos.add(num.numero)
-    entra.push({ linha, numero: num.numero, rodada: num.rodada, titulo: titulo.replace(/\s+/g, ' ').slice(0, 300), cliente: txt(col(r, 'cliente')),
+    const tituloLimpo = (tituloSemData(titulo) || titulo.replace(/\s+/g, ' ').trim()).slice(0, 300)
+    entra.push({ linha, numero: num.numero, rodada: num.rodada, titulo: tituloLimpo, cliente: txt(col(r, 'cliente')),
       responsavel: txt(col(r, 'responsavel')), situacao, situacao_original, prazo, criacao, peca: txt(col(r, 'peca')), briefing: txt(col(r, 'briefing')) })
   })
   return { entra, fora }
