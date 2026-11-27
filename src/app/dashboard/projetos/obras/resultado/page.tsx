@@ -32,6 +32,16 @@ type EscopoResp = {
 }
 type EstadoEscopo = { loading: boolean; erro: string; dados: EscopoResp | null }
 
+// Caixa da obra mês a mês (fn_obra_caixa_mensal): entrada (medições + vendas) × saída (as 5 fontes de custo) ×
+// saldo do mês × saldo acumulado. Onda E Hub (tela 318). Só leitura, escopo por empresa.
+type CaixaMes = {
+  mes: string; mes_ordem: string | null
+  receita_medicao: number; receita_venda: number; entrada: number
+  custo_mao_obra: number; custo_rateio: number; custo_viagens: number; custo_contas_pagar: number; custo_material: number
+  saida: number; saldo_mes: number; saldo_acumulado: number
+}
+type EstadoCaixa = { loading: boolean; erro: string; dados: CaixaMes[] | null }
+
 const n = (v: unknown) => Number(v ?? 0)
 // Receita realizada: medição + material da view; se a view ainda não tem nada, usa o faturado (NFS-e autorizada, fn_obras_receita).
 const receita = (l: Linha) => (n(l.receita_servico) + n(l.receita_material)) || n(l.faturado)
@@ -82,11 +92,29 @@ export default function ResultadoObrasPage() {
   // Drilldown por item de escopo: quais obras estão abertas e o escopo já carregado (lazy, só ao expandir).
   const [aberta, setAberta] = useState<Set<string>>(new Set())
   const [escopo, setEscopo] = useState<Record<string, EstadoEscopo>>({})
+  const [caixa, setCaixa] = useState<Record<string, EstadoCaixa>>({})
+
+  // Caixa mês a mês (lazy, só ao expandir; não bloqueia o escopo se falhar).
+  const carregarCaixa = useCallback(async (obraId: string) => {
+    let jaTem = false
+    setCaixa(prev => {
+      if (prev[obraId]?.dados || prev[obraId]?.loading) { jaTem = true; return prev }
+      return { ...prev, [obraId]: { loading: true, erro: '', dados: null } }
+    })
+    if (jaTem) return
+    try {
+      const r = await supabase.rpc('fn_obra_caixa_mensal', { p_obra_id: obraId })
+      if (r.error) { setCaixa(prev => ({ ...prev, [obraId]: { loading: false, erro: r.error!.message, dados: null } })); return }
+      setCaixa(prev => ({ ...prev, [obraId]: { loading: false, erro: '', dados: (r.data ?? []) as CaixaMes[] } }))
+    } catch { setCaixa(prev => ({ ...prev, [obraId]: { loading: false, erro: MSG_CARREGAMENTO_FALHOU, dados: null } })) }
+  }, [])
 
   const alternarItens = useCallback(async (obraId: string) => {
     const abrindo = !aberta.has(obraId)
     setAberta(prev => { const s = new Set(prev); if (abrindo) s.add(obraId); else s.delete(obraId); return s })
-    if (!abrindo || escopo[obraId]?.dados || escopo[obraId]?.loading) return
+    if (!abrindo) return
+    void carregarCaixa(obraId)
+    if (escopo[obraId]?.dados || escopo[obraId]?.loading) return
     setEscopo(prev => ({ ...prev, [obraId]: { loading: true, erro: '', dados: null } }))
     try {
       const r = await supabase.rpc('fn_obra_escopo', { p_obra_id: obraId })
@@ -94,7 +122,7 @@ export default function ResultadoObrasPage() {
       const dados = (r.data ?? null) as EscopoResp | null
       setEscopo(prev => ({ ...prev, [obraId]: { loading: false, erro: dados && dados.ok === false ? (dados.erro ?? 'sem_acesso') : '', dados } }))
     } catch { setEscopo(prev => ({ ...prev, [obraId]: { loading: false, erro: MSG_CARREGAMENTO_FALHOU, dados: null } })) }
-  }, [aberta, escopo])
+  }, [aberta, escopo, carregarCaixa])
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -245,6 +273,7 @@ export default function ResultadoObrasPage() {
                     margem={margem(l)} prevista={n(l.receita_prevista)} custoPrev={n(l.custo_previsto)} sem={semMedicao(l)} pct={pctPrevisto(l)} sit={situacaoObra(l)}
                     aberto={aberta.has(l.obra_id)} onVerItens={() => alternarItens(l.obra_id)} />
                   {aberta.has(l.obra_id) && <DrilldownEscopo mobile estado={escopo[l.obra_id]} onRecarregar={() => alternarItens(l.obra_id)} />}
+                  {aberta.has(l.obra_id) && <CaixaMensal mobile estado={caixa[l.obra_id]} />}
                 </div>
               ))}
               <CartaoObra destaque titulo="Consolidado" receita={total.receita} custo={total.custo} material={visiveis.reduce((a, l) => a + n(l.custo_material), 0)} viagens={visiveis.reduce((a, l) => a + n(l.custo_viagens), 0)} maoObra={visiveis.reduce((a, l) => a + n(l.custo_mao_obra), 0)} rateio={visiveis.reduce((a, l) => a + n(l.custo_rateio), 0)} contasPagar={visiveis.reduce((a, l) => a + n(l.custo_contas_pagar), 0)}
@@ -287,6 +316,7 @@ export default function ResultadoObrasPage() {
                       <tr data-testid="resultado-itens-linha">
                         <td colSpan={14} style={{ padding: 0, background: '#FBF9F5', borderBottom: `1px solid ${LINE}` }}>
                           <DrilldownEscopo estado={escopo[l.obra_id]} onRecarregar={() => alternarItens(l.obra_id)} />
+                          <CaixaMensal estado={caixa[l.obra_id]} />
                         </td>
                       </tr>
                     )}
@@ -477,6 +507,94 @@ function DrilldownEscopo({ estado, onRecarregar, mobile }: { estado?: EstadoEsco
 }
 
 // Cartão de KPI do resumo consolidado (topo). Rótulo + "?" (RD-95), valor em destaque e um sub opcional (margem % / avanço).
+// Caixa da obra mês a mês (Onda E Hub · tela 318): entrada (medições + vendas) × saída (as 5 fontes de custo) ×
+// saldo do mês × saldo acumulado. O "previsto" (desembolso do cronograma) chega numa fatia seguinte (onda D).
+function CaixaMensal({ estado, mobile }: { estado?: EstadoCaixa; mobile?: boolean }) {
+  const pad = mobile ? '10px 12px' : '10px 16px'
+  const wrap: React.CSSProperties = { padding: pad, borderTop: `1px solid ${LINE}`, background: '#fff' }
+  const titulo = (
+    <div style={{ fontSize: 12.5, fontWeight: 700, color: ESP, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+      Caixa da obra · mês a mês
+      <span style={{ fontWeight: 400, color: MUT, fontSize: 11.5 }}>(realizado — o previsto do cronograma entra em breve)</span>
+    </div>
+  )
+  if (!estado || estado.loading) return <div style={wrap}><div style={{ fontSize: 12.5, color: MUT }}>Carregando o caixa da obra…</div></div>
+  if (estado.erro) return <div style={wrap}>{titulo}<div style={{ fontSize: 12.5, color: VERM }}>Não foi possível carregar o caixa da obra.</div></div>
+  const linhas = estado.dados ?? []
+  if (linhas.length === 0) return (
+    <div style={wrap}>{titulo}
+      <div style={{ fontSize: 12.5, color: MUT }}>Sem movimento financeiro nesta obra ainda. Assim que houver medição aprovada, venda ou custo lançado, o caixa aparece mês a mês aqui.</div>
+    </div>
+  )
+  const hd: React.CSSProperties = { textAlign: 'right', padding: '6px 8px', fontSize: 11.5, color: MUT, fontWeight: 600, whiteSpace: 'nowrap' }
+  const cel: React.CSSProperties = { textAlign: 'right', padding: '6px 8px', fontSize: 12.5, whiteSpace: 'nowrap' }
+  const corSaldo = (v: number) => (n(v) < 0 ? VERM : VERDE)
+  return (
+    <div style={wrap}>
+      {titulo}
+      <HistogramaDesembolso linhas={linhas} mobile={mobile} />
+      <div style={{ overflowX: 'auto', border: `1px solid ${LINE}`, borderRadius: 10 }}>
+        <table data-testid="caixa-mensal-tabela" style={{ width: '100%', minWidth: 460, borderCollapse: 'collapse' }}>
+          <thead><tr style={{ borderBottom: `1px solid ${LINE}`, background: BG }}>
+            <th style={{ ...hd, textAlign: 'left' }}>Mês <AjudaCampo chave="projetos.resultado_obra.caixa_mes" /></th>
+            <th style={hd}>Entrada <AjudaCampo chave="projetos.resultado_obra.caixa_entrada" /></th>
+            <th style={hd}>Saída <AjudaCampo chave="projetos.resultado_obra.caixa_saida" /></th>
+            <th style={hd}>Saldo do mês <AjudaCampo chave="projetos.resultado_obra.caixa_saldo_mes" /></th>
+            <th style={hd}>Saldo acumulado <AjudaCampo chave="projetos.resultado_obra.caixa_saldo_acumulado" /></th>
+          </tr></thead>
+          <tbody>
+            {linhas.map((m, i) => (
+              <tr key={m.mes + i} style={{ borderBottom: i < linhas.length - 1 ? `1px solid ${LINE}` : 'none' }}>
+                <td style={{ ...cel, textAlign: 'left', fontWeight: 600, color: m.mes_ordem ? ESP : MUT }}>{m.mes}</td>
+                <td style={cel}>{fmtR(n(m.entrada))}</td>
+                <td style={cel}>{fmtR(n(m.saida))}</td>
+                <td style={{ ...cel, color: corSaldo(m.saldo_mes), fontWeight: 600 }}>{fmtR(n(m.saldo_mes))}</td>
+                <td style={{ ...cel, color: corSaldo(m.saldo_acumulado), fontWeight: 600 }}>{fmtR(n(m.saldo_acumulado))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// Histograma de desembolso mensal em R$ (Hub · tela 318: "não só em %"). Barra por mês = saída (desembolso) do
+// caixa da obra, lendo a MESMA fonte já carregada (fn_obra_caixa_mensal) — só apresentação, sem dado ou consulta
+// nova. Altura proporcional ao maior mês; o mês de pico fica em destaque. Mobile: rola na horizontal sem quebrar
+// a tela (HB0 correção 9). RD-95: "?" no indicador (chave do "Saída", já existente no banco).
+function HistogramaDesembolso({ linhas, mobile }: { linhas: CaixaMes[]; mobile?: boolean }) {
+  const comSaida = linhas.filter(m => n(m.saida) > 0)
+  if (comSaida.length === 0) return null
+  const max = Math.max(...comSaida.map(m => n(m.saida)))
+  const mesPico = comSaida.reduce((a, m) => (n(m.saida) > n(a.saida) ? m : a), comSaida[0])
+  const altura = mobile ? 72 : 96
+  return (
+    <div data-testid="caixa-histograma" style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: MUT, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+        Desembolso mensal (R$) <AjudaCampo chave="projetos.resultado_obra.caixa_saida" />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, overflowX: 'auto', padding: '6px 4px', border: `1px solid ${LINE}`, borderRadius: 10, background: '#fff' }}>
+        {linhas.map((m, i) => {
+          const v = n(m.saida)
+          const destaque = v > 0 && m.mes === mesPico.mes
+          const h = max > 0 && v > 0 ? Math.max(3, Math.round((v / max) * altura)) : 0
+          return (
+            <div key={m.mes + i} title={`${m.mes}: ${fmtR(v)}`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 34 }}>
+              <div style={{ height: altura, display: 'flex', alignItems: 'flex-end' }}>
+                {h > 0
+                  ? <div style={{ width: 16, height: h, borderRadius: '3px 3px 0 0', background: destaque ? GOLD : `${GOLD}66` }} />
+                  : <div style={{ width: 16, height: 2, borderRadius: 2, background: LINE }} />}
+              </div>
+              <span style={{ fontSize: 9.5, color: MUT, opacity: m.mes_ordem ? 1 : 0.6, whiteSpace: 'nowrap' }}>{m.mes.length > 7 ? m.mes.slice(0, 7) : m.mes}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function Kpi({ rotulo, chave, valor, sub, subCor, destaque }: { rotulo: string; chave: string; valor: string; sub?: string; subCor?: string; destaque?: boolean }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${destaque ? GOLD : LINE}`, borderRadius: 12, padding: '12px 14px' }}>

@@ -244,6 +244,24 @@ export default function BalancoPage() {
             // Balanço fecha. Quando fecha por conta da linha-plug "a apurar (fechamento)" (ajuste_apurar != 0),
             // mostramos o ajuste EXPLÍCITO — o selo nunca esconde que o PL ainda não foi apurado (Capital Social/Reservas).
             Math.abs(bal.ajuste_apurar ?? 0) >= 0.01 ? (
+              // GAP 2 (auditor_pdca_2 26/11, critério e): a linha-plug "a apurar" é absorvida no PL, então `fecha`
+              // é SEMPRE true quando há plug, por maior que ele seja. Quando o plug é MATERIAL (> 5% do Ativo) NÃO
+              // exibimos o selo verde "✓ Balanço fecha": seria uma falsa sensação de balanço conciliado — ele só
+              // "fecha" porque falta informar o Capital Social/Reservas. Plug pequeno (imaterial) mantém o verde.
+              Math.abs(bal.ajuste_apurar ?? 0) > 0.05 * Math.abs(bal.ativo_total) ? (
+                <div style={{ marginTop: 16, padding: '14px 16px', borderRadius: 10, background: '#FFF6E6', border: `1px solid ${AMBER}55` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                    <span style={{ fontWeight: 700, color: AMBER, display: 'inline-flex', alignItems: 'center', gap: 4 }}>⚠️ Fechamento por apurar — falta informar Capital Social / Reservas <AjudaCampo chave="ge.balanco.fechamento" rota={ROTA} /></span>
+                    <span style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: AMBER }}>A apurar: R$ {fmt(bal.ajuste_apurar)}</span>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: ESP, marginTop: 8, lineHeight: 1.5 }}>
+                    O balanço só “fecha” porque o Patrimônio Líquido inclui uma linha de ajuste de <strong>R$ {fmt(bal.ajuste_apurar)}</strong>
+                    {Math.abs(bal.ativo_total) > 0 ? ` (≈ ${Math.round(Math.abs(bal.ajuste_apurar ?? 0) / Math.abs(bal.ativo_total) * 100)}% do Ativo)` : ''}.
+                    Enquanto o <strong>Capital Social</strong> e as <strong>Reservas</strong> não forem informados, o Patrimônio Líquido não está apurado — este <strong>não</strong> é um balanço conciliado.
+                  </div>
+                  <button onClick={() => abrirNovaLinha('pl', 'PATRIMÔNIO LÍQUIDO')} disabled={busy} style={ctaPl}>+ Lançar Capital Social / Reservas</button>
+                </div>
+              ) : (
               <div style={{ marginTop: 16, padding: '14px 16px', borderRadius: 10, background: '#EEF6E3', border: `1px solid ${GREEN}55` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                   <span style={{ fontWeight: 700, color: GREEN, display: 'inline-flex', alignItems: 'center', gap: 4 }}>✓ Balanço fecha (com ajuste a apurar) <AjudaCampo chave="ge.balanco.fechamento" rota={ROTA} /></span>
@@ -255,6 +273,7 @@ export default function BalancoPage() {
                 </div>
                 <button onClick={() => abrirNovaLinha('pl', 'PATRIMÔNIO LÍQUIDO')} disabled={busy} style={ctaPl}>+ Lançar Capital Social / Reservas</button>
               </div>
+              )
             ) : (
               <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 10, background: '#E8F4DC', border: `1px solid ${GREEN}55`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontWeight: 700, color: GREEN, display: 'inline-flex', alignItems: 'center', gap: 4 }}>✓ Balanço fecha <AjudaCampo chave="ge.balanco.fechamento" rota={ROTA} /></span>
