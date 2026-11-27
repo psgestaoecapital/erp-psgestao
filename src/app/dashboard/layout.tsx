@@ -6,6 +6,7 @@ import RecoveryGuard from '@/components/layout/RecoveryGuard'
 import ConsentGuard from '@/components/layout/ConsentGuard'
 import DashboardMain from '@/components/layout/DashboardMain'
 import RouteAccessGuard from '@/components/layout/RouteAccessGuard'
+import SyncEmpresaUrl from '@/components/layout/SyncEmpresaUrl'
 import { SelectedCompanyProvider } from '@/contexts/SelectedCompanyContext'
 import { AuthProvider } from '@/lib/AuthProvider'
 import AjudaWidget from '@/components/ajuda/AjudaWidget'
@@ -20,6 +21,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <SelectedCompanyProvider>
       {/* Tema por usuário (CEO 10/10): aplica a cor de destaque + claro/escuro da preferência do usuário */}
       <ThemeApplier />
+      {/* Deep-link ?company=<id> troca a empresa ativa para a empresa do link (CEO 25/11). */}
+      <Suspense fallback={null}><SyncEmpresaUrl /></Suspense>
       <Suspense fallback={null}><AreaRedirectGuard /></Suspense>
       <Suspense fallback={null}><RecoveryGuard /></Suspense>
       {/* GATE LGPD (P0): restaura a chamada que sumiu no #126. Redireciona pra ROTA /aceite

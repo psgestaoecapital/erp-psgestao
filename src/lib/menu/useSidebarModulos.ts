@@ -276,13 +276,14 @@ export function useSidebarModulos(): State {
   const [ramoOficina, setRamoOficina] = useState<Ramo | null>(null)
   useEffect(() => {
     let alive = true
-    if (!companyId) { setRamoOficina(null); return }
+    // só roda em rota da Oficina (o ramo só renomeia itens do menu da oficina); fora dela, não chama a RPC.
+    if (!companyId || !pathname.startsWith('/dashboard/oficina')) { setRamoOficina(null); return }
     void supabase.rpc('fn_oficina_ramo', { p_company_id: companyId }).then(({ data }) => {
       if (!alive) return
       setRamoOficina(typeof data === 'string' && RAMOS.includes(data as Ramo) ? (data as Ramo) : null)
     })
     return () => { alive = false }
-  }, [companyId])
+  }, [companyId, pathname])
 
   // surfacing-admin-owner · e CLIENT_OWNER ativo e NAO PS_ADMIN? (mesma regra do
   // checkAuth de /dashboard/admin: scoped = isOwner && !isSystemAdmin). Se sim,

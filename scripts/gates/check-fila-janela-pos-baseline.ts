@@ -61,7 +61,11 @@ if (!temFerramentas()) {
     // Modelo CEO 21/10: a VIA RÁPIDA (Mundo 1) não consulta mais o @pos — a janela da linha-de-base governa só a VIA
     // REVISADA (Mundo 2). Por isso as migrations destes cenários são revisadas (etiqueta + autorização + aceitação verde),
     // que é o que faz a PR chegar ao estado_main onde o @pos é avaliado.
-    const mig = { n: 1, migration: true as const, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'success' as const }
+    // Conteúdo CRÍTICO por si (ALTER em tabela existente): a janela da linha-de-base governa a serialização do @pos, que
+    // só vale para migration CRÍTICA. Após o item A (CEO 25/11), uma migration ADITIVA (o `select 1;` padrão) de PR
+    // autorizada é rebaixada p/ aditiva e não espera o @pos — por isso os cenários abaixo usam conteúdo crítico.
+    const MIG_CRIT = 'alter table erp_clientes add column z int;\n'
+    const mig = { n: 1, migration: true as const, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'success' as const, sqlMigration: MIG_CRIT }
     const naJanela = (b: string) => ({ FILA_AGORA_EPOCH: ANTES, FILA_POS_BASELINE: b })
 
     // 1) BASE: @pos vermelho com EXATAMENTE a linha-de-base → migration publica (1/rodada)
@@ -74,7 +78,7 @@ if (!temFerramentas()) {
     ok(merges(x.escritas).join() === '1', '2) SUBCONJUNTO: só parte da linha-de-base falha → migration publica')
 
     // 3) FALHA NOVA: base + um spec fora da base → NÃO publica; comenta na PR do head (headPr=1) e propõe reversão
-    x = rodar([{ n: 1, draft: true, labels: [] }, { n: 2, migration: true, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'success' }],
+    x = rodar([{ n: 1, draft: true, labels: [] }, { n: 2, migration: true, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'success', sqlMigration: MIG_CRIT }],
       false, 5000, naJanela(BASELINE), { conclusion: 'failure', specs: [BASE_A, NOVO], headPr: 1 })
     ok(!merges(x.escritas).includes(2), '3) FALHA NOVA: a PR com migration NÃO publica (bloqueada)')
     ok(comentariosEm(x.escritas, 1).some((l) => /falha NOVA/.test(l) && /revert/i.test(l)),

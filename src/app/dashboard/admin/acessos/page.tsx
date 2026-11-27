@@ -9,6 +9,7 @@ import { Users, Building2, Shield, Factory, Clock, Save, ChevronDown, ChevronRig
 import { textoUltimoEnvio, type UltimoEnvio } from "@/lib/acessos/enviarLink";
 import NovaEmpresaWizard from "./_components/NovaEmpresaWizard";
 import EquipePsSection from "./_components/EquipePsSection";
+import { SeletorPapelReal, nivelSugerido, type PapelRbac } from "./_components/SeletorPapelReal";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 const GO = "var(--ps-gold,#C8941A)", BG = "var(--ps-bg,#FAF7F2)", BG2 = "var(--ps-bg2,#FFFFFF)", BG3 = "var(--ps-bg3,#F0ECE3)",
@@ -58,7 +59,6 @@ type Pessoa = {
 };
 type Contexto = { empresa: Empresa; areas_contratadas: Area[]; plantas: Planta[]; master: Master[]; pessoas: Pessoa[] };
 // F3 (emergência LGPD): função RBAC da empresa = o que a pessoa VÊ no menu (fonte user_scope.papel_slug, a mesma de F1/F2).
-type PapelRbac = { slug: string; nome: string; area: string | null; camada: string; secoes: string[]; itens: string[] };
 type ConvitePendente = { id: string; email: string; created_at: string; expires_at: string | null };
 type Envios = { convites_pendentes: ConvitePendente[]; ultimos_envios: Record<string, UltimoEnvio> };
 
@@ -231,7 +231,7 @@ export default function AcessosCascataPage() {
             </button>
           </div>
           {addOpen && (
-            <AdicionarPessoa areasContratadas={ctx.areas_contratadas} plantas={ctx.plantas} companyId={companyId}
+            <AdicionarPessoa areasContratadas={ctx.areas_contratadas} plantas={ctx.plantas} companyId={companyId} papeisRbac={papeisRbac}
               onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void carregar(companyId); }} />
           )}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -383,7 +383,8 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, papeisRbac,
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
   const [papelSlug, setPapelSlug] = useState(papelAtualSlug ?? "");
-  const [papelBusy, setPapelBusy] = useState(false);
+  const niveisPermitidos = papeisDaEmpresa(areasContratadas).map((r) => r.role);
+  const sugerido = nivelSugerido(papeisRbac.find((r) => r.slug === papelSlug), niveisPermitidos);
 
   async function salvar() {
     setSalvando(true); setMsg(null);
@@ -401,24 +402,24 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, papeisRbac,
       p_observacao: observacao,           // aceita limpar (string vazia)
       p_ativo: ativo,                     // status = users.is_active (acesso ao sistema)
     });
-    setSalvando(false);
     const res = data as { ok?: boolean; erro?: string } | null;
-    if (error || !res?.ok) { setMsg({ ok: false, t: error?.message || res?.erro || "Falha ao salvar" }); return; }
-    setMsg({ ok: true, t: ativoMudou ? `Acesso ${ativo ? "ATIVADO" : "INATIVADO"}.` : nomeMudou ? `Nome ALTERADO para "${nomeTrim}".` : "Salvo." });
+    if (error || !res?.ok) { setSalvando(false); setMsg({ ok: false, t: error?.message || res?.erro || "Falha ao salvar" }); return; }
+    // Papel na empresa (função real): grava user_scope.papel_slug pela RPC com guarda (vertical contratada, sem escalar admin).
+    // Vai DEPOIS do salvar_pessoa, que (re)provisiona o user_scope com o nível; só chama se a função mudou.
+    let tFuncao = "";
+    if (papelSlug !== (papelAtualSlug ?? "")) {
+      const { data: pd, error: pe } = await supabase.rpc("fn_acessos_definir_papel_rbac", {
+        p_company_id: companyId, p_user_id: p.user_id, p_papel_slug: papelSlug || null,
+      });
+      const pr = pd as { ok?: boolean; erro?: string } | null;
+      if (pe || !pr?.ok) { setSalvando(false); setMsg({ ok: false, t: `Dados salvos, mas a função não foi aplicada: ${pe?.message || pr?.erro || "falha"}` }); onSaved(); return; }
+      tFuncao = papelSlug ? ` Função "${papeisRbac.find((r) => r.slug === papelSlug)?.nome ?? papelSlug}" aplicada.` : " Função removida (vê o menu conforme o nível).";
+    }
+    setSalvando(false);
+    setMsg({ ok: true, t: (ativoMudou ? `Acesso ${ativo ? "ATIVADO" : "INATIVADO"}.` : nomeMudou ? `Nome ALTERADO para "${nomeTrim}".` : "Salvo.") + tFuncao });
     onSaved();
   }
   const [acaoBusy, setAcaoBusy] = useState(false);
-  async function aplicarFuncao() {
-    setPapelBusy(true); setMsg(null);
-    const { data, error } = await supabase.rpc("fn_acessos_definir_papel_rbac", {
-      p_company_id: companyId, p_user_id: p.user_id, p_papel_slug: papelSlug || null,
-    });
-    setPapelBusy(false);
-    const res = data as { ok?: boolean; erro?: string } | null;
-    if (error || !res?.ok) { setMsg({ ok: false, t: error?.message || res?.erro || "Falha ao aplicar a função." }); return; }
-    setMsg({ ok: true, t: papelSlug ? "Função aplicada — o menu desta pessoa passa a mostrar só as seções da função." : "Função removida — a pessoa volta a ver o menu conforme o nível." });
-    onSaved();
-  }
   async function definirMaster(makeOwner: boolean) {
     if (!confirm(makeOwner ? `Tornar "${p.nome || p.email}" MASTER da empresa?` : `Remover o papel de master de "${p.nome || p.email}"?`)) return;
     setAcaoBusy(true); setMsg(null);
@@ -468,8 +469,8 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, papeisRbac,
           {ultimo && <div data-testid="ultimo-envio" style={{ fontSize: 11, color: TXM, marginTop: 2 }}>{ultimo}</div>}
         </div>
         <span style={{ fontSize: 10, color: TXD }} title="Nível — o que a pessoa VÊ">👁 {(papeisDaEmpresa(areasContratadas).find((x) => x.role === p.role) ?? PAPEIS.find((x) => x.role === p.role))?.nome || p.role}</span>
-        <span style={{ fontSize: 10, fontWeight: 700, color: p.is_master ? GO : BL }} title="Papel na empresa — o que a pessoa PODE GERIR">🛡 {PAPEL_GESTAO_LBL[p.papel_gestao ?? ""] ?? "Visualizador"}</span>
-        {papelAtualSlug && <span style={{ fontSize: 10, fontWeight: 700, color: GO }} title="Função (papel) — o que a pessoa VÊ no menu">🔒 {papeisRbac.find((r) => r.slug === papelAtualSlug)?.nome ?? papelAtualSlug}</span>}
+        <span style={{ fontSize: 10, fontWeight: 700, color: p.is_master ? GO : BL, display: "inline-flex", alignItems: "center", gap: 3 }} title="Permissão de gestão — o que a pessoa PODE GERIR"><Crown size={11} strokeWidth={1.5} /> {PAPEL_GESTAO_LBL[p.papel_gestao ?? ""] ?? "Visualizador"}</span>
+        {papelAtualSlug && <span data-testid="papel-real-atual" style={{ fontSize: 10, fontWeight: 700, color: GO, display: "inline-flex", alignItems: "center", gap: 3 }} title="Papel na empresa (função real) — o que a pessoa VÊ e faz"><Shield size={11} strokeWidth={1.5} /> {papeisRbac.find((r) => r.slug === papelAtualSlug)?.nome ?? papelAtualSlug}</span>}
         <span style={{ fontSize: 11, fontWeight: 700, color: SIT_COR[p.situacao] ?? TXD }}>{SIT_LBL[p.situacao] ?? p.situacao}</span>
       </button>
 
@@ -523,42 +524,28 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, papeisRbac,
               })}
             </div>
           </Field>
-          {/* Papel */}
-          <Field icon={<Users size={14} color={GO} />} label="Papel (nível de acesso)">
-            <select value={role} onChange={(e) => setRole(e.target.value)}
-              style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: BG, color: TX, fontWeight: 600, maxWidth: 320 }}>
-              {papeisDaEmpresa(areasContratadas).map((r) => <option key={r.role} value={r.role}>{r.nome}</option>)}
-              {!papeisDaEmpresa(areasContratadas).some((r) => r.role === role) && <option value={role}>{role} (atual)</option>}
-            </select>
+          {/* Papel na empresa (função real) — catálogo rbac_papel da vertical contratada, por camada e área.
+              Grava user_scope.papel_slug no Salvar (fn_acessos_definir_papel_rbac). Em branco = o nível manda (RD-97). */}
+          <Field icon={<Shield size={14} color={GO} />} label="Papel na empresa (função real — o que a pessoa VÊ e faz)">
+            <SeletorPapelReal papeis={papeisRbac} value={papelSlug} onChange={setPapelSlug} testId="papel-real"
+              selectStyle={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: BG, color: TX, fontWeight: 600, maxWidth: 360 }} />
           </Field>
-          {/* Função (papel RBAC) — F3 emergência LGPD: decide QUAIS seções/itens do menu a pessoa VÊ e pode abrir
-              (fonte user_scope.papel_slug, a mesma do menu/F1 e do bloqueio de rota/F2). Em branco = RD-97 (nível manda). */}
-          <Field icon={<Shield size={14} color={GO} />} label="Função (papel) — o que a pessoa VÊ no menu">
+          {/* Nível (users.role) — teto de leitura; mantido para quem já tem nível (compatibilidade). */}
+          <Field icon={<Users size={14} color={GO} />} label="Nível de acesso (teto)">
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <AjudaCampo chave="acessos_funcao_papel" rota="/dashboard/admin/acessos" />
-              <select value={papelSlug} onChange={(e) => setPapelSlug(e.target.value)}
+              <select value={role} onChange={(e) => setRole(e.target.value)}
                 style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: BG, color: TX, fontWeight: 600, maxWidth: 320 }}>
-                <option value="">Sem função (vê o menu conforme o nível)</option>
-                {papeisRbac.map((r) => <option key={r.slug} value={r.slug}>{r.nome}</option>)}
-                {papelSlug && !papeisRbac.some((r) => r.slug === papelSlug) && <option value={papelSlug}>{papelSlug} (atual)</option>}
+                {papeisDaEmpresa(areasContratadas).map((r) => <option key={r.role} value={r.role}>{r.nome}</option>)}
+                {!papeisDaEmpresa(areasContratadas).some((r) => r.role === role) && <option value={role}>{role} (atual)</option>}
               </select>
-              <button type="button" disabled={papelBusy || papelSlug === (papelAtualSlug ?? "")} onClick={() => void aplicarFuncao()}
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, background: BG2, color: TX, border: `1px solid ${GO}`, borderRadius: 8, padding: "8px 14px", fontWeight: 700,
-                  cursor: (papelBusy || papelSlug === (papelAtualSlug ?? "")) ? "default" : "pointer", opacity: (papelBusy || papelSlug === (papelAtualSlug ?? "")) ? 0.6 : 1 }}>
-                <Shield size={14} color={GO} /> {papelBusy ? "Aplicando…" : "Aplicar função"}
-              </button>
+              <AjudaCampo chave="acessos.nivel" rota="/dashboard/admin/acessos" />
+              {sugerido && sugerido !== role && (
+                <button type="button" onClick={() => setRole(sugerido)}
+                  style={{ background: "none", border: `1px dashed ${GO}`, borderRadius: 8, padding: "6px 10px", color: TXM, fontSize: 12, cursor: "pointer" }}>
+                  Usar o nível coerente com a função: <strong>{papeisDaEmpresa(areasContratadas).find((r) => r.role === sugerido)?.nome ?? sugerido}</strong>
+                </button>
+              )}
             </div>
-            {(() => {
-              const sel = papeisRbac.find((r) => r.slug === papelSlug);
-              if (!sel) return <div style={{ fontSize: 11.5, color: TXD, marginTop: 6 }}>Em branco: sem restrição por função — a pessoa vê o menu conforme o nível (RD-97).</div>;
-              return (
-                <div style={{ fontSize: 11.5, color: TXM, marginTop: 6, lineHeight: 1.5 }}>
-                  <div><strong>Esta função vê:</strong> {sel.secoes.length ? sel.secoes.join(" · ") : "só o Início"}</div>
-                  {sel.itens.length > 0 && <div><strong>Itens liberados:</strong> {sel.itens.join(" · ")}</div>}
-                  <div style={{ color: TXD }}>Abrir por URL uma tela fora da função mostra “Acesso restrito à sua função”.</div>
-                </div>
-              );
-            })()}
           </Field>
           {/* Plantas */}
           {plantas.length > 0 && (
@@ -649,13 +636,22 @@ const PAPEIS_GESTAO: { v: string; l: string }[] = [
 
 // GAP 1 · incluir pessoa nova (genérico p/ qualquer empresa/áreas). Vincula direto se o e-mail já
 // existe; senão gera convite por link. Backend: fn_acessos_convidar_pessoa (guards no servidor).
-function AdicionarPessoa({ areasContratadas, plantas, companyId, onClose, onSaved }: {
-  areasContratadas: Area[]; plantas: Planta[]; companyId: string; onClose: () => void; onSaved: () => void;
+function AdicionarPessoa({ areasContratadas, plantas, companyId, papeisRbac, onClose, onSaved }: {
+  areasContratadas: Area[]; plantas: Planta[]; companyId: string; papeisRbac: PapelRbac[]; onClose: () => void; onSaved: () => void;
 }) {
   const [email, setEmail] = useState("");
   const [nome, setNome] = useState("");
   const [role, setRole] = useState("viewer");
   const [papel, setPapel] = useState("CLIENT_VIEWER");
+  const [papelSlug, setPapelSlug] = useState("");
+  const [nivelTocado, setNivelTocado] = useState(false);
+  // Ao escolher a função real, o nível acompanha a camada (coerência), enquanto a pessoa não mexer no nível à mão.
+  function escolherFuncao(slug: string) {
+    setPapelSlug(slug);
+    if (nivelTocado) return;
+    const sug = nivelSugerido(papeisRbac.find((r) => r.slug === slug), papeisDaEmpresa(areasContratadas).map((r) => r.role));
+    setRole(sug ?? "viewer");
+  }
   const [areas, setAreas] = useState<Set<string>>(new Set(areasContratadas.map((a) => a.slug)));
   const [plantasSel, setPlantasSel] = useState<Set<string>>(new Set());
   const [dias, setDias] = useState<Set<number>>(new Set());
@@ -682,15 +678,23 @@ function AdicionarPessoa({ areasContratadas, plantas, companyId, onClose, onSave
     const res = data as { ok?: boolean; erro?: string; acao?: string; link?: string; email_enviado?: boolean } | null;
     if (error || !res?.ok) { setMsg({ ok: false, t: error?.message || res?.erro || "Falha ao adicionar." }); return; }
     if (res.acao === "vinculado") {
-      setMsg({ ok: true, t: "Pessoa vinculada — já tem login e agora acessa esta empresa." });
+      // Pessoa já tem login: aplica a função real agora (user_scope.papel_slug, RPC com guarda).
+      const uid = (res as { user_id?: string }).user_id;
+      if (papelSlug && uid) {
+        const { data: pd, error: pe } = await supabase.rpc("fn_acessos_definir_papel_rbac", { p_company_id: companyId, p_user_id: uid, p_papel_slug: papelSlug });
+        const pr = pd as { ok?: boolean; erro?: string } | null;
+        if (pe || !pr?.ok) { setMsg({ ok: false, t: `Pessoa vinculada, mas a função não foi aplicada: ${pe?.message || pr?.erro || "falha"}. Abra a pessoa na lista e salve a função.` }); onSaved(); return; }
+      }
+      setMsg({ ok: true, t: "Pessoa vinculada — já tem login e agora acessa esta empresa." + (papelSlug ? " Função aplicada." : "") });
       onSaved();
     } else {
       // 🅲 · email + link (os dois). Se o provedor de email ainda não está no Vault, o email
       // não sai — mas o link fica visível pra enviar manualmente (nunca deixa a pessoa na mão).
       const full = origin + (res.link || "");
-      setMsg({ ok: true, t: res.email_enviado
+      const avisoFuncao = papelSlug ? " A função escolhida é aplicada quando a pessoa aceitar: abra-a na lista e salve." : "";
+      setMsg({ ok: true, t: (res.email_enviado
         ? `Convite criado e email enviado para ${email}. O link também está aqui pra copiar.`
-        : "Convite criado. O email ainda não sai (provedor não configurado no Vault) — copie o link e envie." });
+        : "Convite criado. O email ainda não sai (provedor não configurado no Vault) — copie o link e envie.") + avisoFuncao });
       setLink(full);
     }
   }
@@ -708,16 +712,26 @@ function AdicionarPessoa({ areasContratadas, plantas, companyId, onClose, onSave
           <input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome da pessoa" style={{ ...inp, minWidth: 200 }} />
         </Field>
       </div>
+      <Field icon={<Shield size={14} color={GO} />} label="Papel na empresa (função real — o que a pessoa VÊ e faz)">
+        <SeletorPapelReal papeis={papeisRbac} value={papelSlug} onChange={escolherFuncao} testId="novo-papel-real"
+          selectStyle={{ ...inp, fontWeight: 600, minWidth: 260, maxWidth: 380 }} />
+      </Field>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <Field icon={<Users size={14} color={GO} />} label="Nível de acesso (o que VÊ)">
-          <select value={role} onChange={(e) => setRole(e.target.value)} style={{ ...inp, fontWeight: 600, minWidth: 220 }}>
-            {papeisDaEmpresa(areasContratadas).map((r) => <option key={r.role} value={r.role}>{r.nome}</option>)}
-          </select>
+        <Field icon={<Users size={14} color={GO} />} label="Nível de acesso (teto)">
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <select value={role} onChange={(e) => { setRole(e.target.value); setNivelTocado(true); }} style={{ ...inp, fontWeight: 600, minWidth: 220 }}>
+              {papeisDaEmpresa(areasContratadas).map((r) => <option key={r.role} value={r.role}>{r.nome}</option>)}
+            </select>
+            <AjudaCampo chave="acessos.nivel" rota="/dashboard/admin/acessos" />
+          </div>
         </Field>
-        <Field icon={<Crown size={14} color={GO} />} label="Papel na empresa (o que PODE GERIR)">
-          <select value={papel} onChange={(e) => setPapel(e.target.value)} style={{ ...inp, fontWeight: 600, minWidth: 220 }}>
-            {PAPEIS_GESTAO.map((r) => <option key={r.v} value={r.v}>{r.l}</option>)}
-          </select>
+        <Field icon={<Crown size={14} color={GO} />} label="Permissão de gestão (o que PODE GERIR)">
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <select value={papel} onChange={(e) => setPapel(e.target.value)} style={{ ...inp, fontWeight: 600, minWidth: 220 }}>
+              {PAPEIS_GESTAO.map((r) => <option key={r.v} value={r.v}>{r.l}</option>)}
+            </select>
+            <AjudaCampo chave="acessos.papel_gestao" rota="/dashboard/admin/acessos" />
+          </div>
         </Field>
       </div>
       <Field icon={<Shield size={14} color={GO} />} label="Áreas liberadas (dentro do que a empresa contratou)">

@@ -26,7 +26,7 @@ type EventoSicredi = {
   evento?: string; tipoMovimento?: string; tipo?: string
   nossoNumero?: string | number
   dataMovimento?: string; dataLiquidacao?: string; dataPagamento?: string
-  valor?: number | string; valorLiquidado?: number | string
+  valor?: number | string; valorLiquidado?: number | string; valorPago?: number | string
 }
 
 export async function POST(req: NextRequest) {
@@ -53,7 +53,9 @@ export async function POST(req: NextRequest) {
       if (!rec?.company_id) { resultados.push({ nossoNumero, erro: 'recebivel_nao_encontrado' }); continue }
 
       const dataPgto = (ev.dataLiquidacao ?? ev.dataPagamento ?? ev.dataMovimento ?? new Date().toISOString().slice(0, 10)).slice(0, 10)
-      const valorRaw = ev.valorLiquidado ?? ev.valor
+      // Regra única (CEO 25/11): o VALOR LIQUIDADO pelo banco (com juros/encargos). A diferença p/ o título vira juros e
+      // valor_pago = valor liquidado. Ausente → null: a função baixa pelo título e marca "conferir juros na conciliação".
+      const valorRaw = ev.valorLiquidado ?? ev.valorPago ?? ev.valor
       const valor = valorRaw != null ? Number(valorRaw) : null
 
       const { data: liq } = await supabaseAdmin.rpc('fn_boleto_liquidar', {

@@ -174,18 +174,24 @@ export default function ServicoForm({ companyId, servico, clonarDe = null, onClo
   }, [codigoNbs, codigoLc116])
 
   // RT · alíquotas IBS/CBS vêm da tabela de parâmetro por ano (não hardcoded).
-  const [paramRT, setParamRT] = useState<{ ano: number; cbs: number; ibsUf: number; ibsMun: number } | null>(null)
+  const [paramRT, setParamRT] = useState<{ ano: number; anoBase: number; cbs: number; ibsUf: number; ibsMun: number; defasado: boolean; aConfirmar: boolean } | null>(null)
   useEffect(() => {
     let alive = true
     void (async () => {
       const ano = new Date().getFullYear()
-      const { data } = await supabase.rpc('fn_reforma_parametro_ano', { p_ano: ano })
+      // fn_reforma_parametro_ano_detalhe devolve, além da alíquota, o ano_base usado e as flags defasado/a_confirmar
+      // (RD-104): assim a tela não trata como autoritativa uma alíquota de outro período ou ainda provisória.
+      const { data } = await supabase.rpc('fn_reforma_parametro_ano_detalhe', { p_ano: ano })
       const row = (Array.isArray(data) ? data[0] : data) as
-        | { ano: number; cbs_pct: number; ibs_uf_pct: number; ibs_mun_pct: number } | undefined
+        | { ano_pedido: number; ano_base: number; cbs_pct: number; ibs_uf_pct: number; ibs_mun_pct: number; defasado: boolean; a_confirmar: boolean } | undefined
       if (!alive || !row) return
-      setParamRT({ ano: row.ano, cbs: Number(row.cbs_pct), ibsUf: Number(row.ibs_uf_pct), ibsMun: Number(row.ibs_mun_pct) })
-      // Em modo CRIAR, prefill os campos ainda zerados com o parâmetro do ano.
-      if (!servico) {
+      const defasado = !!row.defasado
+      const aConfirmar = !!row.a_confirmar
+      setParamRT({ ano: row.ano_pedido, anoBase: row.ano_base, cbs: Number(row.cbs_pct), ibsUf: Number(row.ibs_uf_pct), ibsMun: Number(row.ibs_mun_pct), defasado, aConfirmar })
+      // Em modo CRIAR, SÓ prefila quando o parâmetro é do próprio ano E definitivo (não defasado e não provisório).
+      // Se for de ano anterior ou "a confirmar", NÃO prefila: o usuário preenche conscientemente (RD-104 a/c) —
+      // evita gravar no serviço (e na NFS-e) a alíquota de teste/outro período como se fosse a vigente.
+      if (!servico && !defasado && !aConfirmar) {
         setRtIbsE((p) => (num(p) === 0 ? String(row.ibs_uf_pct) : p))
         setRtIbsM((p) => (num(p) === 0 ? String(row.ibs_mun_pct) : p))
         setRtCbs((p) => (num(p) === 0 ? String(row.cbs_pct) : p))
@@ -463,7 +469,17 @@ export default function ServicoForm({ companyId, servico, clonarDe = null, onClo
                 <p className="text-[11px] text-[#3D2314]/70 bg-[#C8941A]/8 rounded-lg px-3 py-2">
                   <b>Classificação tributária</b> e <b>indicador de operação</b> preenchem automático a partir do
                   <b> NBS</b> (correlação LC116×NBS). NBS ambíguo fica manual. O <b>CST</b> não vem da correlação — preencha à mão.
-                  {paramRT && <> As alíquotas abaixo vêm do parâmetro <b>{paramRT.ano}</b> (CBS {paramRT.cbs}% · IBS UF {paramRT.ibsUf}% · Mun {paramRT.ibsMun}%), editável.</>}
+                  {paramRT && !paramRT.defasado && !paramRT.aConfirmar && <> As alíquotas abaixo vêm do parâmetro <b>{paramRT.anoBase}</b> (CBS {paramRT.cbs}% · IBS UF {paramRT.ibsUf}% · Mun {paramRT.ibsMun}%), editável.</>}
+                </p>
+              )}
+              {!isSimples && paramRT && (paramRT.defasado || paramRT.aConfirmar) && (
+                <p className="text-[11px] text-[#A32D2D] bg-[#A32D2D]/8 rounded-lg px-3 py-2 flex items-start gap-1.5">
+                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                  <span>
+                    <b>Alíquota da Reforma ainda não parametrizada para {paramRT.ano}</b> — {paramRT.defasado
+                      ? <>o único parâmetro cadastrado é de <b>{paramRT.anoBase}</b> (de ano anterior)</>
+                      : <>o parâmetro de <b>{paramRT.anoBase}</b> é provisório/estimativa</>}. Os campos CBS/IBS <b>não foram preenchidos automaticamente</b>: confira a norma vigente (EC 132/LC 214) e preencha à mão antes de emitir a NFS-e.
+                  </span>
                 </p>
               )}
               <fieldset disabled={isSimples} className={isSimples ? 'opacity-50' : ''}>

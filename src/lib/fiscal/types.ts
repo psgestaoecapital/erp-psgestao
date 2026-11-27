@@ -57,6 +57,9 @@ export interface NFSeRequest {
     razaoSocial: string
     inscricaoMunicipal?: string
     codigoMunicipio?: string
+    // #9726 · false quando o município emissor (erp_gov_nfse_municipios.informa_im) NÃO deve receber a IM do
+    // prestador na DPS (ex.: Guarujá do Sul 4206603 → E0120). Ausente/true = manda a IM (comportamento atual).
+    informaInscricaoMunicipal?: boolean
   }
   tomador: {
     cnpj?: string
@@ -173,6 +176,9 @@ export interface NFeRequest {
   serie: string
   naturezaOperacao: string
   finalidade: 'normal' | 'complementar' | 'ajuste' | 'devolucao'
+  // #9787 · tpNF: 1 = saída (padrão: venda) · 0 = entrada (nota própria de entrada da revenda — compra PF/PJ, troca).
+  // Ausente = 1 (comportamento atual). Mapeado para `tipo_documento` no payload Focus.
+  tipoOperacao?: 0 | 1
   emitente: {
     cnpj: string
     razaoSocial: string
@@ -219,6 +225,13 @@ export interface NFeRequest {
     outrasDespesas?: number
     desconto?: number
     modalidadeFrete?: number   // 0 CIF · 1 FOB · 2 por conta de terceiros · 3/4 próprio · 9 sem frete
+  }
+  // #5722 · grupo de transporte (opcional). modalidadeFrete fica em totais (modFrete). Aqui o transportador,
+  // o veículo e os volumes — só vão à NF-e quando informados (sem preencher = comportamento atual).
+  transporte?: {
+    transportador?: { nome?: string; cnpj?: string; cpf?: string; inscricaoEstadual?: string; endereco?: string; municipio?: string; uf?: string }
+    veiculo?: { placa?: string; uf?: string; rntc?: string }
+    volumes?: Array<{ quantidade?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; marca?: string; numero?: string }>
   }
 }
 

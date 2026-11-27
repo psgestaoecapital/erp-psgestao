@@ -7,10 +7,13 @@
 // (src/lib/produtos/fiscalMassa.ts — RD-26) e o CRUD do backend (fn_padrao_fiscal_ncm_* — fatia 1).
 // RD-95: "?" em todo campo/ação/lista. RD-98: incluir, editar e excluir visíveis.
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { X, Loader2, Plus, Pencil, Trash2, Check } from 'lucide-react'
+import { X, Loader2, Plus, Pencil, Trash2, Check, ListChecks } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CAMPOS_FISCAIS, type CampoFiscal, ehSimples, opcoesDoCampo, rotuloCampo } from '@/lib/produtos/fiscalMassa'
+import { emAndamento, mensagemDoErro, type LoteFiscal } from '@/lib/produtos/fiscalMassaLotes'
+import { useLoteFiscal } from './useLoteFiscal'
+import ProgressoLoteFiscal from './ProgressoLoteFiscal'
 
 const ROTA = '/dashboard/cadastros/produtos'
 
@@ -44,6 +47,11 @@ export default function PadraoFiscalNcmModal({ companyId, onClose, onSalvo }: Pr
   const [ncm, setNcm] = useState('')
   const [valores, setValores] = useState<Valores>(VAZIO)
   const [observacao, setObservacao] = useState('')
+  const [aviso, setAviso] = useState<string | null>(null)
+  const [aplicandoNcm, setAplicandoNcm] = useState<string | null>(null)
+  // aplicação do padrão aos produtos JÁ cadastrados (chamado #11065): em lotes, mesma barra da Edição fiscal em massa
+  const lote = useLoteFiscal(companyId, () => { onSalvo?.() })
+  const emLote = emAndamento(lote.job)
 
   const simples = ehSimples(regime)
 
@@ -119,6 +127,42 @@ export default function PadraoFiscalNcmModal({ companyId, onClose, onSalvo }: Pr
     return partes.length ? partes.join(' · ') : 'sem campo definido'
   }
 
+  // Aplica o padrão deste NCM aos produtos já cadastrados: só os que não têm padrão mais específico e só o campo vazio.
+  async function aplicarExistentes(p: Padrao) {
+    if (emLote || aplicandoNcm) return
+    setErro(null); setAviso(null); setAplicandoNcm(p.ncm)
+    try {
+      const valoresPadrao = Object.fromEntries(CAMPOS_FISCAIS.map((c) => [c, p[c]]).filter(([, v]) => v)) as Record<string, string>
+      const filtro = { padrao_ncm: p.ncm }
+      const obs = `padrão fiscal NCM ${p.ncm}`
+      const { data: pv, error: e1 } = await supabase.rpc('fn_produtos_fiscal_massa', {
+        p_company_id: companyId, p_filtro: filtro, p_valores: valoresPadrao, p_sobrescrever: false, p_aplicar: false, p_observacao: obs,
+      })
+      if (e1) { setErro(mensagemDoErro(e1)); return }
+      const previa = pv as { ok: boolean; mensagem?: string; erro?: string; produtos_no_filtro?: number; produtos_mudam?: number }
+      if (!previa.ok) { setErro(previa.mensagem ?? previa.erro ?? 'Não foi possível'); return }
+      if (!previa.produtos_mudam) {
+        setAviso(`Nada a preencher: os ${(previa.produtos_no_filtro ?? 0).toLocaleString('pt-BR')} produto(s) do NCM ${p.ncm} já têm esses campos (ou têm um padrão mais específico).`)
+        return
+      }
+      if (!window.confirm(`Preencher ${previa.produtos_mudam.toLocaleString('pt-BR')} produto(s) já cadastrados do NCM ${p.ncm} com este padrão? Só o campo vazio é preenchido; o antes/depois fica registrado.`)) return
+      const { data, error } = await supabase.rpc('fn_produtos_fiscal_job_criar', {
+        p_company_id: companyId, p_filtro: filtro, p_valores: valoresPadrao, p_sobrescrever: false, p_observacao: obs,
+      })
+      if (error) { setErro(mensagemDoErro(error)); return }
+      const r = data as { ok: boolean; mensagem?: string; erro?: string; job_id?: string }
+      if (!r.ok) { setErro(r.mensagem ?? r.erro ?? 'Não foi possível'); return }
+      if (!r.job_id) { setAviso(r.mensagem ?? 'Nada a alterar.'); return }
+      const { data: est } = await supabase.rpc('fn_produtos_fiscal_job_obter', { p_company_id: companyId, p_job_id: r.job_id })
+      const job = (est as { job: LoteFiscal | null } | null)?.job
+      if (job) lote.iniciar(job)
+    } catch (e) {
+      setErro(mensagemDoErro(e))
+    } finally {
+      setAplicandoNcm(null)
+    }
+  }
+
   return (
     <div onClick={onClose} className="fixed inset-0 z-50 bg-[#3D2314]/50 flex items-start justify-center px-4 py-10 overflow-y-auto">
       <div onClick={(e) => e.stopPropagation()} data-testid="padrao-fiscal-ncm-modal" className="bg-[#FAF7F2] rounded-xl w-full max-w-3xl shadow-2xl">
@@ -132,7 +176,7 @@ export default function PadraoFiscalNcmModal({ companyId, onClose, onSalvo }: Pr
             Cadastre uma vez a tributação de cada <b>NCM</b>: quando um produto desse NCM for criado pela entrada da nota,
             o sistema já preenche <b>{rotuloCampo('cst_icms', simples)}</b>, <b>CST do PIS/COFINS</b>, <b>Tipo do item (SPED)</b> e
             o <b>CFOP de venda</b>. O NCM pode ser o início (ex.: <b>8708</b>, todas as autopeças) ou completo; vale o <b>mais específico</b>.
-            Produtos já cadastrados não mudam — para eles use a <b>Edição fiscal em massa</b>.
+            Produtos já cadastrados só mudam se você pedir: use <b>Aplicar aos já cadastrados</b> em cada padrão (só preenche o campo vazio, em lotes) ou a <b>Edição fiscal em massa</b>.
             {regime && <> Regime: <b>{regime}</b> → ICMS em <b>{simples ? 'CSOSN (3 dígitos)' : 'CST (2 dígitos)'}</b>.</>}
           </p>
 
@@ -178,6 +222,12 @@ export default function PadraoFiscalNcmModal({ companyId, onClose, onSalvo }: Pr
             </div>
           </section>
 
+          {lote.job && (
+            <ProgressoLoteFiscal job={lote.job} rodando={lote.rodando} erro={lote.erro} onCancelar={lote.cancelar}
+              onContinuar={lote.continuar} onDispensar={lote.dispensar} />
+          )}
+          {aviso && <div data-testid="pf-aviso" className="px-3 py-2 rounded bg-[#EAF3E6] text-[#2F5A1F] text-[12.5px] border border-[#B9D3AC]">{aviso}</div>}
+
           {/* lista */}
           <section data-testid="pf-lista" className="rounded-lg border border-[#3D2314]/10 bg-white p-4">
             <div className="text-[12px] font-semibold mb-2 flex items-center gap-1">
@@ -199,6 +249,12 @@ export default function PadraoFiscalNcmModal({ companyId, onClose, onSalvo }: Pr
                       {p.observacao && <div className="text-[11px] text-[#3D2314]/50 italic">{p.observacao}</div>}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
+                      <button type="button" onClick={() => aplicarExistentes(p)} disabled={emLote || aplicandoNcm !== null} data-testid="pf-aplicar-existentes"
+                        title="Aplicar aos produtos já cadastrados deste NCM"
+                        className="px-2 py-1.5 rounded border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] disabled:opacity-40 text-[11.5px] flex items-center gap-1">
+                        {aplicandoNcm === p.ncm ? <Loader2 size={13} className="animate-spin" /> : <ListChecks size={13} />} Aplicar aos já cadastrados
+                      </button>
+                      <AjudaCampo chave="cadastros.produtos.padrao_fiscal.aplicar_existentes" rota={ROTA} />
                       <button type="button" onClick={() => editar(p)} aria-label={`Editar ${p.ncm}`} data-testid="pf-editar"
                         className="p-1.5 rounded border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#F0E9DF]"><Pencil size={13} /></button>
                       <button type="button" onClick={() => excluir(p)} aria-label={`Excluir ${p.ncm}`} data-testid="pf-excluir"

@@ -29,6 +29,7 @@ interface Maturidade {
   contas: number
   clientes: number
   lancamentos: number
+  extrato_lancamentos?: number
   eh_madura: boolean
   pct_maturidade: number
 }
@@ -67,7 +68,7 @@ export default function DashboardRico({ companyId, companyName, userName }: Prop
               { id: 'criar_conta', titulo: 'Cadastre sua primeira conta bancária', descricao: 'Para acompanhar saldos e movimentações', link: '/dashboard/cadastros/contas-bancarias', ehConcluido: maturidade.contas >= 1 },
               { id: 'cadastrar_clientes', titulo: 'Cadastre seus primeiros 3 clientes', descricao: 'Para emitir cobranças', link: '/dashboard/cadastros/clientes', ehConcluido: maturidade.clientes >= 3 },
               { id: 'primeiro_lancamento', titulo: 'Lance sua primeira despesa ou receita', descricao: 'Para começar a controlar o caixa', link: '/dashboard/financeiro/nova-despesa', ehConcluido: maturidade.lancamentos >= 1 },
-              { id: 'importar_extrato', titulo: 'Importe extrato bancário OFX', descricao: 'Para conciliar movimentações automaticamente', link: '/dashboard/financeiro/conciliacao', ehConcluido: maturidade.lancamentos >= 10 },
+              { id: 'importar_extrato', titulo: 'Importe extrato bancário OFX', descricao: 'Para conciliar movimentações automaticamente', link: '/dashboard/financeiro/conciliacao', ehConcluido: (maturidade.extrato_lancamentos ?? 0) >= 1 },
             ]}
             onMaduro={() => setMaturidade((m) => m ? { ...m, eh_madura: true } : m)}
           />

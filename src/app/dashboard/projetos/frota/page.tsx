@@ -209,9 +209,9 @@ export default function FrotaPage() {
               </span>
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-              <div><span style={{ color: TXM }}>Km atual</span><div className="font-semibold">{num(v.km_atual)}</div></div>
-              <div><span style={{ color: TXM }}>Consumo</span><div className="font-semibold">{kmL(v.consumo_km_l)}</div></div>
-              <div><span style={{ color: TXM }}>Custo/km</span><div className="font-semibold">{v.custo_por_km != null ? moeda(v.custo_por_km) : "—"}</div></div>
+              <div><span style={{ color: TXM }} className="inline-flex items-center">Km atual<AjudaCampo chave="projetos.frota.km_atual" rota={ROTA} /></span><div className="font-semibold">{num(v.km_atual)}</div></div>
+              <div><span style={{ color: TXM }} className="inline-flex items-center">Consumo<AjudaCampo chave="projetos.frota.consumo" rota={ROTA} /></span><div className="font-semibold">{kmL(v.consumo_km_l)}</div></div>
+              <div><span style={{ color: TXM }} className="inline-flex items-center">Custo/km<AjudaCampo chave="projetos.frota.custo_km" rota={ROTA} /></span><div className="font-semibold">{v.custo_por_km != null ? moeda(v.custo_por_km) : "—"}</div></div>
             </div>
             <div className="mt-3 space-y-1">
               {v.planos.length === 0 && <div className="text-xs" style={{ color: TXM }}>Sem plano preventivo</div>}
@@ -776,6 +776,9 @@ function AbaManutencoes({ companyId, veiculo }: { companyId: string; veiculo: Ve
   const [lista, setLista] = useState<Registro[]>([]);
   const [erro, setErro] = useState<string | null>(null);
   const [r, setR] = useState({ tipo: veiculo.planos[0]?.tipo ?? "", data: "", km: "", valor: "", fornecedor: "", descricao: "" });
+  // Chamado #11433: na troca de óleo o controle precisa ser mais detalhado (motor, câmbio, diferencial + o tipo de cada um).
+  const [oleo, setOleo] = useState({ motor: "", cambio: "", diferencial: "" });
+  const ehTrocaOleo = /óleo|oleo/i.test(r.tipo);
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [enviando, setEnviando] = useState(false);
 
@@ -791,9 +794,19 @@ function AbaManutencoes({ companyId, veiculo }: { companyId: string; veiculo: Ve
     setErro(null); setEnviando(true);
     try {
       const anexo = arquivo ? await enviarAnexo(companyId, `frota/${veiculo.id}`, arquivo) : null;
-      const { error } = await supabase.rpc("fn_hub_frota_manutencao_registrar", { p_veiculo_id: veiculo.id, p_dados: { ...r, valor: decimal(r.valor), anexo_path: anexo } });
+      // Na troca de óleo, os detalhes guiados entram na própria descrição do registro (sem coluna/RPC nova).
+      const detalhesOleo = ehTrocaOleo
+        ? [
+            oleo.motor.trim() && `Óleo do motor: ${oleo.motor.trim()}`,
+            oleo.cambio.trim() && `Óleo da caixa/câmbio: ${oleo.cambio.trim()}`,
+            oleo.diferencial.trim() && `Óleo do diferencial: ${oleo.diferencial.trim()}`,
+          ].filter(Boolean).join(" · ")
+        : "";
+      const descricaoFinal = [r.descricao.trim(), detalhesOleo].filter(Boolean).join(" · ");
+      const { error } = await supabase.rpc("fn_hub_frota_manutencao_registrar", { p_veiculo_id: veiculo.id, p_dados: { ...r, descricao: descricaoFinal, valor: decimal(r.valor), anexo_path: anexo } });
       if (error) { setErro(erroAmigavel(error)); return; }
       setR({ ...r, data: "", km: "", valor: "", fornecedor: "", descricao: "" });
+      setOleo({ motor: "", cambio: "", diferencial: "" });
       setArquivo(null);
       void carregar();
     } catch (e) {
@@ -826,6 +839,17 @@ function AbaManutencoes({ companyId, veiculo }: { companyId: string; veiculo: Ve
             <input aria-label="Anexo da manutenção" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" className="text-xs" onChange={(e) => setArquivo(e.target.files?.[0] ?? null)} />
           </Campo>
         </div>
+        {ehTrocaOleo && (
+          <div className="mt-3 rounded-lg border p-3" style={{ borderColor: BD, background: BG }}>
+            <div className="mb-2 text-xs font-semibold" style={{ color: ESP }}>Detalhes da troca de óleo (opcional)</div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <Campo rotulo="Óleo do motor"><AjudaCampo chave="projetos.frota.oleo_motor" rota={ROTA} /><input aria-label="Óleo do motor" className={inp} placeholder="Ex.: 15W40 mineral" value={oleo.motor} onChange={(e) => setOleo({ ...oleo, motor: e.target.value })} /></Campo>
+              <Campo rotulo="Óleo da caixa/câmbio"><AjudaCampo chave="projetos.frota.oleo_cambio" rota={ROTA} /><input aria-label="Óleo da caixa ou câmbio" className={inp} placeholder="Ex.: 75W90" value={oleo.cambio} onChange={(e) => setOleo({ ...oleo, cambio: e.target.value })} /></Campo>
+              <Campo rotulo="Óleo do diferencial"><AjudaCampo chave="projetos.frota.oleo_diferencial" rota={ROTA} /><input aria-label="Óleo do diferencial" className={inp} placeholder="Ex.: 90" value={oleo.diferencial} onChange={(e) => setOleo({ ...oleo, diferencial: e.target.value })} /></Campo>
+            </div>
+            <div className="mt-1 text-[11px]" style={{ color: TXM }}>Os detalhes preenchidos entram na descrição do registro.</div>
+          </div>
+        )}
         {erro && <div role="alert" className="mt-2 text-xs text-red-700">{erro}</div>}
         <button onClick={registrar} disabled={enviando} className="mt-3 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" style={{ background: ESP }}>{enviando ? "Salvando…" : "Registrar"}</button>
       </div>

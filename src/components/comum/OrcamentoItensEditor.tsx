@@ -276,6 +276,7 @@ export default function OrcamentoItensEditor({ companyId, itens, onChange }: Pro
                   onSelect={(p) => selecionarProduto(i, p)}
                   onClear={() => limparProduto(i)}
                   testId={`orc-produto-${i}`}
+                  contexto="venda"
                 />
               ) : null}
               {/* #OS-163 / #9667 · Tipo de item SPED abaixo do nome (letra menor) — quente (00) x frio (99). Leitura só. */}
