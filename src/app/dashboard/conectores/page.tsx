@@ -4,6 +4,9 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { authFetch } from '@/lib/authFetch'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { ConectorAtakAgente } from '@/components/conectores/ConectorAtakAgente'
+import { Truck } from 'lucide-react'
 
 // FIX-TEMA-PS (07/07 · CEO): tela estava dark (fundos #0C0C0A / #1A1410) —
 // destoava da identidade PS. Paleta reescrita pro padrao Espresso/off-white/
@@ -47,7 +50,9 @@ const CONNECTORS = [
   { id: 'sap', nome: 'SAP Business One', cat: 'erp_enterprise', status: 'planejado', cor: '#0070F2', campos: [] },
   { id: 'senior', nome: 'Senior Sistemas', cat: 'erp_enterprise', status: 'planejado', cor: '#7C3AED', campos: [] },
   { id: 'sankhya', nome: 'Sankhya', cat: 'erp_enterprise', status: 'planejado', cor: '#059669', campos: [] },
-  { id: 'atak', nome: 'Atak / Frigosoft', cat: 'erp_industrial', status: 'em_breve', cor: '#B91C1C', campos: [{ k: 'atak_api_url', l: 'URL Servidor', p: 'https://servidor-atak' }] },
+  // Parte D (painel único): o card abre o FLUXO DETALHADO do Agente (host/porta/banco/filial/domínios/token/
+  // instalador — ConectorAtakAgente), não um campo simples de URL. Status "Conectado" = conexão ativa + heartbeat recente.
+  { id: 'atak', nome: 'Atak / Frigosoft', cat: 'erp_industrial', status: 'ativo', cor: '#B91C1C', campos: [], agenteDetalhado: true },
   { id: 'arpa', nome: 'Arpa Control', cat: 'erp_industrial', status: 'em_breve', cor: '#92400E', campos: [{ k: 'arpa_pg_host', l: 'Host PostgreSQL', p: '192.168.x.x' }] },
   { id: 'paripassu', nome: 'PariPassu', cat: 'erp_industrial', status: 'planejado', cor: '#15803D', campos: [] },
   { id: 'bomcontrole', nome: 'Bom Controle', cat: 'erp_industrial', status: 'planejado', cor: '#F97316', campos: [] },
@@ -61,7 +66,10 @@ const CONNECTORS = [
   { id: 'engeman', nome: 'Engeman', cat: 'manutencao', status: 'planejado', cor: '#0891B2', campos: [] },
   { id: 'manusis', nome: 'Manusis', cat: 'manutencao', status: 'planejado', cor: '#4338CA', campos: [] },
   { id: 'checklistfacil', nome: 'Checklist Facil', cat: 'manutencao', status: 'planejado', cor: '#059669', campos: [] },
-  { id: 'brasilsat', nome: 'Brasil Sat', cat: 'logistica', status: 'em_breve', cor: '#CA8A04', campos: [{ k: 'brasilsat_api_key', l: 'API Key', p: 'Token Brasil Sat' }] },
+  // Parte D.3 → Parte E: cadastro da credencial da API de rastreamento. Contrato lido pelo sincronizador da frota:
+  // provider 'brasilsat', escopo 'empresa', chaves 'account' e 'senha' (o salvar() corta o prefixo 'brasilsat_'),
+  // as duas no Vault via fn_credencial_salvar. A PS nunca grava a senha fora do Vault.
+  { id: 'brasilsat', nome: 'Brasil Sat', cat: 'logistica', status: 'ativo', cor: '#CA8A04', campos: [{ k: 'brasilsat_account', l: 'Conta', p: 'Conta de acesso à API', ajuda: 'conectores.brasilsat_account' }, { k: 'brasilsat_senha', l: 'Senha', p: 'Senha da conta da API', secret: true, ajuda: 'conectores.brasilsat_senha' }], syncExterno: 'A frota é sincronizada automaticamente pela PS a partir desta credencial e aparece no BI de Logística.' },
   { id: 'sascar', nome: 'Sascar / Michelin', cat: 'logistica', status: 'planejado', cor: '#1D4ED8', campos: [] },
   { id: 'worldsat', nome: 'World Sat', cat: 'logistica', status: 'planejado', cor: '#0E7490', campos: [] },
   { id: 'pluggy', nome: 'Pluggy', cat: 'banco', status: 'em_breve', cor: '#06B6D4', campos: [{ k: 'pluggy_client_id', l: 'Client ID', p: 'Pluggy Client ID' }] },
@@ -89,6 +97,16 @@ const CONECTOR_PROVIDER: Record<string, string> = {
   omie: 'omie',
   contaazul: 'contaazul',
   nibo: 'nibo',
+  brasilsat: 'brasilsat',
+}
+
+// Status do Agente ATAK por LEITURA (Parte D.2): mesmas fontes da rota direta — fn_atak_conexao_listar
+// (atak_conexao_config) e erp_agente_status (heartbeat). Nada é gravado.
+type AtakStatus = { configurado: boolean; ativo: boolean; heartbeat: string | null; agenteStatus: string | null }
+const ATAK_HEARTBEAT_MIN = 30 // 2 ciclos de ~15 min (mesma régua do "online" da rota direta)
+const atakConectado = (a: AtakStatus | null) => {
+  if (!a?.configurado || !a.ativo || !a.heartbeat) return false
+  return (Date.now() - new Date(a.heartbeat).getTime()) / 60000 < ATAK_HEARTBEAT_MIN
 }
 
 // Credencial cadastrada no Vault (Cofre B.9) por provider.
@@ -120,6 +138,17 @@ export default function ConectoresPage() {
   // Chama /api/omie/nfse/importar (#2712): prévia (dry_run) → gravar com retomada paginada.
   const [nfseBusy, setNfseBusy] = useState(false)
   const [nfseResumo, setNfseResumo] = useState('')
+  const [atak, setAtak] = useState<AtakStatus | null>(null)
+
+  const carregarAtak = async (companyId: string) => {
+    const [lst, ag] = await Promise.all([
+      supabase.rpc('fn_atak_conexao_listar', { p_company_id: companyId }),
+      supabase.from('erp_agente_status').select('ultimo_heartbeat,status').eq('company_id', companyId).maybeSingle(),
+    ])
+    const cx = (lst.data as { conexao?: { ativo?: boolean } | null } | null)?.conexao ?? null
+    const a = ag.data as { ultimo_heartbeat: string | null; status: string | null } | null
+    setAtak({ configurado: !!cx, ativo: !!cx?.ativo, heartbeat: a?.ultimo_heartbeat ?? null, agenteStatus: a?.status ?? null })
+  }
 
   // Recarrega empresa (dados brutos + credenciais Vault) sempre que empresaUnica muda
   useEffect(() => {
@@ -127,6 +156,7 @@ export default function ConectoresPage() {
     if (!empresaUnica) { setEmpresa(null); setVaultCreds({}); return }
     let alive = true
     ;(async () => {
+      void carregarAtak(empresaUnica)
       const { data: emp } = await supabase.from('companies').select('*').eq('id', empresaUnica).maybeSingle()
       if (!alive) return
       setEmpresa(emp)
@@ -421,6 +451,19 @@ export default function ConectoresPage() {
   }
 
   const filtered = filtro === 'todos' ? CONNECTORS : CONNECTORS.filter(c => c.cat === filtro)
+  // Parte D.2 — "Conectado" por LEITURA: ATAK = conexão ativa + heartbeat recente; demais = credencial ativa da empresa.
+  type Situacao = { rotulo: string; cor: string; dica: string } | null
+  const situacao = (conId: string): Situacao => {
+    if (conId === 'atak') {
+      if (!atak?.configurado) return null
+      if (atakConectado(atak)) return { rotulo: 'Conectado', cor: C.g, dica: `Agente ativo · último sinal ${new Date(atak.heartbeat as string).toLocaleString('pt-BR')}` }
+      if (!atak.ativo) return { rotulo: 'Conexão inativa', cor: C.txd, dica: 'A conexão está cadastrada mas marcada como inativa.' }
+      return { rotulo: 'Agente sem sinal', cor: C.y, dica: atak.heartbeat ? `Último sinal do agente ${new Date(atak.heartbeat).toLocaleString('pt-BR')}` : 'O agente ainda não reportou.' }
+    }
+    const prov = CONECTOR_PROVIDER[conId]
+    return prov && vaultCreds[prov] ? { rotulo: 'Conectado', cor: C.g, dica: 'Credencial ativa desta empresa guardada no Vault.' } : null
+  }
+  const nConectados = CONNECTORS.filter(c => situacao(c.id)?.rotulo === 'Conectado').length
   const stats = { total: CONNECTORS.length, ativo: CONNECTORS.filter(c => c.status === 'ativo').length, breve: CONNECTORS.filter(c => c.status === 'em_breve').length, plan: CONNECTORS.filter(c => c.status === 'planejado').length }
 
   return (
@@ -430,6 +473,11 @@ export default function ConectoresPage() {
           <div style={{ fontSize: 9, color: C.go, letterSpacing: 2, textTransform: 'uppercase' }}>Hub Universal</div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: C.tx, margin: '2px 0 0' }}>Central de Conectores</h1>
           <div style={{ fontSize: 11, color: C.txd }}>{stats.total} conectores | {stats.ativo} ativo | {stats.breve} em breve | 10 categorias</div>
+          {empresaUnica && (
+            <div style={{ fontSize: 12, color: nConectados ? C.g : C.txm, fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+              ● {nConectados} conectado(s) nesta empresa <AjudaCampo chave="conectores.central_conectado" />
+            </div>
+          )}
         </div>
         <a href="/dashboard" style={{ color: C.go, fontSize: 11, textDecoration: 'none', padding: '5px 10px', border: '1px solid ' + C.bd, borderRadius: 6 }}>Dashboard</a>
       </div>
@@ -489,8 +537,13 @@ export default function ConectoresPage() {
       {empresaUnica && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 8 }}>
         {filtered.map(con => (
-          <div key={con.id} style={{ background: C.card, borderRadius: 8, border: '1px solid ' + C.bd, overflow: 'hidden' }}>
-            <div onClick={() => setOpen(open === con.id ? null : con.id)} style={{ padding: '12px 14px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div key={con.id} style={{ background: C.card, borderRadius: 8, border: '1px solid ' + C.bd, overflow: 'hidden', gridColumn: (con as { agenteDetalhado?: boolean }).agenteDetalhado && open === con.id ? '1 / -1' : undefined }}>
+            <div onClick={() => {
+              const fechando = open === con.id
+              setOpen(fechando ? null : con.id)
+              // ao fechar o fluxo do agente, relê o status (pode ter salvo/ativado a conexão lá dentro)
+              if (fechando && (con as { agenteDetalhado?: boolean }).agenteDetalhado && empresaUnica) void carregarAtak(empresaUnica)
+            }} style={{ padding: '12px 14px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 32, height: 32, borderRadius: 6, background: con.cor + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: con.cor }}>{con.id.substring(0, 2).toUpperCase()}</div>
                 <div>
@@ -499,24 +552,36 @@ export default function ConectoresPage() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                {vaultCreds[CONECTOR_PROVIDER[con.id] ?? '__none__'] && (
-                  <span title="Credencial cadastrada no Vault para esta empresa" style={{ fontSize: 8, padding: '2px 6px', borderRadius: 4, background: C.g + '20', color: C.g, fontWeight: 700, border: '1px solid ' + C.g + '40', letterSpacing: 0.5 }}>
-                    🔒 VAULT OK
-                  </span>
-                )}
+                {(() => {
+                  const st = situacao(con.id)
+                  if (!st) return null
+                  return (
+                    <span title={st.dica} style={{ fontSize: 9, padding: '2px 7px', borderRadius: 4, background: st.cor + '18', color: st.cor, fontWeight: 700, border: '1px solid ' + st.cor + '40', letterSpacing: 0.3 }}>
+                      ● {st.rotulo}
+                    </span>
+                  )
+                })()}
                 <span style={{ fontSize: 8, padding: '2px 8px', borderRadius: 4, background: statusCor(con.status) + '15', color: statusCor(con.status), fontWeight: 600, border: '1px solid ' + statusCor(con.status) + '30' }}>{statusLabel(con.status)}</span>
               </div>
             </div>
 
             {open === con.id && (
               <div style={{ padding: '0 14px 14px', borderTop: '1px solid ' + C.bd + '50' }}>
-                {con.campos.length > 0 ? (
+                {(con as { agenteDetalhado?: boolean }).agenteDetalhado ? (
+                  <div style={{ paddingTop: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 11, color: C.txm }}>
+                      Agente PS no servidor do cliente: conexão, domínios, token e instalador. <AjudaCampo chave="conectores.central_atak_agente" />
+                      <a href="/dashboard/industrial/conectores" style={{ marginLeft: 'auto', color: C.gol, fontSize: 11 }}>abrir em tela cheia →</a>
+                    </div>
+                    <ConectorAtakAgente embutido />
+                  </div>
+                ) : con.campos.length > 0 ? (
                   <>
                     {con.campos.map(campo => (
-                      <div key={campo.k} style={{ marginTop: 8 }}>
-                        <div style={{ fontSize: 9, color: C.txd, marginBottom: 3 }}>{campo.l}</div>
-                        <input type={(campo as any).secret ? 'password' : 'text'} value={configs[campo.k] || ''} onChange={e => setConfigs({ ...configs, [campo.k]: e.target.value })} placeholder={campo.p} style={{ width: '100%', background: C.bg, border: '1px solid ' + C.bd, color: C.tx, padding: '8px 10px', borderRadius: 6, fontSize: 12, outline: 'none', boxSizing: 'border-box' }} />
-                      </div>
+                      <label key={campo.k} style={{ display: 'block', marginTop: 8 }}>
+                        <div style={{ fontSize: 9, color: C.txd, marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4 }}>{campo.l} <AjudaCampo chave={(campo as { ajuda?: string }).ajuda ?? 'conectores.central_credencial'} /></div>
+                        <input type={(campo as any).secret ? 'password' : 'text'} autoComplete={(campo as { secret?: boolean }).secret ? 'new-password' : undefined} value={configs[campo.k] || ''} onChange={e => setConfigs({ ...configs, [campo.k]: e.target.value })} placeholder={campo.p} style={{ width: '100%', background: C.bg, border: '1px solid ' + C.bd, color: C.tx, padding: '8px 10px', borderRadius: 6, fontSize: 12, outline: 'none', boxSizing: 'border-box' }} />
+                      </label>
                     ))}
                     {/* FIX-CONECTORES-EDITAR-EXCLUIR (07/07 · CEO): informe se ja existe
                         credencial salva no Vault desta empresa pra este conector.
@@ -548,7 +613,7 @@ export default function ConectoresPage() {
                           {deleting === con.id ? '...' : '🗑 Excluir'}
                         </button>
                       )}
-                      {con.status === 'ativo' && !(con as { pontoProvider?: boolean }).pontoProvider && (
+                      {con.status === 'ativo' && !(con as { pontoProvider?: boolean }).pontoProvider && !(con as { syncExterno?: string }).syncExterno && (
                         <>
                           {(con as any).oauth && <button onClick={() => conectarOAuth(con.id)} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: '#0EA5E9', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>🔗 Conectar</button>}
                           <button onClick={() => testar(con.id)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid ' + C.b, background: 'transparent', color: C.b, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Testar</button>
@@ -583,6 +648,7 @@ export default function ConectoresPage() {
                         {nfseResumo && <div style={{ marginTop: 6, padding: '6px 10px', background: C.p + '10', border: '1px solid ' + C.p + '30', borderRadius: 6, fontSize: 10, color: C.p }}>{nfseResumo}</div>}
                       </div>
                     )}
+                    {(con as { syncExterno?: string }).syncExterno && <div style={{ fontSize: 10, color: C.txm, marginTop: 8, lineHeight: 1.5 }}><Truck size={12} style={{ display: 'inline', verticalAlign: '-2px', marginRight: 4 }} />{(con as { syncExterno?: string }).syncExterno}</div>}
                     {con.status !== 'ativo' && <div style={{ fontSize: 9, color: C.txd, marginTop: 6 }}>Integracao em desenvolvimento. Salve as credenciais para quando ativarmos.</div>}
                   </>
                 ) : (
