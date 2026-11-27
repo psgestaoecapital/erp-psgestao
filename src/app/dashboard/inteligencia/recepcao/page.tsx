@@ -28,7 +28,7 @@ type Painel = {
   sexo: { sexo: string; cab: number; valor: number; rs_arroba: number | null; carcaca_media: number | null }[]
   transportadores: { transportador: string; cab: number; notas: number; valor: number; participacao: number | null }[]
   prazos: { faixa: string; ordem: number; notas: number; valor: number; participacao: number | null }[]
-  abate: { cabecas: number; proprias: number; terceiros: number; carcaca_kg: number | null; carcaca_media: number | null; compra_abate_cab: number; compra_abate_valor: number; custo_por_cab_abatida: number | null; custo_por_kg_carcaca_abatida: number | null; saldo_cab: number }
+  abate: { cabecas: number; proprias: number; terceiros: number; carcaca_kg: number | null; carcaca_media: number | null; compra_abate_cab: number; compra_abate_valor: number; custo_por_cab_abatida: number | null; custo_por_kg_carcaca_abatida: number | null; saldo_cab: number; fechado_ate?: string | null; compra_pj_cab?: number; compra_pj_kg?: number; compra_pj_estimada?: boolean; abate_hoje_proprias?: number; compra_hoje_cab?: number; notas_pendentes_cab?: number; sem_nota_cab?: number }
   canceladas: { linhas: number; cabecas: number; valor: number }
 }
 
@@ -291,7 +291,7 @@ export default function BiCompraAnimais() {
 
             <section style={grade(380)} aria-label="Compra e abate">
               <div style={card}>
-                <Titulo t="Compra × abate" nota="Gado para abate comprado × cabeças abatidas pela planta no mesmo período." ajuda="compra.abate" />
+                <Titulo t="Compra × abate" nota={ab.fechado_ate ? `Gado para abate comprado × cabeças abatidas pela planta nos dias fechados (até ${dataBR(ab.fechado_ate)}). Hoje fica fora: a nota sai depois do abate.` : 'O período é só o dia de hoje: a nota de compra sai depois do abate, então a comparação começa amanhã.'} ajuda="compra.abate" />
                 <div style={grade(140)}>
                   {[
                     ['Cabeças compradas (abate)', int(ab.compra_abate_cab)],
@@ -304,6 +304,20 @@ export default function BiCompraAnimais() {
                     <div key={k} style={{ display: 'grid', gap: 2 }}>
                       <span style={{ fontSize: 12, color: C.m }}>{k}</span>
                       <span style={{ fontFamily: 'Georgia, serif', fontSize: 20, fontVariantNumeric: 'tabular-nums' }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'grid', gap: 6, borderTop: `1px solid ${C.bg2}`, paddingTop: 8 }} aria-label="De onde vem a diferença">
+                  <span style={{ fontSize: 12, fontWeight: 600, color: C.m }}>De onde vem a diferença</span>
+                  {[
+                    { k: 'compra.abate_hoje', rot: 'Notas ainda não emitidas', v: int(ab.notas_pendentes_cab ?? 0), obs: `${int(ab.abate_hoje_proprias ?? 0)} abatidas hoje, ${int(ab.compra_hoje_cab ?? 0)} com nota. Fora da conta até a nota sair.` },
+                    { k: 'compra.abate_pj', rot: 'Compra de pessoa jurídica', v: `+${int(ab.compra_pj_cab ?? 0)}`, obs: `${int(ab.compra_pj_kg ?? 0)} kg, já somados nas compradas${ab.compra_pj_estimada ? ' (cabeças estimadas pelo peso)' : ''}.` },
+                    { k: 'compra.abate_sem_nota', rot: 'Sem nota de compra', v: int(ab.sem_nota_cab ?? 0), obs: (ab.sem_nota_cab ?? 0) > 0 ? 'Abatidas nos dias fechados sem nota de compra no período.' : ab.saldo_cab > 0 ? `Nenhuma. Foram ${int(ab.saldo_cab)} compradas a mais (gado no curral ou abate no período seguinte).` : 'Nenhuma.' },
+                  ].map((x) => (
+                    <div key={x.k} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'baseline' }}>
+                      <span style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 4 }}>{x.rot}<AjudaCampo chave={x.k} rota={ROTA} /></span>
+                      <span style={{ fontFamily: 'Georgia, serif', fontSize: 17, fontVariantNumeric: 'tabular-nums' }}>{x.v}</span>
+                      <span style={{ gridColumn: '1 / -1', fontSize: 12, color: C.m }}>{x.obs}</span>
                     </div>
                   ))}
                 </div>
