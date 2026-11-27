@@ -17,6 +17,9 @@ export const dynamic = 'force-dynamic';
 // e nunca o robô. Hoje: Gilberto, André, Jordana, Rodrigo.
 const PS_ADMIN_SYSTEM_ROLES = ['PS_ADMIN', 'PS_ADMIN_CVM'];
 
+// Fallback (Fase 3): as áreas vêm do orçamento (fn_dev_vertical_orcamento › 'areas', mesmo filtro da auditoria:
+// dev_vertical.areas_telas; NULL = {slug}; vertical fora de dev_vertical = CASE antigo). Este mapa só vale se o banco
+// ainda não devolver 'areas' (janela entre o deploy do código e o da migration).
 // system_screens.area usa 'hub_construcao'/'revenda'; a Central usa 'hub'/'revenda_veiculos'
 function areasDoVertical(vertical: string): string[] {
   if (vertical === 'hub') return ['hub_construcao', 'hub'];
@@ -52,12 +55,14 @@ export async function POST(req: NextRequest) {
   if (orcErr) return NextResponse.json({ error: orcErr.message }, { status: 500 });
   if (!orc?.pode) return NextResponse.json({ error: orc?.motivo || 'Não permitido agora.', orcamento: orc }, { status: 400 });
 
-  // 3) rotas auditáveis da vertical (têm gold_screen_buttons)
-  const { data: telas } = await admin
-    .from('system_screens')
-    .select('id, rota, area')
-    .in('area', areasDoVertical(vertical));
-  const screenIds = (telas || []).map((t) => t.id);
+  // 3) rotas auditáveis da vertical (têm gold_screen_buttons) — mesmas áreas que o orçamento contou
+  const areas: string[] = Array.isArray(orc.areas)
+    ? (orc.areas as unknown[]).filter((a): a is string => typeof a === 'string')
+    : areasDoVertical(vertical);
+  const { data: telas } = areas.length
+    ? await admin.from('system_screens').select('id, rota, area').in('area', areas)
+    : { data: [] as { id: string; rota: string; area: string }[] };
+  const screenIds = ((telas || []) as { id: string }[]).map((t) => t.id);
   let rotas: { rota: string; screen_id: string }[] = [];
   if (screenIds.length) {
     const { data: btns } = await admin.from('gold_screen_buttons').select('rota, screen_id').in('screen_id', screenIds);
