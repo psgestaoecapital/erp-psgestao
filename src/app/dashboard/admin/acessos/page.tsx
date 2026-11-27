@@ -91,6 +91,7 @@ export default function AcessosCascataPage() {
   const [envios, setEnvios] = useState<Envios>({ convites_pendentes: [], ultimos_envios: {} });
   const [papeisRbac, setPapeisRbac] = useState<PapelRbac[]>([]);
   const [papelAtual, setPapelAtual] = useState<Record<string, string>>({});
+  const [equipeVend, setEquipeVend] = useState<MembroVend[]>([]);
 
   // Empresas que o usuário pode gerir: PS_ADMIN → todas; senão as que ele é CLIENT_OWNER ativo.
   useEffect(() => {
@@ -138,6 +139,10 @@ export default function AcessosCascataPage() {
     const prj = pr as { papeis?: PapelRbac[]; atuais?: Record<string, string> } | null;
     setPapeisRbac(prj?.papeis ?? []);
     setPapelAtual(prj?.atuais ?? {});
+    // Códigos de vendedor do ERP de origem (equipe + quem está ligado a cada código). Usado no campo "Código do vendedor"
+    // do papel Vendedor Comercial. Sem permissão/sem integração → lista vazia (o servidor continua exigindo o código).
+    const { data: ev } = await supabase.rpc("fn_com_vendedor_acesso_listar", { p_company_id: cid });
+    setEquipeVend(((ev as { equipe?: MembroVend[] } | null)?.equipe) ?? []);
     setLoading(false);
   }, []);
   useEffect(() => { if (companyId) void carregar(companyId); }, [companyId, carregar]);
@@ -238,10 +243,11 @@ export default function AcessosCascataPage() {
             {ctx.pessoas.map((p) => (
               // RD-41 🅲 · key inclui a versão de áreas/papel → remonta e re-sincroniza do banco
               // após Salvar (fim do estado "preso" na memória que fazia as marcações reverterem).
-              <PessoaRow key={`${p.user_id}:${p.restricted ? "r" : "o"}:${(p.areas || []).join("|")}:${p.role}:${papelAtual[p.user_id] ?? ""}`} p={p} aberto={editId === p.user_id}
+              <PessoaRow key={`${p.user_id}:${p.restricted ? "r" : "o"}:${(p.areas || []).join("|")}:${p.role}:${papelAtual[p.user_id] ?? ""}:${codigoAtualDe(equipeVend, p.user_id)}`} p={p} aberto={editId === p.user_id}
                 onToggle={() => setEditId(editId === p.user_id ? null : p.user_id)}
                 areasContratadas={ctx.areas_contratadas} plantas={ctx.plantas}
                 papeisRbac={papeisRbac} papelAtualSlug={papelAtual[p.user_id] ?? null}
+                equipeVend={equipeVend}
                 companyId={companyId} onSaved={() => carregar(companyId)}
                 ultimoEnvio={envios.ultimos_envios[p.user_id]} onEnviado={(e) => registrarEnvio(p.user_id, e)} />
             ))}
@@ -363,9 +369,14 @@ function GerenciarAreas({ companyId, onChanged }: { companyId: string; onChanged
   );
 }
 
-function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, papeisRbac, papelAtualSlug, companyId, onSaved, ultimoEnvio, onEnviado }: {
+// Papel "Vendedor Comercial": exige o código do vendedor no ERP de origem (o painel mostra só a carteira desse código).
+const PAPEL_VENDEDOR = "industria_comercial";
+type MembroVend = { codigo: string; nome: string; cargo: string; superior: string | null; user_id: string | null; ativo: boolean | null; usuario: string | null };
+const codigoAtualDe = (equipe: MembroVend[], uid: string) => equipe.find((m) => m.user_id === uid && m.ativo)?.codigo ?? "";
+
+function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, papeisRbac, papelAtualSlug, equipeVend, companyId, onSaved, ultimoEnvio, onEnviado }: {
   p: Pessoa; aberto: boolean; onToggle: () => void; areasContratadas: Area[]; plantas: Planta[];
-  papeisRbac: PapelRbac[]; papelAtualSlug: string | null; companyId: string; onSaved: () => void;
+  papeisRbac: PapelRbac[]; papelAtualSlug: string | null; equipeVend: MembroVend[]; companyId: string; onSaved: () => void;
   ultimoEnvio?: UltimoEnvio; onEnviado: (e: UltimoEnvio) => void;
 }) {
   const [nome, setNome] = useState(p.nome ?? "");
@@ -383,15 +394,21 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, papeisRbac,
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
   const [papelSlug, setPapelSlug] = useState(papelAtualSlug ?? "");
+  const codigoAtual = codigoAtualDe(equipeVend, p.user_id);
+  const [codigoVend, setCodigoVend] = useState(codigoAtual);
+  const ehVendedor = papelSlug === PAPEL_VENDEDOR;
   const niveisPermitidos = papeisDaEmpresa(areasContratadas).map((r) => r.role);
   const sugerido = nivelSugerido(papeisRbac.find((r) => r.slug === papelSlug), niveisPermitidos);
 
   async function salvar() {
+    if (ehVendedor && !codigoVend) { setMsg({ ok: false, t: "Escolha o código do vendedor: sem ele o painel não sabe qual carteira mostrar." }); return; }
     setSalvando(true); setMsg(null);
     const horario = { dias_semana: Array.from(dias).sort(), hora_inicio: ini || null, hora_fim: fim || null, timezone: "America/Sao_Paulo", ativo: true };
     const nomeTrim = nome.trim();
     const nomeMudou = !!nomeTrim && nomeTrim !== (p.nome ?? "");
     const ativoMudou = ativo !== (p.is_active ?? true);
+    const papelMudou = papelSlug !== (papelAtualSlug ?? "");
+    const codigoMudou = ehVendedor && !!codigoVend && codigoVend !== codigoAtual;
     const { data, error } = await supabase.rpc("fn_acessos_salvar_pessoa", {
       p_company_id: companyId, p_user_id: p.user_id, p_areas: Array.from(areas),
       p_role: role, p_plantas: Array.from(plantasSel), p_horario: horario,
@@ -401,20 +418,17 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, papeisRbac,
       p_cpf: cpf.trim() || null,          // backend guarda só os dígitos
       p_observacao: observacao,           // aceita limpar (string vazia)
       p_ativo: ativo,                     // status = users.is_active (acesso ao sistema)
+      // Papel na empresa (função real) e código do vendedor vão no MESMO salvar (uma transação: ou grava tudo, ou nada).
+      // O servidor reusa as RPCs com guarda (fn_acessos_definir_papel_rbac / fn_com_vendedor_acesso_salvar).
+      // Papel só é enviado se mudou (omitido = o servidor mantém); vazio = limpa (o nível manda).
+      ...(papelMudou ? { p_papel_slug: papelSlug || null } : {}),
+      ...(codigoMudou ? { p_vendedor_codigo: codigoVend } : {}),
     });
     const res = data as { ok?: boolean; erro?: string } | null;
     if (error || !res?.ok) { setSalvando(false); setMsg({ ok: false, t: error?.message || res?.erro || "Falha ao salvar" }); return; }
-    // Papel na empresa (função real): grava user_scope.papel_slug pela RPC com guarda (vertical contratada, sem escalar admin).
-    // Vai DEPOIS do salvar_pessoa, que (re)provisiona o user_scope com o nível; só chama se a função mudou.
     let tFuncao = "";
-    if (papelSlug !== (papelAtualSlug ?? "")) {
-      const { data: pd, error: pe } = await supabase.rpc("fn_acessos_definir_papel_rbac", {
-        p_company_id: companyId, p_user_id: p.user_id, p_papel_slug: papelSlug || null,
-      });
-      const pr = pd as { ok?: boolean; erro?: string } | null;
-      if (pe || !pr?.ok) { setSalvando(false); setMsg({ ok: false, t: `Dados salvos, mas a função não foi aplicada: ${pe?.message || pr?.erro || "falha"}` }); onSaved(); return; }
-      tFuncao = papelSlug ? ` Função "${papeisRbac.find((r) => r.slug === papelSlug)?.nome ?? papelSlug}" aplicada.` : " Função removida (vê o menu conforme o nível).";
-    }
+    if (papelMudou) tFuncao = papelSlug ? ` Função "${papeisRbac.find((r) => r.slug === papelSlug)?.nome ?? papelSlug}" aplicada.` : " Função removida (vê o menu conforme o nível).";
+    if (codigoMudou) tFuncao += ` Código do vendedor ${codigoVend} ligado.`;
     setSalvando(false);
     setMsg({ ok: true, t: (ativoMudou ? `Acesso ${ativo ? "ATIVADO" : "INATIVADO"}.` : nomeMudou ? `Nome ALTERADO para "${nomeTrim}".` : "Salvo.") + tFuncao });
     onSaved();
@@ -525,11 +539,39 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, papeisRbac,
             </div>
           </Field>
           {/* Papel na empresa (função real) — catálogo rbac_papel da vertical contratada, por camada e área.
-              Grava user_scope.papel_slug no Salvar (fn_acessos_definir_papel_rbac). Em branco = o nível manda (RD-97). */}
+              Grava user_scope.papel_slug no MESMO Salvar (fn_acessos_salvar_pessoa → fn_acessos_definir_papel_rbac).
+              Em branco = o nível manda (RD-97). Vendedor Comercial exige o código do vendedor (carteira do painel). */}
           <Field icon={<Shield size={14} color={GO} />} label="Papel na empresa (função real — o que a pessoa VÊ e faz)">
             <SeletorPapelReal papeis={papeisRbac} value={papelSlug} onChange={setPapelSlug} testId="papel-real"
               selectStyle={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: BG, color: TX, fontWeight: 600, maxWidth: 360 }} />
           </Field>
+          {ehVendedor && (
+            <Field icon={<Users size={14} color={GO} />} label="Código do vendedor *">
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <select data-testid="vendedor-codigo" aria-label="Código do vendedor" value={codigoVend} onChange={(e) => setCodigoVend(e.target.value)}
+                  style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${codigoVend ? BD : R}`, background: BG, color: TX, fontWeight: 600, maxWidth: 360 }}>
+                  <option value="">Escolha o código…</option>
+                  {equipeVend.filter((m, i, arr) => arr.findIndex((x) => x.codigo === m.codigo) === i).map((m) => {
+                    const dono = equipeVend.find((x) => x.codigo === m.codigo && x.ativo && x.user_id);
+                    return (
+                      <option key={m.codigo} value={m.codigo}>
+                        {m.codigo}{m.nome && !m.nome.endsWith(m.codigo) ? ` · ${m.nome}` : ""}{m.cargo ? ` · ${m.cargo}` : ""}
+                        {dono && dono.user_id !== p.user_id ? ` · hoje: ${dono.usuario ?? "outro usuário"}` : ""}
+                      </option>
+                    );
+                  })}
+                </select>
+                <AjudaCampo chave="acessos.vendedor_codigo" rota="/dashboard/admin/acessos" />
+              </div>
+              {equipeVend.length === 0 && (
+                <span style={{ display: "block", marginTop: 4, color: TXM, fontSize: 12 }}>Nenhum código chegou do ERP de origem para esta empresa. Confira a integração antes de cadastrar o vendedor.</span>
+              )}
+              {(() => {
+                const dono = equipeVend.find((x) => x.codigo === codigoVend && x.ativo && x.user_id && x.user_id !== p.user_id);
+                return dono ? <span style={{ display: "block", marginTop: 4, color: R, fontSize: 12 }}>Este código hoje é de {dono.usuario ?? "outro usuário"}: ao salvar, passa para esta pessoa.</span> : null;
+              })()}
+            </Field>
+          )}
           {/* Nível (users.role) — teto de leitura; mantido para quem já tem nível (compatibilidade). */}
           <Field icon={<Users size={14} color={GO} />} label="Nível de acesso (teto)">
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -685,7 +727,8 @@ function AdicionarPessoa({ areasContratadas, plantas, companyId, papeisRbac, onC
         const pr = pd as { ok?: boolean; erro?: string } | null;
         if (pe || !pr?.ok) { setMsg({ ok: false, t: `Pessoa vinculada, mas a função não foi aplicada: ${pe?.message || pr?.erro || "falha"}. Abra a pessoa na lista e salve a função.` }); onSaved(); return; }
       }
-      setMsg({ ok: true, t: "Pessoa vinculada — já tem login e agora acessa esta empresa." + (papelSlug ? " Função aplicada." : "") });
+      const avisoCodigo = papelSlug === PAPEL_VENDEDOR ? " Agora abra a pessoa na lista e escolha o código do vendedor (carteira do painel)." : "";
+      setMsg({ ok: true, t: "Pessoa vinculada — já tem login e agora acessa esta empresa." + (papelSlug ? " Função aplicada." : "") + avisoCodigo });
       onSaved();
     } else {
       // 🅲 · email + link (os dois). Se o provedor de email ainda não está no Vault, o email
