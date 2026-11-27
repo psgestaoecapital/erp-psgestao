@@ -56,6 +56,8 @@ type Form = { placa: string; modelo: string; marca: string; ano: string; tipo: s
 type Extra = {
   versao: string; cor: string; combustivel: string; cambio: string; potencia_cv: string; lugares: string; ncm: string;
   valor_aquisicao: string; data_entrada: string; fornecedor_nome: string; crlv_path: string; tem_manual: boolean; tem_chave_reserva: boolean;
+  // Logística (épico FRIOESTE PR-2): capacidade de carga e base da depreciação, usados no motor de custo da logística.
+  capacidade_kg: string; vida_util_anos: string; valor_residual: string;
 };
 type PlanoForm = { id?: string; tipo: string; intervalo_km: string; ultimo_km: string };
 type CustoForm = { categoria: string; valor: string; data_custo: string; descricao: string; fornecedor_nome: string; documento: string; entra_base_fiscal: boolean };
@@ -65,6 +67,7 @@ const FORM_VAZIO: Form = { placa: "", modelo: "", marca: "", ano: "", tipo: "car
 const EXTRA_VAZIO: Extra = {
   versao: "", cor: "", combustivel: "", cambio: "", potencia_cv: "", lugares: "", ncm: "", valor_aquisicao: "", data_entrada: "",
   fornecedor_nome: "", crlv_path: "", tem_manual: false, tem_chave_reserva: false,
+  capacidade_kg: "", vida_util_anos: "", valor_residual: "",
 };
 const CUSTO_VAZIO: CustoForm = { categoria: "manutencao", valor: "", data_custo: "", descricao: "", fornecedor_nome: "", documento: "", entra_base_fiscal: false };
 const DOC_VAZIO: DocForm = { tipo: "ipva", vencimento: "", valor: "" };
@@ -313,7 +316,7 @@ function PainelVeiculo({ companyId, veic, veiculos, onAbrir, onFechar, onSalvo }
     if (!vid) return;
     void (async () => {
       const { data } = await supabase.from("erp_hub_frota_veiculo")
-        .select("versao, cor, combustivel, cambio, potencia_cv, lugares, ncm, valor_aquisicao, data_entrada, fornecedor_nome, crlv_path, tem_manual, tem_chave_reserva")
+        .select("versao, cor, combustivel, cambio, potencia_cv, lugares, ncm, valor_aquisicao, data_entrada, fornecedor_nome, crlv_path, tem_manual, tem_chave_reserva, capacidade_kg, vida_util_anos, valor_residual")
         .eq("id", vid).maybeSingle();
       const r = data as Record<string, string | number | boolean | null> | null;
       if (!r) return;
@@ -322,6 +325,7 @@ function PainelVeiculo({ companyId, veic, veiculos, onAbrir, onFechar, onSalvo }
         versao: s("versao"), cor: s("cor"), combustivel: s("combustivel"), cambio: s("cambio"), potencia_cv: s("potencia_cv"),
         lugares: s("lugares"), ncm: s("ncm"), valor_aquisicao: r.valor_aquisicao == null ? "" : numeroParaMoeda(Number(r.valor_aquisicao)), data_entrada: s("data_entrada"),
         fornecedor_nome: s("fornecedor_nome"), crlv_path: s("crlv_path"), tem_manual: r.tem_manual === true, tem_chave_reserva: r.tem_chave_reserva === true,
+        capacidade_kg: s("capacidade_kg"), vida_util_anos: s("vida_util_anos"), valor_residual: r.valor_residual == null ? "" : numeroParaMoeda(Number(r.valor_residual)),
       });
     })();
   }, [vid]);
@@ -334,7 +338,7 @@ function PainelVeiculo({ companyId, veic, veiculos, onAbrir, onFechar, onSalvo }
       p_dados: {
         placa: f.placa, modelo: f.modelo, marca: f.marca, ano: a.ano, tipo: f.tipo, km_inicial: f.km_inicial,
         chassi: f.chassi, renavam: f.renavam, observacao: f.observacao,
-        ...x, valor_aquisicao: decimal(x.valor_aquisicao), crlv_path: crlv ?? x.crlv_path,
+        ...x, valor_aquisicao: decimal(x.valor_aquisicao), valor_residual: decimal(x.valor_residual), crlv_path: crlv ?? x.crlv_path,
       },
     });
     if (error) {
@@ -460,6 +464,11 @@ function PainelVeiculo({ companyId, veic, veiculos, onAbrir, onFechar, onSalvo }
                     <input aria-label="CRLV (arquivo)" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" className="text-xs" onChange={(e) => setCrlvArquivo(e.target.files?.[0] ?? null)} />
                     {x.crlv_path && !crlvArquivo && <button type="button" onClick={() => abrirAnexo(x.crlv_path)} className="mt-1 w-fit text-[11px] underline" style={{ color: ESP }}>Abrir CRLV anexado</button>}
                   </Campo>
+                </Secao>
+                <Secao titulo="Logística e custo">
+                  <Campo rotulo="Capacidade de carga (kg)"><AjudaCampo chave="projetos.frota.capacidade_kg" rota={ROTA} /><input aria-label="Capacidade de carga (kg)" inputMode="numeric" className={inp} value={x.capacidade_kg} onChange={(e) => setX({ ...x, capacidade_kg: e.target.value })} placeholder="ex.: 12000" /></Campo>
+                  <Campo rotulo="Vida útil (anos)"><AjudaCampo chave="projetos.frota.vida_util_anos" rota={ROTA} /><input aria-label="Vida útil (anos)" inputMode="numeric" className={inp} value={x.vida_util_anos} onChange={(e) => setX({ ...x, vida_util_anos: e.target.value })} placeholder="ex.: 10" /></Campo>
+                  <Campo rotulo="Valor residual"><AjudaCampo chave="projetos.frota.valor_residual" rota={ROTA} /><CampoMoeda testId="frota-valor-residual" className={inp} value={x.valor_residual} onChange={(v) => setX({ ...x, valor_residual: v })} placeholder="R$ 0,00" /></Campo>
                 </Secao>
                 <div className="flex flex-wrap gap-4 text-xs">
                   <label className="flex items-center gap-2">
