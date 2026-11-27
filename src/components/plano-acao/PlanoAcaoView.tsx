@@ -126,6 +126,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
   const [fSetor, setFSetor] = useState('')
   const [fPrioridade, setFPrioridade] = useState('')
   const [fOrigem, setFOrigem] = useState('')
+  const [fObra, setFObra] = useState('') // '' = Todas (só no Hub)
   const [soAtrasadas, setSoAtrasadas] = useState(false)
   const [incluirArq, setIncluirArq] = useState(false) // arquivo: concluída/cancelada >30 dias (nunca exclui)
 
@@ -189,6 +190,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
       if (fSetor && p.setor_id !== fSetor) return false
       if (fPrioridade && p.prioridade !== fPrioridade) return false
       if (fOrigem && p.origem !== fOrigem) return false
+      if (fObra && p.obra_id !== fObra) return false
       if (soAtrasadas && !p.atrasada) return false
       if (q) {
         const alvo = norm(`${p.codigo} ${p.titulo} ${p.o_que ?? ''} ${p.responsavel_nome ?? ''} ${p.setor_nome ?? ''} ${p.onde ?? ''}`)
@@ -196,7 +198,7 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
       }
       return true
     })
-  }, [planos, busca, fStatus, fResp, fSetor, fPrioridade, fOrigem, soAtrasadas])
+  }, [planos, busca, fStatus, fResp, fSetor, fPrioridade, fOrigem, fObra, soAtrasadas])
 
   const porStatus = useMemo(() => {
     const m: Record<Status, Plano[]> = { aberta: [], em_andamento: [], concluida: [], cancelada: [] }
@@ -505,6 +507,15 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
               {(Object.keys(ORIGEM_ROTULO) as Origem[]).map((o) => <option key={o} value={o}>{ORIGEM_ROTULO[o]}</option>)}
             </select>
           </label>
+          {isHub && (
+            <label>
+              <span style={rotulo}>Obra<AjudaCampo chave="plano_acao.f_obra" rota={ROTA} /></span>
+              <select data-testid="plano-f-obra" value={fObra} onChange={(e) => setFObra(e.target.value)} style={sel}>
+                <option value="">Todas</option>
+                {obras.map((o) => <option key={o.id} value={o.id}>{o.numero ? `${o.numero} · ` : ''}{o.nome}</option>)}
+              </select>
+            </label>
+          )}
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: ESP, padding: '7px 2px' }}>
             <input data-testid="plano-f-atrasadas" type="checkbox" checked={soAtrasadas} onChange={(e) => setSoAtrasadas(e.target.checked)} />
             Só atrasadas<AjudaCampo chave="industrial.plano_acao.f_so_atrasadas" rota={ROTA} />

@@ -250,3 +250,13 @@ SELECT 'plano_acao.reuniao_obra', '/dashboard/hub/plano-acao', 'Plano de Ação 
        'Ligar a uma obra de outra empresa — a lista só mostra as obras da empresa selecionada.',
        'hub', 61, 1, 'publicado'
 WHERE NOT EXISTS (SELECT 1 FROM public.erp_ajuda_campo WHERE chave = 'plano_acao.reuniao_obra');
+
+-- 7) RD-95: "?" do FILTRO por obra na lista do Hub. Idempotente por chave única.
+INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, versao, status)
+SELECT 'plano_acao.f_obra', '/dashboard/hub/plano-acao', 'Plano de Ação 5W2H', 'Filtro por obra',
+       'Escolha uma obra para ver só as ações ligadas a ela. "Todas" mostra as ações de qualquer obra e as sem obra.',
+       'Foca o plano de ação numa obra específica do Hub.',
+       'Ex.: 001 · Residencial Jardins',
+       'Esperar ver ações sem obra ao escolher uma obra — o filtro mostra só as daquela obra.',
+       'hub', 62, 1, 'publicado'
+WHERE NOT EXISTS (SELECT 1 FROM public.erp_ajuda_campo WHERE chave = 'plano_acao.f_obra');
