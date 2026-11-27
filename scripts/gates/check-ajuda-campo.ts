@@ -103,7 +103,8 @@ for (const f of todos) {
     if (!chavesBanco.has(m[1])) erro(`${f}: chave de ajuda "${m[1]}" não existe no banco (seed em supabase/migrations)`)
   }
 }
-const mo = 'src/app/dashboard/projetos/mao-obra/page.tsx'
+// a tela da Mão de obra agora vive no componente compartilhado (Hub + Indústria/RH, RD-26)
+const mo = 'src/components/maoObra/MaoObraTela.tsx'
 if (PENDENTES.includes(mo)) erro('a Mão de obra não pode ficar em PENDENTES (CEO 01/10: trava já vale nela)')
 const usadas = new Set([...readFileSync(mo, 'utf8').matchAll(/["'`](projetos\.mao_obra\.[a-z0-9_.]+)["'`]/g)].map((m) => m[1]))
 if (usadas.size < 70) erro(`Mão de obra usa só ${usadas.size} chaves de ajuda — esperado ≥ 70 dos 82 textos aprovados`)

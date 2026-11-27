@@ -167,7 +167,7 @@ export default function HealthScorePage() {
             <>
               <div style={{ display: 'grid', gap: 10, marginTop: 8 }}>
                 {COMPONENTES.map((c) => (
-                  <div key={c.k} style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: '8px 0', borderBottom: `1px solid ${OFFWHITE}` }}>
+                  <div key={c.k} data-ajuda={c.chave} style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: '8px 0', borderBottom: `1px solid ${OFFWHITE}` }}>
                     <div style={{ flex: 1, minWidth: 200 }}>
                       <div style={{ fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center' }}>{c.rot}<AjudaCampo chave={c.chave} rota={ROTA} /></div>
                       <div style={{ fontSize: 12, color: TEXTM, marginTop: 1 }}>{c.desc}</div>

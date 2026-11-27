@@ -111,7 +111,9 @@ async function executarAlvo(alvo: Alvo, agendado: boolean): Promise<Resultado> {
         const { data: liq } = await supabaseAdmin.rpc('fn_boleto_liquidar', {
           p_company_id: alvo.company_id, p_nosso_numero: nn,
           p_data_pagamento: r.dataLiquidacao ?? new Date().toISOString().slice(0, 10),
-          p_valor_pago: r.valorPago ?? b.valor, p_provider_raw: r.raw,
+          // Regra única (CEO 25/11): manda o valor PAGO pelo banco; a diferença vira juros/encargos e valor_pago = valor pago.
+          // Banco sem valor liquidado → null (NÃO o valor do título): a função baixa pelo título e marca "conferir juros na conciliação".
+          p_valor_pago: r.valorPago ?? null, p_provider_raw: r.raw,
           p_provider: prov.provider, p_banco_codigo: alvo.banco_codigo,
         })
         const j = liq as { sucesso?: boolean; ja_liquidado?: boolean; erro?: string } | null

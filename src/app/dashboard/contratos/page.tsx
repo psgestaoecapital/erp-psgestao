@@ -353,7 +353,11 @@ export default function ContratosPage(){
     const { data, error } = await supabase.rpc('fn_contrato_mudar_status', { p_contrato_id:c.id, p_status:'ativo', p_mensagem:'Gerar contas a receber (manual)', p_gerar_receber:true });
     const d:any = data;
     if(error||(d&&d.ok===false)){
-      const motivo = d?.erro==='plano_sem_valor' ? 'O contrato não tem parcelas com valor para lançar. Edite o plano e tente de novo.'
+      // CEO 27/11: trava "ativação só pelo financeiro" chega como RAISE 42501 com a mensagem pronta ao usuário —
+      // mostra a mensagem como está (o erroAmigavel mapearia 42501 para uma frase genérica e perderia o texto).
+      const bruto = typeof error?.message==='string' ? error.message : '';
+      const motivo = bruto.includes('Pedido enviado ao financeiro') ? bruto
+        : d?.erro==='plano_sem_valor' ? 'O contrato não tem parcelas com valor para lançar. Edite o plano e tente de novo.'
         : d?.erro==='anexo_contrato_obrigatorio' ? 'Esta empresa exige o contrato anexado antes de lançar as contas a receber.'
         : (error?erroAmigavel(error,"Não foi possível gerar as contas a receber. Tente de novo."):(d?.erro||"Não foi possível gerar as contas a receber. Tente de novo."));
       setMsg("❌ "+motivo); setProcessando(false); return;

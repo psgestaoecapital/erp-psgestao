@@ -228,11 +228,14 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   **LOTE (CEO 09/10):** numa mesma rodada a fila publica **VÁRIAS PRs SEM migration** (até o teto `LOTE_MAX`, padrão 6).
   **LOTE DE MIGRATIONS (CEO 16/10, tetos revistos 23/10):** numa rodada a fila publica migrations **INDEPENDENTES** entre si
   (`scripts/merge/migrations-independentes.ts`; qualquer dúvida → 1), com DOIS tetos — **`LOTE_MIG_MAX` (padrão 6)** para o
-  conjunto e **`LOTE_MIG_CRIT_MAX` (padrão 5 desde CEO 01/11; era 1)** só para as **CRÍTICAS** (etiqueta `revisao-eng-chefe`).
-  O `@pos-migration` da main roda uma vez para o lote; `LOTE_MIG_MAX=1` desliga (comportamento antigo, 1 migration/rodada).
-  **LOTE DE CRÍTICAS (CEO 01/11):** a fila crítica chegou a **44** com vazão de **2-3/h** (cada crítica saía sozinha e
-  esperava ~20 min de `@pos`). O CEO aprovou batelar até **`LOTE_MIG_CRIT_MAX`=5** migrations **CRÍTICAS** num **mesmo
-  `@pos`**, desde que INDEPENDENTES. **CARVE-OUT — publicam SOZINHAS (1 por `@pos`, "como hoje"):** migrations de **NR-36,
+  conjunto e **`LOTE_MIG_CRIT_MAX` (padrão 10 desde CEO 25/11 item B; era 5 desde CEO 01/11, era 1)** só para as **CRÍTICAS**
+  BATELÁVEIS (etiqueta `revisao-eng-chefe`). O `@pos-migration` da main roda uma vez para o lote; `LOTE_MIG_MAX=1` desliga
+  (comportamento antigo, 1 migration/rodada). O efetivo por rodada é `min(LOTE_MIG_CRIT_MAX, LOTE_MIG_MAX)` — o teto geral
+  `LOTE_MIG_MAX` (padrão 6) também limita; para chegar às 10 críticas, suba também o `LOTE_MIG_MAX`.
+  **LOTE DE CRÍTICAS (CEO 01/11; teto 5→10 em CEO 25/11 item B):** a fila crítica chegou a **44** com vazão de **2-3/h**
+  (cada crítica saía sozinha e esperava ~20 min de `@pos`). O CEO aprovou batelar até **`LOTE_MIG_CRIT_MAX`** migrations
+  **CRÍTICAS** num **mesmo `@pos`** (padrão subiu de 5 para **10**; pior caso da bissecção ~4 rodadas de `@pos`), desde que
+  INDEPENDENTES. **CARVE-OUT — publicam SOZINHAS (1 por `@pos`, "como hoje"):** migrations de **NR-36,
   fiscal, financeiro de cliente, RLS/permissão/LGPD** e **qualquer `conserto-main`**. O `conserto-main` é detectado pela
   etiqueta; o resto pelo classificador puro e testado `scripts/merge/critica-solo.ts` (viés de SEGURANÇA: migration
   ilegível/dúvida → SOLO). Prioridade segue valendo (`FILA_PRIORIDADE` / `MERGE AUTORIZADO` vão primeiro). No script:

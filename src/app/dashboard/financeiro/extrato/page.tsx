@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -29,6 +29,7 @@ interface Linha {
 interface Extrato {
   periodo: { inicio: string; fim: string }
   resultados: Linha[]
+  total_linhas?: number
   totalizadores: {
     saldo_anterior: number
     saldo_atual: number
@@ -104,13 +105,25 @@ export default function ExtratoPage() {
   const [dataFim, setDataFim] = useState<string>(isoToday())
   const [tipo, setTipo] = useState<Tipo>('todos')
   const [busca, setBusca] = useState<string>('')
+  const [buscaDebounced, setBuscaDebounced] = useState<string>('')
   const [pageSize, setPageSize] = useState<number>(50)
   const [pagina, setPagina] = useState<number>(1)
 
   const [extrato, setExtrato] = useState<Extrato | null>(null)
+  const [totalLinhas, setTotalLinhas] = useState<number>(0)
   const [loading, setLoading] = useState(true)
+  const [exportando, setExportando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [semPlano, setSemPlano] = useState(false)
+
+  // Busca com atraso: evita uma ida ao servidor por tecla. Volta sempre à página 1.
+  useEffect(() => {
+    const t = setTimeout(() => { setBuscaDebounced(busca.trim()); setPagina(1) }, 300)
+    return () => clearTimeout(t)
+  }, [busca])
+
+  // Mudou empresa, conta, período ou tipo → volta à página 1 (a paginação é do servidor).
+  useEffect(() => { setPagina(1) }, [empresaUnica, contaId, dataInicio, dataFim, tipo])
 
   useEffect(() => {
     let ignore = false
@@ -125,6 +138,9 @@ export default function ExtratoPage() {
     return () => { ignore = true }
   }, [empresaUnica])
 
+  // A paginação e os filtros (tipo/busca) rodam NO SERVIDOR: a tela baixa só a página pedida.
+  // Antes a RPC devolvia TODAS as linhas num JSON (ex.: 11.110 linhas = ~4 MB) e estourava o tempo
+  // da requisição; agora o payload por página é de alguns KB. #extrato-timeout.
   useEffect(() => {
     let ignore = false
     if (!empresaUnica) return
@@ -135,44 +151,56 @@ export default function ExtratoPage() {
         p_conta_id: contaId || null,
         p_data_inicio: dataInicio,
         p_data_fim: dataFim,
+        p_tipo: tipo,
+        p_busca: buscaDebounced || null,
+        p_limit: pageSize,
+        p_offset: (pagina - 1) * pageSize,
       })
       if (!ignore) {
         if (error) {
           // BUG3: antes o erro era ignorado e a tela mostrava "Nenhum movimento" (falha disfarçada de vazio).
           setErro(erroAmigavel(error, 'Não foi possível carregar o extrato. Tente de novo.'))
-          setExtrato(null); setSemPlano(false)
+          setExtrato(null); setTotalLinhas(0); setSemPlano(false)
         } else if (data && (data as { sem_plano?: boolean }).sem_plano) {
           // BUG1: a RPC devolve { sem_plano:true } SEM 'resultados'; tratar sem crashar (TELA BRANCA).
-          setSemPlano(true); setExtrato(null); setErro(null)
+          setSemPlano(true); setExtrato(null); setTotalLinhas(0); setErro(null)
         } else {
-          setExtrato(data as Extrato); setSemPlano(false); setErro(null)
+          const ext = data as Extrato
+          setExtrato(ext); setTotalLinhas(ext.total_linhas ?? (ext.resultados?.length ?? 0))
+          setSemPlano(false); setErro(null)
         }
-        setPagina(1)
         setLoading(false)
       }
     })()
     return () => { ignore = true }
-  }, [empresaUnica, contaId, dataInicio, dataFim])
+  }, [empresaUnica, contaId, dataInicio, dataFim, tipo, buscaDebounced, pageSize, pagina])
 
-  const linhasFiltradas = useMemo<Linha[]>(() => {
-    if (!extrato) return []
-    const buscaLow = busca.trim().toLowerCase()
-    return (extrato.resultados ?? []).filter((l) => {
-      if (tipo === 'entradas' && l.sinal <= 0) return false
-      if (tipo === 'saidas' && l.sinal >= 0) return false
-      if (!buscaLow) return true
-      const haystack = `${l.descricao ?? ''} ${l.nome_pessoa ?? ''} ${l.categoria ?? ''}`.toLowerCase()
-      return haystack.includes(buscaLow)
-    })
-  }, [extrato, tipo, busca])
-
-  const totalPaginas = Math.max(1, Math.ceil(linhasFiltradas.length / pageSize))
+  const totalPaginas = Math.max(1, Math.ceil(totalLinhas / pageSize))
   const paginaAtual = Math.min(pagina, totalPaginas)
-  const linhasPagina = linhasFiltradas.slice((paginaAtual - 1) * pageSize, paginaAtual * pageSize)
+  const linhasPagina = extrato?.resultados ?? []
 
-  function exportarCSV() {
+  async function exportarCSV() {
+    // Export baixa TODAS as linhas do período (com os filtros atuais), não só a página na tela.
+    if (!empresaUnica || exportando) return
+    setExportando(true)
+    const { data, error } = await supabase.rpc('fn_ge_extrato_conta', {
+      p_company_id: empresaUnica,
+      p_conta_id: contaId || null,
+      p_data_inicio: dataInicio,
+      p_data_fim: dataFim,
+      p_tipo: tipo,
+      p_busca: buscaDebounced || null,
+      p_limit: null,
+      p_offset: 0,
+    })
+    setExportando(false)
+    if (error || !data || (data as { sem_plano?: boolean }).sem_plano) {
+      setErro(erroAmigavel(error, 'Não foi possível exportar o extrato agora. Tente de novo.'))
+      return
+    }
+    const linhas = ((data as Extrato).resultados ?? [])
     const head = ['Data', 'Descrição', 'Categoria', 'Pessoa', 'Valor', 'Saldo Acumulado', 'Status', 'Documento']
-    const rows = linhasFiltradas.map((l) => [
+    const rows = linhas.map((l) => [
       fmtDate(l.data),
       (l.descricao ?? '').replace(/"/g, '""'),
       (l.categoria ?? '').replace(/"/g, '""'),
@@ -215,7 +243,7 @@ export default function ExtratoPage() {
         </h1>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 24 }}>
           <p style={{ color: 'rgba(61,35,20,0.65)', fontSize: 13, margin: 0 }}>
-            {extrato ? `${fmtDate(extrato.periodo.inicio)} a ${fmtDate(extrato.periodo.fim)} · ${linhasFiltradas.length} lançamentos` : 'Carregando…'}
+            {extrato ? `${fmtDate(extrato.periodo.inicio)} a ${fmtDate(extrato.periodo.fim)} · ${totalLinhas} lançamentos` : 'Carregando…'}
           </p>
           {/* #3281: movimentação de todas as contas do período, em Excel, sem esperar na tela */}
           {empresaUnica && (
@@ -305,7 +333,7 @@ export default function ExtratoPage() {
               Ver Gestão Empresarial
             </button>
           </div>
-        ) : linhasFiltradas.length === 0 ? (
+        ) : totalLinhas === 0 ? (
           <div style={emptyBox}>
             <div style={{ fontSize: 14, color: '#3D2314', marginBottom: 6, fontWeight: 600 }}>Nenhum movimento no período</div>
             <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)', marginBottom: 16 }}>
@@ -392,7 +420,7 @@ export default function ExtratoPage() {
                   <option value={200}>200</option>
                 </select>
                 <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)' }}>
-                  {(paginaAtual - 1) * pageSize + 1}–{Math.min(paginaAtual * pageSize, linhasFiltradas.length)} de {linhasFiltradas.length}
+                  {(paginaAtual - 1) * pageSize + 1}–{Math.min(paginaAtual * pageSize, totalLinhas)} de {totalLinhas}
                 </span>
               </div>
 
@@ -401,7 +429,7 @@ export default function ExtratoPage() {
                 <button onClick={() => setPagina(Math.max(1, paginaAtual - 1))} disabled={paginaAtual <= 1} style={secondaryBtn(paginaAtual <= 1)}>← Anterior</button>
                 <button onClick={() => setPagina(Math.min(totalPaginas, paginaAtual + 1))} disabled={paginaAtual >= totalPaginas} style={secondaryBtn(paginaAtual >= totalPaginas)}>Próxima →</button>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><AjudaCampo chave="ge.extrato.acao.conciliar" rota={ROTA_AJUDA} /><button onClick={() => router.push('/dashboard/financeiro/conciliacao')} style={secondaryBtn(false)}>Conciliar</button></span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><AjudaCampo chave="ge.extrato.acao.exportar_csv" rota={ROTA_AJUDA} /><button onClick={exportarCSV} style={primaryBtn}>Exportar CSV</button></span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><AjudaCampo chave="ge.extrato.acao.exportar_csv" rota={ROTA_AJUDA} /><button onClick={exportarCSV} disabled={exportando} style={exportando ? secondaryBtn(true) : primaryBtn}>{exportando ? 'Exportando…' : 'Exportar CSV'}</button></span>
               </div>
             </div>
           </>

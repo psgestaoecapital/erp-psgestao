@@ -47,6 +47,11 @@ export interface NFeBuilderItemInput {
   // csosn = codigo do Simples (config csosn_devolucao, default 900); base/aliquota/valor da entrada.
   // Quando presente, tem prioridade sobre o default do regime.
   icmsOverride?: { csosn?: string; base?: number; aliquota?: number; valor?: number; modBc?: string }
+  // #9929 (NF-e avulsa) · IPI/PIS/COFINS informados POR ITEM (aditivo, opt-in). Ausente = comportamento atual
+  // (IPI sem grupo; PIS/COFINS do cadastro do produto / regime). Preenchido, cada campo informado prevalece.
+  ipiOverride?: { cst?: string; aliquota?: number; valor?: number }
+  pisOverride?: { cst?: string; aliquota?: number; valor?: number }
+  cofinsOverride?: { cst?: string; aliquota?: number; valor?: number }
 }
 
 export interface NFeBuilderInput {
@@ -77,6 +82,8 @@ export interface NFeBuilderInput {
     observacoes?: string
     // frete/seguro/outras/desconto + modalidade (compõem o total e a base do ICMS — Lei Kandir)
     totais?: NFeRequest['totais']
+    // #5722 · grupo de transporte (transportador/veículo/volumes). Opcional — passa direto ao emissor único.
+    transporte?: NFeRequest['transporte']
   }
   overrides?: {
     itens: NFeBuilderItemInput[]
@@ -95,6 +102,9 @@ export interface NFeBuilderInput {
   // remetente (vendedor PF na compra PF); item/CFOP/CST/natureza do perfil fiscal aprovado (não de erp_produtos).
   entradaVeiculo?: DadosEntradaVeiculo
   onEntradaMontada?: (m: ItemVeiculoEntradaMontado) => void
+  // #9787 · DEVOLUÇÃO ao consignante (consignacao_retorno) — SAÍDA (tpNF=1), destinatário = consignante. Reusa o
+  // montador da entrada (item do perfil), mas a nota é saída. Gated por emite_nfe_autorizada na rota.
+  consignacaoRetorno?: DadosEntradaVeiculo
 }
 
 export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeRequest> {
@@ -144,7 +154,8 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   // que veio do orçamento, ex.: nº da ordem de compra do cliente) — nunca as observações internas.
   let observacoesOrigem: string | undefined
   let veiculoMontado: ItemVeiculoMontado | undefined
-  let entradaMontadoItem: NFeProdutoItem | undefined   // #9787 marco 2 · item da NF-e de entrada (prévia)
+  let entradaMontadoItem: NFeProdutoItem | undefined   // #9787 · item do veículo (entrada OU devolução ao consignante)
+  let tpNFEntrada0 = false                              // #9787 · true só na ENTRADA real (tpNF=0); devolução é saída (tpNF=1)
 
   if (input.pedidoId) {
     // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1
@@ -311,6 +322,28 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
         : undefined,
     }
     const montado = montarItemVeiculoEntrada(ev, ufEmitente, destinatario.endereco?.uf)
+    input.onEntradaMontada?.(montado)
+    entradaMontadoItem = montado.item
+    naturezaOp = montado.naturezaOperacao
+    observacoesOrigem = montado.observacoes
+    finalidade = 'normal'
+    tpNFEntrada0 = true   // entrada real → tpNF=0
+  } else if (input.consignacaoRetorno) {
+    // #9787 · DEVOLUÇÃO ao consignante — SAÍDA (tpNF=1). Destinatário = consignante; item/CFOP/CST/natureza do perfil
+    // (operação 'consignacao_retorno'). Reusa o montador da entrada (item do perfil); NÃO marca tpNF=0 (é saída).
+    const cr = input.consignacaoRetorno
+    const r = cr.remetente
+    const doc = (r.documento ?? '').replace(/\D/g, '')
+    destinatario = {
+      cnpj: doc.length === 14 ? doc : undefined,
+      cpf: doc.length === 11 ? doc : undefined,
+      razaoSocial: r.nome ?? '',
+      indicadorIE: r.tipo === 'pf' ? 9 : undefined,
+      endereco: r.endereco && r.endereco.logradouro
+        ? { logradouro: r.endereco.logradouro, numero: r.endereco.numero ?? undefined, bairro: r.endereco.bairro ?? '', cidade: r.endereco.cidade ?? '', uf: r.endereco.uf ?? '', cep: (r.endereco.cep ?? '').replace(/\D/g, '') }
+        : undefined,
+    }
+    const montado = montarItemVeiculoEntrada(cr, ufEmitente, destinatario.endereco?.uf)
     input.onEntradaMontada?.(montado)
     entradaMontadoItem = montado.item
     naturezaOp = montado.naturezaOperacao
@@ -495,15 +528,35 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
                 : {}),
             }
           })(),
-      ipi: undefined, // Simples Nacional / revenda: sem grupo IPI
-      pis: {
-        cst: prod.cst_pis?.trim() || undefined,
-        aliquota: prod.aliquota_pis ?? (ehSimples ? 0 : undefined),
-      },
-      cofins: {
-        cst: prod.cst_cofins?.trim() || undefined,
-        aliquota: prod.aliquota_cofins ?? (ehSimples ? 0 : undefined),
-      },
+      // #9929 · IPI só quando informado por item (NF-e avulsa); senão sem grupo IPI (comportamento atual).
+      ipi: it.ipiOverride
+        ? {
+            cst: it.ipiOverride.cst?.trim() || undefined,
+            aliquota: it.ipiOverride.aliquota ?? undefined,
+            ...(it.ipiOverride.valor != null ? { valor: it.ipiOverride.valor } : {}),
+          }
+        : undefined,
+      // #9929 · PIS/COFINS: override por item prevalece campo a campo; sem override = cadastro/regime (sem regressão).
+      pis: it.pisOverride
+        ? {
+            cst: it.pisOverride.cst?.trim() || prod.cst_pis?.trim() || undefined,
+            aliquota: it.pisOverride.aliquota ?? prod.aliquota_pis ?? (ehSimples ? 0 : undefined),
+            ...(it.pisOverride.valor != null ? { valor: it.pisOverride.valor } : {}),
+          }
+        : {
+            cst: prod.cst_pis?.trim() || undefined,
+            aliquota: prod.aliquota_pis ?? (ehSimples ? 0 : undefined),
+          },
+      cofins: it.cofinsOverride
+        ? {
+            cst: it.cofinsOverride.cst?.trim() || prod.cst_cofins?.trim() || undefined,
+            aliquota: it.cofinsOverride.aliquota ?? prod.aliquota_cofins ?? (ehSimples ? 0 : undefined),
+            ...(it.cofinsOverride.valor != null ? { valor: it.cofinsOverride.valor } : {}),
+          }
+        : {
+            cst: prod.cst_cofins?.trim() || undefined,
+            aliquota: prod.aliquota_cofins ?? (ehSimples ? 0 : undefined),
+          },
       ...(comb ? { comb } : {}),
     }
   })
@@ -524,6 +577,8 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     serie: cfg?.serie_nfe_padrao ?? '1',
     naturezaOperacao: naturezaOp,
     finalidade,
+    // #9787 · nota própria de ENTRADA (compra PF/PJ, troca) é tpNF=0; venda, devolução ao consignante e demais saídas seguem 1.
+    ...(tpNFEntrada0 ? { tipoOperacao: 0 as const } : {}),
     consumidorFinal,
     emitente: {
       cnpj: String(emp.cnpj ?? '').replace(/\D/g, ''),
@@ -546,5 +601,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
         )
       : (input.manual?.observacoes ?? observacoesOrigem),
     totais: input.manual?.totais,
+    // #5722 · grupo de transporte (só quando a origem manual informa). Caminhos existentes não mudam.
+    ...(input.manual?.transporte ? { transporte: input.manual.transporte } : {}),
   }
 }
