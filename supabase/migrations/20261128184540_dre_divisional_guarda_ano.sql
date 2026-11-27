@@ -164,3 +164,8 @@ EXCEPTION WHEN OTHERS THEN
   );
 END;
 $function$;
+
+-- ACL da função SECURITY DEFINER recriada (check_fn_guards): espelha a ACL viva
+-- (só service_role — escritor de pipeline; anon/PUBLIC/authenticated revogados). Conteúdo da função inalterado.
+REVOKE ALL ON FUNCTION public.fn_popular_dre_divisional_from_psgc(uuid, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_popular_dre_divisional_from_psgc(uuid, integer, integer) TO service_role;
