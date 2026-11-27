@@ -27,6 +27,13 @@ ok(posDefault > posValida && posValida !== -1, 'nfse: defaults aplicados após o
 const focus = read('src/lib/fiscal/providers/focusnfe.ts')
 ok(/p\.indicador_destinatario = rt\.indicadorDestinatario/.test(focus) && /p\.consumidor_final = rt\.consumidorFinal/.test(focus) && /p\.finalidade_emissao = rt\.finalidadeEmissao/.test(focus), 'focus: mapeia indicador_destinatario + consumidor_final + finalidade_emissao')
 
+// FIX seguimento · IBSCBS não sai vazio: cIndOp (indicador da operação) do serviço vai ao grupo, mesmo sem rt_cst.
+ok(/const cIndOpSv = normalizarCIndOp\(\(sv as \{ rt_indicador_operacao\?: string \| null \}\)\.rt_indicador_operacao\)/.test(rota), 'nfse: lê o cIndOp do serviço (rt_indicador_operacao)')
+ok(/codigoIndicadorOperacao: cIndOpSv/.test(rota), 'nfse: cIndOp vai ao grupo IBSCBS (desacoplado do rt_cst), via codigo_indicador_operacao')
+ok(/p\.codigo_indicador_operacao = String\(rt\.codigoIndicadorOperacao\)\.trim\(\)/.test(focus) || /codigo_indicador_operacao = /.test(focus), 'focus: mapeia codigo_indicador_operacao (cIndOp)')
+// mantém a régua da NF-e (reformaIbsCbsDoServico) e sua chamada — não quebra os gates que a travam
+ok(/reformaIbsCbsDoServico\(reformaEmpresa, sv as ServicoIbsCbs\)/.test(rota), 'nfse: régua reformaIbsCbsDoServico (NF-e) preservada; o DPS só complementa o cIndOp')
+
 // ── FIX 2 · vínculo de origem + ficha mostra status/visualizar/acompanhar ───────────────────────────────────
 ok(/origemTipo\?: string/.test(rota) && /origemId\?: string/.test(rota), 'rota: aceita origemTipo/origemId no corpo')
 ok(/from\('erp_nfse_emitidas'\)[\s\S]{0,160}\.update\(\{ origem_tipo: body\.origemTipo, origem_id: body\.origemId \}\)/.test(rota), 'rota: grava origem_tipo/origem_id na nota emitida (update leve pós-registro)')
