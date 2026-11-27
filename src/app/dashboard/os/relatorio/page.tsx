@@ -104,19 +104,25 @@ export default function RelatorioOSPage() {
       ) : (
         <>
           <div style={{ ...card, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+            {/* RD-95 (desenvolvedor_4_g): o "?" fica como filho do wrapper do campo (depois do controle),
+                mesmo padrão dos botões Exportar/Imprimir abaixo, para que a régua associe a ajuda ao controle.
+                O "Até" não tinha "?" e "De"/"Data usada" eram falso-positivo (ajuda só na <label> irmã). */}
             <div>
-              <label style={lbl}>De<AjudaCampo chave="os.relatorio.periodo" rota="/dashboard/os/relatorio" /></label>
+              <label style={lbl}>De</label>
               <input type="date" style={inp} value={de} onChange={(e) => setDe(e.target.value)} />
+              <AjudaCampo chave="os.relatorio.periodo" rota="/dashboard/os/relatorio" />
             </div>
             <div>
               <label style={lbl}>Até</label>
               <input type="date" style={inp} value={ate} onChange={(e) => setAte(e.target.value)} />
+              <AjudaCampo chave="os.relatorio.periodo" rota="/dashboard/os/relatorio" />
             </div>
             <div>
-              <label style={lbl}>Data usada<AjudaCampo chave="os.relatorio.base_data" rota="/dashboard/os/relatorio" /></label>
+              <label style={lbl}>Data usada</label>
               <select style={inp} value={base} onChange={(e) => setBase(e.target.value as Base)}>
                 {BASES.map((b) => <option key={b.v} value={b.v}>{b.l}</option>)}
               </select>
+              <AjudaCampo chave="os.relatorio.base_data" rota="/dashboard/os/relatorio" />
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button type="button" style={{ ...inp, cursor: 'pointer' }} onClick={ver12}>Últimos 12 meses</button>

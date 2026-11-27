@@ -1,0 +1,287 @@
+-- PDCA Hub · /dashboard/projetos/mao-obra (aud8 94/95) · SÓ-DEMO · Code: code-desenvolvedor-3
+-- GAP (RD-38 / RD-98 pilar 1): a DEMO 006 "Construtora Modelo - DEMO"
+-- (b0700000-0000-4000-a000-000000000006) tinha projetos_equipe = 0 e projetos_equipe_membro = 0.
+-- Efeito: a aba "Equipes" de Mão de obra só mostrava o empty-state (os indicadores "Custo total/h"
+-- e "Custo/dia" ficavam sem linha para provar o cálculo) e o modal "+ Serviço" do orçamento não
+-- oferecia os selos Pessoa/Equipe. Esta migration semeia 1 equipe com 3 membros, de forma
+-- idempotente e durável no reset da DEMO, pelo caminho canônico fn_projetos_equipe_salvar.
+--
+-- Aditivo: NENHUMA DDL de estrutura. Guardado por is_demo + id b07...006. Nunca toca dado de cliente.
+-- Números resultantes (provados em BEGIN/ROLLBACK): membros 45+28+18 -> Custo total/h = R$ 91,00,
+-- Custo/dia (x8) = R$ 728,00, custo_medio_hora = 30,33, qtd_pessoas = 3.
+
+-- 1) Helper idempotente de seed da equipe da DEMO 006 (padrão dos fn_demo_seed_construtora_*).
+CREATE OR REPLACE FUNCTION public.fn_demo_seed_construtora_equipes(c uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_enc uuid; v_ped uuid; v_srv uuid; v_id uuid;
+BEGIN
+  -- Guarda dupla: só a empresa DEMO 006 do Hub
+  IF c IS DISTINCT FROM 'b0700000-0000-4000-a000-000000000006'::uuid THEN
+    RETURN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM companies WHERE id = c AND is_demo IS TRUE) THEN
+    RETURN;
+  END IF;
+
+  -- Vincula às funções de mão de obra da DEMO (vínculo vivo); se não achar, fica manual (congelado).
+  SELECT id INTO v_enc FROM projetos_mao_obra WHERE company_id = c AND funcao ILIKE 'Encarregado%' ORDER BY codigo LIMIT 1;
+  SELECT id INTO v_ped FROM projetos_mao_obra WHERE company_id = c AND funcao ILIKE 'Pedreiro%'    ORDER BY codigo LIMIT 1;
+  SELECT id INTO v_srv FROM projetos_mao_obra WHERE company_id = c AND funcao ILIKE 'Servente%'    ORDER BY codigo LIMIT 1;
+
+  -- Idempotente: reusa a "Equipe Lapa" se já existir (fn_projetos_equipe_salvar re-sincroniza os membros).
+  SELECT id INTO v_id FROM projetos_equipe WHERE company_id = c AND nome = 'Equipe Lapa' LIMIT 1;
+
+  PERFORM public.fn_projetos_equipe_salvar(
+    c,
+    jsonb_build_object(
+      'nome', 'Equipe Lapa',
+      'descricao', 'Equipe de obra padrão (DEMO) — encarregado, pedreiro e servente'),
+    jsonb_build_array(
+      jsonb_build_object('nome_pessoa','João Encarregado','funcao_nome','Encarregado de obra','funcao_mao_obra_id', v_enc, 'custo_hora', 45),
+      jsonb_build_object('nome_pessoa','Pedro Pedreiro','funcao_nome','Pedreiro','funcao_mao_obra_id', v_ped, 'custo_hora', 28),
+      jsonb_build_object('nome_pessoa','Sérgio Servente','funcao_nome','Servente','funcao_mao_obra_id', v_srv, 'custo_hora', 18)
+    ),
+    v_id
+  );
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_demo_seed_construtora_equipes(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_demo_seed_construtora_equipes(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_seed_construtora_equipes(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.fn_demo_seed_construtora_equipes(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_demo_seed_construtora_equipes(uuid) TO postgres;
+
+-- 2) Hook durável: fn_demo_seed_construtora (chamada por fn_demo_reset) passa a semear a equipe a
+-- cada reset. Reemissão FIEL da função viva + 1 linha "PERFORM fn_demo_seed_construtora_equipes(c);"
+-- logo após "PERFORM fn_demo_seed_construtora_partes(c);".
+-- ci-sem-guarda: fn_demo_seed_construtora — seed SÓ-DEMO, empresa fixa b0700000-…-006 + guarda is_demo (não recebe empresa variável)
+
+CREATE OR REPLACE FUNCTION public.fn_demo_seed_construtora(p_company_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  c constant uuid := 'b0700000-0000-4000-a000-000000000006';
+  v_hoje date := current_date;
+  v_base jsonb; v_crono jsonb;
+  v_obra record; v_orc uuid; v_pl uuid; v_n_apont int := 0; v_n_orc int := 0; v_n_pl int := 0;
+  v_mo uuid[]; v_srv uuid[];
+  k int;
+BEGIN
+  IF p_company_id IS DISTINCT FROM c THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'so_empresa_demo_hub');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM companies WHERE id = c AND is_demo IS TRUE) THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'nao_e_demo');
+  END IF;
+  -- fiscal/viagem ligados a obra não são apagados por seed: se existirem, para sem mexer em nada
+  IF EXISTS (SELECT 1 FROM erp_nfse_emitidas WHERE obra_id IN (SELECT id FROM projetos_obras WHERE company_id = c))
+     OR EXISTS (SELECT 1 FROM erp_nfse_obra_medicao WHERE obra_id IN (SELECT id FROM projetos_obras WHERE company_id = c))
+     OR EXISTS (SELECT 1 FROM erp_viagem_lancamento WHERE company_id = c AND pagar_id IS NOT NULL) THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'obra_demo_com_fiscal_ou_viagem');
+  END IF;
+
+  -- zera o que depende das obras/oportunidades/orçamentos da demo (ordem das FKs)
+  PERFORM fn_demo_seed_construtora_viagem_ge(c, 'limpar');
+  PERFORM fn_demo_seed_construtora_fc(c, 'limpar');
+  PERFORM fn_demo_seed_construtora_extras(c, 'limpar');
+  DELETE FROM projetos_obra_tarefa_dependencia WHERE company_id = c;
+  DELETE FROM projetos_obra_rdo WHERE company_id = c;
+  DELETE FROM projetos_obra_os WHERE company_id = c;
+  DELETE FROM projetos_obra_tarefa WHERE company_id = c;
+  DELETE FROM projetos_obra_mao_obra_apontamento WHERE company_id = c;
+  DELETE FROM projetos_obra_rateio WHERE company_id = c;
+  DELETE FROM erp_obra_planta_ambiente WHERE company_id = c;
+  DELETE FROM erp_obra_planta WHERE company_id = c;
+  DELETE FROM projetos_obra_item WHERE company_id = c;
+  DELETE FROM projetos_obras WHERE company_id = c;
+  DELETE FROM erp_crm_visita WHERE company_id = c;
+  UPDATE erp_crm_lead SET oportunidade_id = NULL WHERE company_id = c AND oportunidade_id IS NOT NULL;
+  DELETE FROM erp_crm_oportunidade WHERE company_id = c;
+  DELETE FROM erp_orcamentos WHERE company_id = c;
+
+  v_base := fn_gold_hub_seed_reparar(c);
+  IF COALESCE((v_base->>'ok')::boolean, false) IS NOT TRUE THEN
+    RAISE EXCEPTION 'fn_demo_seed_construtora: base falhou %', v_base;
+  END IF;
+  v_crono := fn_gold_hub_cronograma_seed_reparar(c);
+
+  SELECT array_agg(id ORDER BY codigo) INTO v_mo FROM projetos_mao_obra WHERE company_id = c AND codigo LIKE 'DEMO-M%';
+  SELECT array_agg(id ORDER BY codigo) INTO v_srv FROM projetos_servicos WHERE company_id = c AND codigo LIKE 'DEMO-S%';
+
+  FOR v_obra IN
+    SELECT o.id, o.numero, o.nome, o.cliente_id, o.cliente_nome, o.oportunidade_id, o.status,
+           COALESCE(o.data_inicio, v_hoje - 30) AS ini, COALESCE(o.data_conclusao, v_hoje) AS ate,
+           row_number() OVER (ORDER BY o.numero) AS n
+      FROM projetos_obras o WHERE o.company_id = c AND o.numero LIKE 'DEMO-OB-%' ORDER BY o.numero
+  LOOP
+    -- apontamentos: 1 por semana desde o início (até hoje ou a conclusão), função em rodízio
+    FOR k IN 0..7 LOOP
+      EXIT WHEN v_obra.ini + k * 7 > v_obra.ate;
+      INSERT INTO projetos_obra_mao_obra_apontamento (company_id, obra_id, data, funcao_id, descricao, horas, custo_hora)
+      SELECT c, v_obra.id, v_obra.ini + k * 7, m.funcao_id,
+             m.funcao || ' — ' || (ARRAY['mobilização e marcação','estrutura e perfis','fechamento','acabamento'])[(k % 4) + 1],
+             CASE WHEN k % 2 = 0 THEN 16 ELSE 8 END,
+             round(m.custo_hora * (1 + COALESCE(m.encargos_pct, 0) / 100.0), 2)
+        FROM projetos_mao_obra m WHERE m.id = v_mo[(k % array_length(v_mo, 1)) + 1];
+      v_n_apont := v_n_apont + 1;
+    END LOOP;
+
+    -- orçamento aprovado da obra (rascunho → itens → aprovado; a obra já aponta para ele, então o gatilho não cria outra)
+    INSERT INTO erp_orcamentos (company_id, numero, cliente_id, cliente_nome, data_emissao, data_validade, status,
+                                eh_obra, obra_id, obra_cidade, obra_uf, vendedor_nome, condicao_pagamento, observacoes)
+    VALUES (c, 'DEMO-ORC-00' || v_obra.n, v_obra.cliente_id, v_obra.cliente_nome, v_obra.ini - 12, v_obra.ini + 18,
+            'rascunho', true, v_obra.id, 'Chapecó', 'SC', 'Responsável Demo', 'Medição mensal', v_obra.nome)
+    RETURNING id INTO v_orc;
+    UPDATE projetos_obras SET orcamento_id = v_orc WHERE id = v_obra.id;
+    INSERT INTO erp_orcamentos_itens (orcamento_id, company_id, ordem, tipo_item, servico_id, servico_codigo, servico_descricao,
+                                      produto_nome, unidade, quantidade, preco_unitario, preco_custo, subtotal,
+                                      bdi_percentual, margem_percentual)
+    SELECT v_orc, c, i.ordem, 'servico', s.id, s.codigo, s.nome, s.nome, i.unidade, i.quantidade_contratada,
+           i.preco_unitario, i.custo_unitario_previsto, round(i.quantidade_contratada * i.preco_unitario, 2),
+           i.bdi_percentual,
+           CASE WHEN i.preco_unitario > 0 THEN round((i.preco_unitario - i.custo_unitario_previsto) / i.preco_unitario * 100, 2) END
+      FROM projetos_obra_item i JOIN projetos_servicos s ON s.id = i.servico_id
+     WHERE i.obra_id = v_obra.id ORDER BY i.ordem;
+    UPDATE projetos_obra_item i SET orcamento_item_id = oi.id
+      FROM erp_orcamentos_itens oi WHERE oi.orcamento_id = v_orc AND oi.servico_id = i.servico_id AND oi.ordem = i.ordem
+       AND i.obra_id = v_obra.id;
+    UPDATE erp_orcamentos SET status = 'aprovado', data_aprovacao = (v_obra.ini - 3)::timestamptz WHERE id = v_orc;
+    IF v_obra.oportunidade_id IS NOT NULL THEN
+      UPDATE erp_crm_oportunidade o SET orcamento_id = v_orc, valor_proposta = r.total
+        FROM erp_orcamentos r WHERE r.id = v_orc AND o.id = v_obra.oportunidade_id;
+    END IF;
+    v_n_orc := v_n_orc + 1;
+
+    -- números da obra coerentes com os itens e os apontamentos (fórmulas no cabeçalho)
+    UPDATE projetos_obras o SET
+      valor_previsto = COALESCE((SELECT round(sum(i.quantidade_contratada * i.preco_unitario), 2)
+                                   FROM projetos_obra_item i WHERE i.obra_id = o.id AND i.excluido_em IS NULL), 0),
+      custo_realizado = COALESCE((SELECT round(sum(i.quantidade_medida * s.custo_material), 2)
+                                    FROM projetos_obra_item i JOIN projetos_servicos s ON s.id = i.servico_id
+                                   WHERE i.obra_id = o.id AND i.excluido_em IS NULL), 0)
+                      + COALESCE((SELECT sum(a.valor) FROM projetos_obra_mao_obra_apontamento a
+                                   WHERE a.obra_id = o.id AND a.excluido_em IS NULL), 0)
+     WHERE o.id = v_obra.id;
+    PERFORM fn_obra_recalcular_medido(v_obra.id);
+
+    -- planta de takeoff confirmada em todas as obras demo
+    IF v_obra.n >= 1 THEN
+      INSERT INTO erp_obra_planta (company_id, orcamento_id, nome, arquivo_path, arquivo_tipo, escala_informada, status,
+                                   projeto_nome, cliente_nome, cliente_id, obra_cidade, obra_uf, data_projeto,
+                                   engenheiro_responsavel, ia_resumo, analisado_em)
+      VALUES (c, v_orc, 'Planta baixa – ' || v_obra.nome, 'demo/plantas/' || v_obra.numero || '.pdf', 'pdf', '1:50',
+              'confirmada', v_obra.nome, v_obra.cliente_nome, v_obra.cliente_id, 'Chapecó', 'SC', v_obra.ini - 20,
+              'Eng. Responsável Demo', jsonb_build_object('origem', 'demo', 'ambientes', 3), now())
+      RETURNING id INTO v_pl;
+      INSERT INTO erp_obra_planta_ambiente (company_id, planta_id, nome, largura_m, comprimento_m, area_m2, perimetro_ml,
+                                            pe_direito_m, confianca, origem, confirmado, servico_id, base_calculo)
+      SELECT c, v_pl, a.nome, a.l, a.cmp, round(a.l * a.cmp, 2), round(2 * (a.l + a.cmp), 2), 2.70,
+             a.conf, 'ia', true, v_srv[a.srv], a.base
+        FROM (VALUES ('Sala', 5.20::numeric, 6.00::numeric, 'alta', v_obra.n::int, 'area'),
+                     ('Recepção', 3.80, 4.50, 'alta', v_obra.n::int, 'area'),
+                     ('Divisória administrativo', 4.00, 0.10, 'media', 2, 'pe_direito_parede')) AS a(nome, l, cmp, conf, srv, base);
+      UPDATE erp_obra_planta p SET area_total_m2 = (SELECT sum(area_m2) FROM erp_obra_planta_ambiente WHERE planta_id = p.id)
+       WHERE p.id = v_pl;
+      v_n_pl := v_n_pl + 1;
+    END IF;
+  END LOOP;
+
+  -- orçamento ENVIADO da oportunidade em proposta (sem obra ainda)
+  INSERT INTO erp_orcamentos (company_id, numero, cliente_id, cliente_nome, data_emissao, data_validade, status, eh_obra,
+                              obra_cidade, obra_uf, vendedor_nome, condicao_pagamento, observacoes)
+  SELECT c, 'DEMO-ORC-005', o.cliente_id, cl.nome_fantasia, v_hoje - 5, v_hoje + 25, 'enviado', true, 'Chapecó', 'SC',
+         'Responsável Demo', 'Medição mensal', o.titulo
+    FROM erp_crm_oportunidade o LEFT JOIN erp_clientes cl ON cl.id = o.cliente_id
+   WHERE o.company_id = c AND o.etapa = 'proposta_enviada' ORDER BY o.titulo LIMIT 1
+  RETURNING id INTO v_orc;
+  IF v_orc IS NOT NULL THEN
+    INSERT INTO erp_orcamentos_itens (orcamento_id, company_id, ordem, tipo_item, servico_id, servico_codigo, servico_descricao,
+                                      produto_nome, unidade, quantidade, preco_unitario, preco_custo, subtotal,
+                                      bdi_percentual, margem_percentual)
+    SELECT v_orc, c, q.ordem, 'servico', s.id, s.codigo, s.nome, s.nome, s.unidade, q.qtd,
+           round(s.custo_unitario_total * 1.35, 2), s.custo_unitario_total, round(q.qtd * round(s.custo_unitario_total * 1.35, 2), 2),
+           35, round((round(s.custo_unitario_total * 1.35, 2) - s.custo_unitario_total) / NULLIF(round(s.custo_unitario_total * 1.35, 2), 0) * 100, 2)
+      FROM (VALUES (1, 3, 180::numeric), (2, 4, 420::numeric)) AS q(ordem, srv, qtd)
+      JOIN projetos_servicos s ON s.id = v_srv[q.srv];
+    UPDATE erp_crm_oportunidade o SET orcamento_id = v_orc, valor_proposta = r.total
+      FROM erp_orcamentos r WHERE r.id = v_orc AND o.company_id = c AND o.etapa = 'proposta_enviada';
+    v_n_orc := v_n_orc + 1;
+  END IF;
+
+  -- visitas da agenda (ids fixos; oportunidade pelo título — os ids das oportunidades mudam a cada reset)
+  INSERT INTO erp_crm_visita (id, company_id, oportunidade_id, data_visita, status, endereco, anotacoes, responsavel_nome)
+  SELECT v.id::uuid, c, o.id,
+         ((date_trunc('day', now() AT TIME ZONE 'America/Sao_Paulo') + v.delta
+           + CASE right(v.id, 1) WHEN '1' THEN interval '9 hours' WHEN '2' THEN interval '14 hours 30 minutes'
+                                 WHEN '3' THEN interval '10 hours' ELSE interval '15 hours' END)
+          AT TIME ZONE 'America/Sao_Paulo'), v.st, v.ender, v.nota, 'Equipe DEMO'
+    FROM (VALUES
+      ('b0700000-0000-4000-a000-0000000d0101', 'Forro e divisórias – Residencial Vista Verde', interval '-6 days', 'realizada', 'Rua das Acácias, 120 - Vista Verde', 'Medidas conferidas; forro em 3 ambientes e divisória na sala.'),
+      ('b0700000-0000-4000-a000-0000000d0102', 'Piso e pintura – Clínica Bem Viver', interval '-2 days', 'realizada', 'Av. Central, 450 - Clínica Bem Viver', 'Piso com preparo de contrapiso; pintura em duas demãos.'),
+      ('b0700000-0000-4000-a000-0000000d0103', 'Drywall sala comercial – Horizonte', interval '2 days', 'agendada', 'Rua do Comércio, 77 - Horizonte', 'Levar trena a laser; confirmar pé-direito.'),
+      ('b0700000-0000-4000-a000-0000000d0104', 'Reforma loja – Mercado Central', interval '-9 days', 'cancelada', 'Praça do Mercado, 10 - Mercado Central', 'Cliente remarcou; reagendar.')
+    ) AS v(id, titulo, delta, st, ender, nota)
+    JOIN erp_crm_oportunidade o ON o.company_id = c AND o.titulo = v.titulo
+  ON CONFLICT (id) DO NOTHING;
+
+  -- estoque da calculadora (DEMO-CALC-*) e BDI: só cria o que falta (não são apagados no reset)
+  INSERT INTO erp_produtos (company_id, codigo, nome, unidade, preco_custo, preco_custo_medio, ativo)
+  SELECT c, 'DEMO-CALC-' || upper(t.chave), t.nome, t.unidade, t.custo, t.custo, true
+    FROM (VALUES
+      ('chapa','Chapa de gesso standard 12,5 mm','chapa',38.50), ('guia','Guia 48 mm (barra 3 m)','barra',14.20),
+      ('montante','Montante 48 mm (barra 3 m)','barra',16.80), ('banda','Banda acústica (rolo 10 m)','rolo',21.00),
+      ('la','Lã mineral (rolo)','rolo',96.00), ('parafuso','Parafuso PPA25 (cento)','cento',14.90),
+      ('parafuso_ppa35','Parafuso PPA35 (cento)','cento',18.90), ('massa','Massa para junta (balde 5 kg)','balde',32.00),
+      ('fita','Fita para junta (rolo)','rolo',12.50), ('perfil_f530','Perfil F530 (barra 3 m)','barra',11.40),
+      ('tabica','Tabica (barra 3 m)','barra',12.90), ('pendural','Pendural','un',1.20), ('tirante','Tirante','un',2.10),
+      ('uniao','União F530','un',0.95), ('ppa25','Parafuso PPA25 forro (cento)','cento',14.90),
+      ('pfm13','Parafuso PFM13 (cento)','cento',16.40), ('nervura','Nervura forro aramado','un',18.30),
+      ('juncao_h','Junção H','un',0.80), ('arame','Arame nº 18 (kg)','kg',19.00), ('gesso_cola','Gesso cola (saco 40 kg)','saco',27.00)
+    ) AS t(chave, nome, unidade, custo)
+   WHERE NOT EXISTS (SELECT 1 FROM erp_produtos p WHERE p.company_id = c AND p.codigo = 'DEMO-CALC-' || upper(t.chave));
+  INSERT INTO erp_calc_depara (company_id, sistema, chave, produto_id)
+  SELECT c, s.sistema, k.chave, p.id
+    FROM unnest(ARRAY['parede','parede_separativa','parede_corta_fogo','revestimento_estruturado','revestimento_colado','forro_aramado','forro_f530']) AS s(sistema)
+    CROSS JOIN LATERAL unnest(CASE s.sistema
+        WHEN 'forro_f530' THEN ARRAY['chapa','perfil_f530','tabica','pendural','tirante','uniao','ppa25','pfm13','massa','fita']
+        WHEN 'forro_aramado' THEN ARRAY['chapa','nervura','juncao_h','arame','gesso_cola','massa','fita']
+        WHEN 'revestimento_colado' THEN ARRAY['chapa','gesso_cola','massa','fita']
+        ELSE ARRAY['chapa','guia','montante','banda','la','parafuso','parafuso_ppa35','massa','fita'] END) AS k(chave)
+    JOIN erp_produtos p ON p.company_id = c AND p.codigo = 'DEMO-CALC-' || upper(k.chave)
+  ON CONFLICT (company_id, sistema, chave) DO NOTHING;
+  INSERT INTO projetos_modulo_config (company_id, bdi_total_pct)
+  SELECT c, 31.86 WHERE NOT EXISTS (SELECT 1 FROM projetos_modulo_config WHERE company_id = c);
+
+  PERFORM fn_demo_seed_construtora_extras(c, 'semear');
+  PERFORM fn_demo_seed_construtora_fc(c, 'semear');
+  PERFORM fn_demo_seed_construtora_custo_tarefa(c);
+  PERFORM fn_demo_seed_construtora_receita(c);
+  PERFORM fn_demo_seed_construtora_os(c);
+  PERFORM fn_demo_seed_construtora_os_horas(c);
+  PERFORM fn_demo_seed_construtora_rdo(c);
+  PERFORM fn_demo_seed_construtora_requisicao(c);
+  PERFORM fn_demo_seed_construtora_viagem_ge(c, 'semear');
+  PERFORM fn_demo_seed_construtora_partes(c);
+  PERFORM fn_demo_seed_construtora_equipes(c);
+  RETURN jsonb_build_object('ok', true, 'base', v_base, 'cronograma', v_crono,
+    'apontamentos', v_n_apont, 'orcamentos', v_n_orc, 'plantas', v_n_pl,
+    'visitas', (SELECT count(*) FROM erp_crm_visita WHERE company_id = c));
+END
+$function$
+;
+
+-- ACL do mestre reemitido: CREATE OR REPLACE preserva os grants vivos (proacl = {postgres=X, service_role=X};
+-- authenticated/anon sem EXECUTE). REVOKE PUBLIC, anon reafirma o fechamento sem escalonar privilégio.
+REVOKE ALL ON FUNCTION public.fn_demo_seed_construtora(uuid) FROM PUBLIC, anon;
+
+-- 3) Semeia AGORA na DEMO 006 existente (idempotente), sem esperar o próximo reset.
+SELECT public.fn_demo_seed_construtora_equipes('b0700000-0000-4000-a000-000000000006'::uuid);

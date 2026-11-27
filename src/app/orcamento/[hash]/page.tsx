@@ -55,6 +55,19 @@ export default function OrcamentoPublicoPage() {
     })();
   }, [hash]);
 
+  // CEO 24/11: aberta em modo impressão (botão "Imprimir"/"Baixar PDF" do painel Finalizar do editor) →
+  // dispara a impressão do navegador assim que a proposta carrega (o usuário pode salvar como PDF).
+  useEffect(() => {
+    if (loading || !dados) return;
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get("imprimir") === "1") {
+        const t = setTimeout(() => window.print(), 600);
+        return () => clearTimeout(t);
+      }
+    } catch { /* sem window: ignora */ }
+  }, [loading, dados]);
+
   const enviar = async (acao: 'aprovar' | 'recusar') => {
     if (!nomeAprovador.trim()) {
       alert("Por favor, informe seu nome para " + (acao === 'aprovar' ? 'aprovar' : 'recusar'));
@@ -135,6 +148,28 @@ export default function OrcamentoPublicoPage() {
           </div>
         </div>
       </div>
+
+      {/* Partes do projeto — logos lado a lado (Prestadora · Gestão da obra · Cliente). Só aparece se houver gestora/
+          cliente com logo ou nome; proposta antiga sem essas partes segue com o cabeçalho de sempre. */}
+      {(orc.gestora_logo_url || orc.gestora_nome || orc.cliente_logo_url) && (
+        <div style={{ background: '#FFFFFF', borderBottom: '1px solid #E7DECF', padding: '12px 24px' }}>
+          <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            {[
+              { rotulo: 'Prestadora', url: empresa.logo_url as string | null, nome: (empresa.nome_fantasia || empresa.razao_social) as string },
+              { rotulo: 'Gestão da obra', url: (orc.gestora_logo_url as string | null) ?? null, nome: (orc.gestora_nome as string | null) ?? '' },
+              { rotulo: 'Cliente', url: (orc.cliente_logo_url as string | null) ?? null, nome: (orc.cliente_nome as string | null) ?? '' },
+            ].filter((p) => p.url || p.nome).map((p) => (
+              <div key={p.rotulo} style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                <div style={{ fontSize: 9, letterSpacing: 1, textTransform: 'uppercase', color: '#9A8C7A' }}>{p.rotulo}</div>
+                {p.url
+                  // eslint-disable-next-line @next/next/no-img-element
+                  ? <img src={p.url} alt={p.rotulo} style={{ height: 34, maxWidth: 120, objectFit: 'contain', display: 'block' }} />
+                  : <div style={{ fontSize: 13, fontWeight: 600, color: MARROM, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 170 }}>{p.nome}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Status banner */}
       {(jaRespondido || expirado) && (

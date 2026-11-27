@@ -65,6 +65,12 @@ export default function BalancoPage() {
   const [novaErro, setNovaErro] = useState<string | null>(null)
   // confirmação premium (RD-99) — substitui window.confirm
   const [confirmacao, setConfirmacao] = useState<Confirmacao | null>(null)
+  // Conciliação de caixa entre telas (auditor_pdca_2 27/11, critério c/e): o Balanço mostra "Caixa e bancos"
+  // só das contas bancárias (fonte closure-correta); o Caixa do Grupo soma também os lançamentos pagos SEM
+  // conta vinculada. Para as duas telas NUNCA divergirem sem explicação, buscamos o MESMO número do
+  // fn_caixa_grupo_dia (a mesma função da tela Caixa do Grupo) e exibimos a conciliação na linha "Caixa e
+  // bancos". Não altera o balanço nem o fechamento — é só uma nota de explicação da diferença.
+  const [semConta, setSemConta] = useState<{ n: number; saldo: number; grupo: number } | null>(null)
 
   const periodo = periodoDe(dataRef)
 
@@ -72,7 +78,7 @@ export default function BalancoPage() {
     if (!empresaUnica) return
     setBusy(true); setMsg(null)
     const { data, error } = await supabase.rpc('fn_balanco_patrimonial', { p_company_id: empresaUnica, p_data_ref: dataRef })
-    if (error) { setMsg('Erro: ' + erroAmigavel(error)); setBal(null) }
+    if (error) { setMsg('Erro: ' + erroAmigavel(error)); setBal(null); setSemConta(null) }
     else {
       const b = data as Balanco
       setBal(b)
@@ -82,6 +88,16 @@ export default function BalancoPage() {
         e[k] = { nome: l.nome, valor: l.valor != null ? numeroParaMoeda(l.valor) : '', ordem: String(l.ordem ?? 0) }
       }
       setEd(e)
+      // Conciliação de caixa (mesma fonte da tela Caixa do Grupo) — explica a diferença, não altera o balanço.
+      try {
+        const { data: cg } = await supabase.rpc('fn_caixa_grupo_dia', { p_company_ids: [empresaUnica], p_data: dataRef })
+        const j = cg as { empresas?: Array<{ sem_conta_n?: number; contas?: Array<{ nome?: string; saldo_final?: number }> }>; consolidado?: { saldo_final?: number } } | null
+        const e0 = j?.empresas?.[0]
+        const sc = e0?.contas?.find((c) => c?.nome === 'Sem conta')
+        const n = Number(e0?.sem_conta_n ?? 0)
+        if (n > 0 && sc) setSemConta({ n, saldo: Number(sc.saldo_final ?? 0), grupo: Number(j?.consolidado?.saldo_final ?? 0) })
+        else setSemConta(null)
+      } catch { setSemConta(null) }
     }
     setBusy(false)
   }, [empresaUnica, dataRef])
@@ -159,13 +175,32 @@ export default function BalancoPage() {
     const k = keyOf(l)
     if (!l.editavel) {
       // CALCULADA — read-only, com cadeado + tooltip da fonte
+      const mostrarConc = l.nome === 'Caixa e bancos' && semConta != null
       return (
-        <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 13 }}>
-          <span title={`Calculado de: ${l.fonte ?? '—'}`} style={{ width: 18, cursor: 'help' }}>🔒</span>
-          <span style={{ flex: 1, color: l.origem === 'ausente' ? '#9A6A00' : ESP }} title={l.fonte ?? undefined}>
-            {l.nome}{l.origem === 'ausente' && l.motivo && <span style={{ fontSize: 10.5, color: ESP60 }}> · {l.motivo}</span>}
-          </span>
-          <span style={{ width: 120, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt(l.valor)}</span>
+        <div key={k}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 13 }}>
+            <span title={`Calculado de: ${l.fonte ?? '—'}`} style={{ width: 18, cursor: 'help' }}>🔒</span>
+            <span style={{ flex: 1, color: l.origem === 'ausente' ? '#9A6A00' : ESP }} title={l.fonte ?? undefined}>
+              {l.nome}{l.origem === 'ausente' && l.motivo && <span style={{ fontSize: 10.5, color: ESP60 }}> · {l.motivo}</span>}
+            </span>
+            <span style={{ width: 120, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt(l.valor)}</span>
+          </div>
+          {mostrarConc && semConta && (
+            // Conciliação com o Caixa do Grupo (auditor_pdca_2 27/11): o mesmo número que a tela Caixa do Grupo
+            // mostra no balde "Sem conta". "Caixa e bancos" (só contas) + "Sem conta" = Caixa do Grupo.
+            <div data-testid="ge-balanco-conciliacao-sem-conta" style={{ margin: '2px 0 6px 26px', padding: '7px 9px', background: '#FFF8EC', border: `1px solid ${LINE}`, borderRadius: 7, fontSize: 11.5, color: ESP60, lineHeight: 1.55 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                ℹ️ Há <strong style={{ color: ESP }}>R$ {fmt(semConta.saldo)}</strong> em {semConta.n} lançamento(s) pago(s) <strong>sem conta bancária</strong> vinculada.
+                <AjudaCampo chave="ge.balanco.caixa_sem_conta" rota={ROTA} />
+              </span>
+              <div style={{ marginTop: 3 }}>
+                Esse valor entra no{' '}
+                <a href="/dashboard/financeiro/caixa-grupo" style={{ color: GOLD, textDecoration: 'underline' }}>Caixa do Grupo</a>{' '}
+                (saldo R$ {fmt(semConta.grupo)}), mas não no saldo de bancos acima — por isso as duas telas diferem.
+                Atribua uma conta a esses lançamentos para conciliar.
+              </div>
+            </div>
+          )}
         </div>
       )
     }
@@ -244,6 +279,24 @@ export default function BalancoPage() {
             // Balanço fecha. Quando fecha por conta da linha-plug "a apurar (fechamento)" (ajuste_apurar != 0),
             // mostramos o ajuste EXPLÍCITO — o selo nunca esconde que o PL ainda não foi apurado (Capital Social/Reservas).
             Math.abs(bal.ajuste_apurar ?? 0) >= 0.01 ? (
+              // GAP 2 (auditor_pdca_2 26/11, critério e): a linha-plug "a apurar" é absorvida no PL, então `fecha`
+              // é SEMPRE true quando há plug, por maior que ele seja. Quando o plug é MATERIAL (> 5% do Ativo) NÃO
+              // exibimos o selo verde "✓ Balanço fecha": seria uma falsa sensação de balanço conciliado — ele só
+              // "fecha" porque falta informar o Capital Social/Reservas. Plug pequeno (imaterial) mantém o verde.
+              Math.abs(bal.ajuste_apurar ?? 0) > 0.05 * Math.abs(bal.ativo_total) ? (
+                <div style={{ marginTop: 16, padding: '14px 16px', borderRadius: 10, background: '#FFF6E6', border: `1px solid ${AMBER}55` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                    <span style={{ fontWeight: 700, color: AMBER, display: 'inline-flex', alignItems: 'center', gap: 4 }}>⚠️ Fechamento por apurar — falta informar Capital Social / Reservas <AjudaCampo chave="ge.balanco.fechamento" rota={ROTA} /></span>
+                    <span style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: AMBER }}>A apurar: R$ {fmt(bal.ajuste_apurar)}</span>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: ESP, marginTop: 8, lineHeight: 1.5 }}>
+                    O balanço só “fecha” porque o Patrimônio Líquido inclui uma linha de ajuste de <strong>R$ {fmt(bal.ajuste_apurar)}</strong>
+                    {Math.abs(bal.ativo_total) > 0 ? ` (≈ ${Math.round(Math.abs(bal.ajuste_apurar ?? 0) / Math.abs(bal.ativo_total) * 100)}% do Ativo)` : ''}.
+                    Enquanto o <strong>Capital Social</strong> e as <strong>Reservas</strong> não forem informados, o Patrimônio Líquido não está apurado — este <strong>não</strong> é um balanço conciliado.
+                  </div>
+                  <button onClick={() => abrirNovaLinha('pl', 'PATRIMÔNIO LÍQUIDO')} disabled={busy} style={ctaPl}>+ Lançar Capital Social / Reservas</button>
+                </div>
+              ) : (
               <div style={{ marginTop: 16, padding: '14px 16px', borderRadius: 10, background: '#EEF6E3', border: `1px solid ${GREEN}55` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                   <span style={{ fontWeight: 700, color: GREEN, display: 'inline-flex', alignItems: 'center', gap: 4 }}>✓ Balanço fecha (com ajuste a apurar) <AjudaCampo chave="ge.balanco.fechamento" rota={ROTA} /></span>
@@ -255,6 +308,7 @@ export default function BalancoPage() {
                 </div>
                 <button onClick={() => abrirNovaLinha('pl', 'PATRIMÔNIO LÍQUIDO')} disabled={busy} style={ctaPl}>+ Lançar Capital Social / Reservas</button>
               </div>
+              )
             ) : (
               <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 10, background: '#E8F4DC', border: `1px solid ${GREEN}55`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontWeight: 700, color: GREEN, display: 'inline-flex', alignItems: 'center', gap: 4 }}>✓ Balanço fecha <AjudaCampo chave="ge.balanco.fechamento" rota={ROTA} /></span>
