@@ -24,8 +24,8 @@ ok(/ADD COLUMN IF NOT EXISTS imposto_produtos_pct/.test(mig) && /imposto_servico
 ok(/CREATE TABLE IF NOT EXISTS public\.erp_os_mao_obra_manual/.test(mig) && /ENABLE ROW LEVEL SECURITY/.test(mig) && /REVOKE ALL ON public\.erp_os_mao_obra_manual FROM anon/.test(mig),
   'tabela de tempo manual com RLS e fechada ao anon')
 // cálculo da sobra líquida = diferença − tributos − taxa de cartão
-ok(/venda_liq - .*compra_total.*imp_prod.*imp_serv.*taxa_real \+ .*taxa_estimada/s.test(mig) || /sobra_liq/.test(mig),
-  'migration calcula a sobra líquida')
+ok(/sobra_liq/.test(mig) && /venda_liq[\s\S]*compra_total[\s\S]*taxa_real[\s\S]*taxa_estimada/.test(mig),
+  'migration calcula a sobra líquida (diferença − tributos − taxa de cartão)')
 ok(/busca_norm|fn_oficina_pode_ver_custo\(p_company_id\)/.test(mig) && /tenant_user_roles[\s\S]*CLIENT_OWNER[\s\S]*CLIENT_MANAGER/.test(mig),
   'dado sensível só para CLIENT_OWNER/CLIENT_MANAGER (+PS_ADMIN)')
 ok(/REVOKE ALL ON FUNCTION public\.fn_oficina_comparativo_os/.test(mig) && /REVOKE ALL ON FUNCTION public\.fn_oficina_comparativo_geral/.test(mig),
