@@ -1,17 +1,17 @@
 -- [bug] Consignação (CST 41) recusa por cBenef/redução incompatível (spec 26/11 · Code: rodrigo-manual).
 -- Núcleo fiscal — NÃO mergear sem revisão do Eng. Chefe.
 --
--- Item 2 (validação do perfil, genérico p/ todo cliente): ao APROVAR um perfil fiscal, bloquear quando uma operação
---   de CST NÃO tributada (40/41/50/60) trouxer REDUÇÃO de base — isso é o pacote do CST 20; a SEFAZ rejeita. Esse é o
---   chokepoint único (o perfil só emite quando aprovado), cobrindo o save da empresa e o do contador. O cBenef
---   incompatível é tratado no EMISSOR (monta o ICMS estritamente pelo CST) — validar cBenef×CST×UF no save exigiria a
---   tabela da SEFAZ/SC, que não temos aqui; por isso o mínimo seguro (redução) bloqueia no banco e o resto no emissor.
--- Item 3 (dados Alliance): limpar cbenef/redução das operações CST 041 consignacao_retorno e consignacao_venda do
---   perfil aprovado 9e012009. Idempotente e guardado; registra a correção (com os valores ANTES) no audit_log_global.
---   Correção in-place (não nova versão): o fluxo formal de nova versão + aprovação exige um aprovador logado
---   (CLIENT_OWNER/PS), indisponível numa migration; o emissor já garante XML válido. Decisão final na revisão.
+-- DECISÃO DO SÓCIO (ajuste 27/11): NÃO alterar cadastro/dado de perfil. O cBenef é específico de cada empresa e
+-- fica como está — quem resolve a nota é o EMISSOR (icmsVeiculoPorCst, no código), não mexer no dado. Por isso esta
+-- migration NÃO limpa mais cbenef/redução de nenhuma operação; ela traz apenas a guarda genérica abaixo.
+--
+-- Item 2 (validação do perfil, só config NOVA): ao APROVAR um perfil fiscal, bloquear quando uma operação de CST NÃO
+--   tributada (40/41/50/60) trouxer REDUÇÃO de base — isso é o pacote do CST 20; a SEFAZ rejeita. Chokepoint único (o
+--   perfil só emite quando aprovado), cobrindo o save da empresa e o do contador. NÃO toca dado já existente: só barra
+--   a nova aprovação inconsistente; perfis já aprovados seguem intactos e o emissor garante o XML válido. O cBenef
+--   incompatível é tratado no emissor (monta o ICMS estritamente pelo CST); validar cBenef×CST×UF no save exigiria a
+--   tabela da SEFAZ/SC, que não temos aqui.
 
--- ── Item 2 · guarda de redução em CST não tributada na aprovação ────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.fn_veic_perfil_fiscal_aprovar(p_perfil_id uuid, p_user uuid DEFAULT NULL::uuid, p_vigente_desde date DEFAULT NULL::date)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -36,7 +36,7 @@ BEGIN
 
   -- #bug consignação · CST não tributada (40/41/50/60) NÃO leva redução de base (é pacote do CST 20). A SEFAZ rejeita
   -- e a nota não sai. Bloqueia a aprovação, nomeando a operação, em vez de deixar emitir errado. (cBenef incompatível
-  -- é saneado no emissor, que monta o ICMS estritamente pelo CST.)
+  -- é saneado no emissor, que monta o ICMS estritamente pelo CST.) Só barra config NOVA; não altera dado existente.
   IF EXISTS (
     SELECT 1 FROM veic_perfil_fiscal_operacao o
      WHERE o.perfil_id = p_perfil_id
@@ -68,34 +68,3 @@ BEGIN
                              'operacoes', COALESCE(v_ops, '[]'::jsonb)));
   RETURN jsonb_build_object('ok', true, 'status', 'aprovado', 'vigente_desde', v_vig, 'versao', v_versao);
 END $function$;
-
--- ── Item 3 · dados da Alliance (perfil 9e012009): CST 41 consignação sem cBenef/redução ─────────────────────
--- Registra a correção (valores ANTES) e só então limpa. Idempotente: re-rodar não acha nada e não duplica o log.
-INSERT INTO public.audit_log_global (company_id, tabela, registro_id, acao, valor_anterior, valor_novo)
-SELECT p.company_id, 'veic_perfil_fiscal_operacao', '9e012009-2058-4fff-b1c8-0f0cefa23db8',
-       'perfil_fiscal_op_corrigida_cst41',
-       (SELECT jsonb_agg(jsonb_build_object('operacao', o.operacao, 'cbenef', o.cbenef, 'reducao_base_icms_pct', o.reducao_base_icms_pct) ORDER BY o.operacao)
-          FROM public.veic_perfil_fiscal_operacao o
-         WHERE o.perfil_id = '9e012009-2058-4fff-b1c8-0f0cefa23db8'
-           AND o.operacao IN ('consignacao_retorno','consignacao_venda')
-           AND regexp_replace(coalesce(o.cst_ou_csosn,''),'[^0-9]','','g') IN ('41','041')
-           AND (o.cbenef IS NOT NULL OR o.reducao_base_icms_pct IS NOT NULL)),
-       jsonb_build_object('motivo','CST 41 (nao tributada) nao leva cBenef nem reducao — pacote do CST 20 copiado por engano; contador confirmou',
-                          'cbenef', NULL::text, 'reducao_base_icms_pct', NULL::numeric)
-  FROM public.veic_perfil_fiscal p
- WHERE p.id = '9e012009-2058-4fff-b1c8-0f0cefa23db8'
-   AND EXISTS (SELECT 1 FROM public.veic_perfil_fiscal_operacao o
-                WHERE o.perfil_id = '9e012009-2058-4fff-b1c8-0f0cefa23db8'
-                  AND o.operacao IN ('consignacao_retorno','consignacao_venda')
-                  AND regexp_replace(coalesce(o.cst_ou_csosn,''),'[^0-9]','','g') IN ('41','041')
-                  AND (o.cbenef IS NOT NULL OR o.reducao_base_icms_pct IS NOT NULL))
-   AND NOT EXISTS (SELECT 1 FROM public.audit_log_global a
-                    WHERE a.registro_id = '9e012009-2058-4fff-b1c8-0f0cefa23db8'
-                      AND a.acao = 'perfil_fiscal_op_corrigida_cst41');
-
-UPDATE public.veic_perfil_fiscal_operacao
-   SET cbenef = NULL, reducao_base_icms_pct = NULL
- WHERE perfil_id = '9e012009-2058-4fff-b1c8-0f0cefa23db8'
-   AND operacao IN ('consignacao_retorno','consignacao_venda')
-   AND regexp_replace(coalesce(cst_ou_csosn,''),'[^0-9]','','g') IN ('41','041')
-   AND (cbenef IS NOT NULL OR reducao_base_icms_pct IS NOT NULL);

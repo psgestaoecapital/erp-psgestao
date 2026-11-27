@@ -49,12 +49,13 @@ ok(me.item.icms?.cst === '41' && me.item.icms?.cBenef === undefined && me.item.i
 const venda20 = montarItemVeiculo({ ...vendaBase, operacaoNome: 'venda', perfil: { ...vendaBase.perfil, operacao: { ...vendaBase.perfil.operacao, cfopDentroUf: '5102', cfopForaUf: '6102', cstOuCsosn: '020' } } }, 'SC', 'SC', false)
 ok(venda20.item.icms?.cst === '20' && venda20.item.icms?.cBenef === 'SC820019' && venda20.item.icms?.reducaoBase === 95, 'venda CST 20 não regride: mantém cBenef SC820019 + redução 95')
 
-// ── migration: guarda na aprovação + correção dos dados da Alliance ─────────────────────────────────────────
+// ── migration: só a guarda na aprovação (ajuste 27/11: NÃO altera dado de perfil) ───────────────────────────
 const mig = read('supabase/migrations/20261128134230_consig_cst41_cbenef_reducao.sql')
 ok(/CREATE OR REPLACE FUNCTION public\.fn_veic_perfil_fiscal_aprovar/.test(mig), 'migration: reescreve fn_veic_perfil_fiscal_aprovar')
 ok(/cst_nao_tributada_com_reducao/.test(mig) && /reducao_base_icms_pct, 0\) <> 0/.test(mig), 'migration: aprovação bloqueia redução em CST não tributada')
-ok(/UPDATE public\.veic_perfil_fiscal_operacao/.test(mig) && /SET cbenef = NULL, reducao_base_icms_pct = NULL/.test(mig) && /9e012009-2058-4fff-b1c8-0f0cefa23db8/.test(mig), 'migration: limpa cbenef/redução das operações CST 041 da Alliance')
-ok(/perfil_fiscal_op_corrigida_cst41/.test(mig) && /NOT EXISTS/.test(mig), 'migration: registra a correção no audit e é idempotente')
+// decisão do sócio: nenhuma alteração de cadastro/dado de perfil nesta PR.
+ok(!/UPDATE public\.veic_perfil_fiscal_operacao/.test(mig) && !/SET cbenef = NULL/.test(mig) && !/perfil_fiscal_op_corrigida_cst41/.test(mig), 'migration: NÃO limpa/altera dado de perfil (só a guarda na aprovação)')
+ok(!/9e012009-2058-4fff-b1c8-0f0cefa23db8/.test(mig), 'migration: não referencia o perfil de nenhuma empresa específica')
 
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
 console.log('\nOK')
