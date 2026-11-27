@@ -211,14 +211,20 @@ export default function BotSlackPage() {
             No Slack, abra <strong>Apps → Incoming Webhooks</strong>, escolha o canal e copie o endereço gerado (começa com <code>https://hooks.slack.com/…</code>).
           </p>
 
+          {/* RD-95 (desenvolvedor_4_g): o campo fica DENTRO de uma <label> para a régua associar o "?"
+              ao controle (antes o <AjudaCampo> ficava só na <div> irmã, fora do alcance → falso-positivo). */}
           <div style={{ marginTop: 12 }}>
-            <div style={label}>Nome do canal (apelido) <AjudaCampo chave="pm.bot.canal_nome" rota={ROTA} /></div>
-            <input style={input} value={canal} onChange={(e) => setCanal(e.target.value)} placeholder="#jobs-agencia" inputMode="text" />
+            <label>
+              <div style={label}>Nome do canal (apelido) <AjudaCampo chave="pm.bot.canal_nome" rota={ROTA} /></div>
+              <input style={input} value={canal} onChange={(e) => setCanal(e.target.value)} placeholder="#jobs-agencia" inputMode="text" />
+            </label>
           </div>
 
           <div style={{ marginTop: 12 }}>
-            <div style={label}>Endereço do webhook <AjudaCampo chave="pm.bot.webhook" rota={ROTA} /></div>
-            <input style={input} value={webhook} onChange={(e) => setWebhook(e.target.value)} placeholder="https://hooks.slack.com/services/…" inputMode="url" autoComplete="off" />
+            <label>
+              <div style={label}>Endereço do webhook <AjudaCampo chave="pm.bot.webhook" rota={ROTA} /></div>
+              <input style={input} value={webhook} onChange={(e) => setWebhook(e.target.value)} placeholder="https://hooks.slack.com/services/…" inputMode="url" autoComplete="off" />
+            </label>
             <p style={{ color: TEXTM, fontSize: 12, marginTop: 6 }}>🔒 Guardado em cofre criptografado. Não aparece de novo depois de salvo.</p>
           </div>
 

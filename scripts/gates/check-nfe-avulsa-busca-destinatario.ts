@@ -57,7 +57,8 @@ async function simula() {
 // ---- filtro compartilhado dos demais seletores (NF-e da OS, orçamento, agenda): documento nas DUAS colunas ----
 const filtro = orFiltroClienteBusca('028.144.060-35') ?? ''
 ok(filtro.includes('cpf_cnpj.ilike.%02814406035%') && filtro.includes('cnpj_cpf.ilike.%02814406035%'), 'filtro compartilhado busca o documento em cpf_cnpj E cnpj_cpf')
-ok(/nome_fantasia\.ilike\.%Jordana%/.test(orFiltroClienteBusca('Jordana') ?? '') && !/cpf_cnpj/.test(orFiltroClienteBusca('Jordana') ?? ''), 'nome sem dígitos não vira filtro de documento (bug Jordana 08/07 segue fechado)')
+// #5451: o nome vira filtro pela coluna normalizada `busca_norm` (sem acento, minúsculo), não mais ilike cru em nome/razão.
+ok(/busca_norm\.ilike\.%jordana%/.test(orFiltroClienteBusca('Jordana') ?? '') && !/cpf_cnpj/.test(orFiltroClienteBusca('Jordana') ?? ''), 'nome sem dígitos vira filtro por busca_norm normalizada, não por documento (bug Jordana 08/07 segue fechado)')
 
 // ---- migration ----
 ok(/CREATE OR REPLACE FUNCTION public\.fn_fornecedor_buscar\(p_company_id uuid, p_termo text, p_limit int DEFAULT 10\)/.test(mig), 'migration cria fn_fornecedor_buscar')

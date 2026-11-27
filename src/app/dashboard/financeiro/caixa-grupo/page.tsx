@@ -95,6 +95,9 @@ export default function CaixaGrupoPage() {
   const [titulos, setTitulos] = useState<Titulo[] | null>(null);
   // Contas de cada empresa ABERTAS por padrão (CEO 12/11): guardamos as empresas COLAPSADAS manualmente.
   const [colapsadas, setColapsadas] = useState<Set<string>>(new Set());
+  // Contas sem movimento no período ficam ESCONDIDAS por padrão (CEO/aud8 26/11): as contas reais da empresa
+  // não podem ficar enterradas no meio de dezenas de contas zeradas. Guardamos as empresas que o usuário EXPANDIU.
+  const [semMovAberta, setSemMovAberta] = useState<Set<string>>(new Set());
 
   // Intervalo efetivo: "data" é a data FINAL (até); o início sai do atalho escolhido (ou do campo De no personalizado).
   const fim = data;
@@ -394,7 +397,18 @@ export default function CaixaGrupoPage() {
                 const aberta = !colapsadas.has(e.company_id);
                 // Contas que SOMAM no caixa (soma_no_saldo != false, exclui a linha sintética "Sem conta"),
                 // contas de CONTROLE (soma_no_saldo === false, não entram no caixa) e o aviso "Sem conta".
-                const somam = e.contas.filter((c) => c.conta_id && c.soma_no_saldo !== false);
+                const somamTodas = e.contas.filter((c) => c.conta_id && c.soma_no_saldo !== false);
+                // "Com movimento no período" = tem saldo (inicial/final), entrada, saída OU extrato. As contas
+                // totalmente zeradas e sem extrato (ex.: contas de revenda que nunca movimentaram) ficam escondidas
+                // atrás do botão "mostrar N contas sem movimento" para o usuário achar as próprias contas.
+                const temMov = (c: Conta) =>
+                  Math.abs(Number(c.saldo_inicial)) > 0.005 || Math.abs(Number(c.entradas)) > 0.005 ||
+                  Math.abs(Number(c.saidas)) > 0.005 || Math.abs(Number(c.saldo_final)) > 0.005 ||
+                  (c.saldo_extrato !== null && c.saldo_extrato !== undefined);
+                const somam = somamTodas.filter(temMov);
+                const semMov = somamTodas.filter((c) => !temMov(c));
+                const mostrarSemMov = semMovAberta.has(e.company_id);
+                const visiveis = mostrarSemMov ? [...somam, ...semMov] : somam;
                 const controle = e.contas.filter((c) => c.soma_no_saldo === false);
                 const semN = Number(e.sem_conta_n) || 0;
                 return (
@@ -418,9 +432,11 @@ export default function CaixaGrupoPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {somam.length === 0 ? (
+                          {somamTodas.length === 0 ? (
                             <tr><td colSpan={7} style={{ padding: 16, textAlign: "center", color: TXD, fontSize: 12 }}>Sem conta bancária que some no caixa nesta empresa.</td></tr>
-                          ) : somam.map((ct, i) => {
+                          ) : visiveis.length === 0 ? (
+                            <tr><td colSpan={7} style={{ padding: 16, textAlign: "center", color: TXD, fontSize: 12 }}>Nenhuma conta com movimento no período.</td></tr>
+                          ) : visiveis.map((ct, i) => {
                             const temExtrato = ct.saldo_extrato !== null && ct.saldo_extrato !== undefined;
                             const velho = temExtrato && diasAtras(ct.saldo_extrato_em) > 3;
                             const dif = temExtrato ? Number(ct.saldo_final) - Number(ct.saldo_extrato) : 0;
@@ -451,6 +467,18 @@ export default function CaixaGrupoPage() {
                         </tbody>
                       </table>
                       </div>
+
+                      {/* Contas sem movimento no período: escondidas por padrão para não enterrar as contas reais */}
+                      {semMov.length > 0 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", borderTop: `0.5px solid ${BD}` }}>
+                          <button type="button"
+                            onClick={() => setSemMovAberta((prev) => { const n = new Set(prev); if (n.has(e.company_id)) n.delete(e.company_id); else n.add(e.company_id); return n; })}
+                            style={{ background: "transparent", border: "none", color: TXM, fontSize: 12, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>
+                            {mostrarSemMov ? "▾ Ocultar" : "▸ Mostrar"} {semMov.length} conta{semMov.length > 1 ? "s" : ""} sem movimento no período
+                          </button>
+                          <AjudaCampo chave="financeiro.caixa_grupo.sem_movimento" rota={ROTA} />
+                        </div>
+                      )}
 
                       {/* Lançamentos sem conta: aviso clicável para atribuir a conta certa */}
                       {semN > 0 && (

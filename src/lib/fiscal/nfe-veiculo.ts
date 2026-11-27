@@ -94,6 +94,31 @@ export function fraseReducaoBaseIcms(cst: string, reducaoBasePct: number | null 
   return `Redução da base de cálculo do ICMS de ${String(Number(r.toFixed(2))).replace('.', ',')}%, Cfe art. 8º, II, Anexo 2, do RICMS-SC/01`
 }
 
+// #bug consignação (CST 41) · CSTs do ICMS próprio NÃO tributadas: 40 (isenta), 41 (não tributada), 50 (suspensão),
+// 60 (ICMS cobrado antes por ST). Nelas o grupo ICMS do XML leva SÓ o CST — NUNCA pRedBC (redução) nem cBenef de CST
+// tributada. cBenef/redução são o pacote do CST 20; saírem numa CST não tributada → rejeição SEFAZ ("cBenef
+// incompatível com CST e UF"). Contador (Adriana) confirmou: CST 41 não leva cBenef nem redução.
+export const CST_ICMS_NAO_TRIBUTADA = new Set(['40', '41', '50', '60'])
+export function cstIcmsNaoTributada(cst: string): boolean {
+  return CST_ICMS_NAO_TRIBUTADA.has(String(cst ?? '').trim())
+}
+
+// Grupo ICMS do item do veículo montado ESTRITAMENTE pelo CST (robustez: "com ou sem config, a nota sai válida").
+// CST 20 → base reduzida + aliquota + valor + modBc 3 + reducaoBase + cBenef (quando houver). Qualquer outra CST
+// (41/40/50/60 e demais não tributadas) → só { cst }, mesmo que o perfil traga redução/cBenef sobrando.
+export function icmsVeiculoPorCst(
+  cst: string, valor: number, aliquota: number,
+  reducaoBasePct: number | null | undefined, cbenef: string | null | undefined,
+): NonNullable<NFeProdutoItem['icms']> {
+  const c = String(cst ?? '').trim()
+  if (c === '20') {
+    const reducao = reducaoBasePct ?? 0
+    const base = round2(valor * (1 - reducao / 100))
+    return { cst: c, aliquota, base, valor: round2(base * aliquota / 100), modBc: '3', reducaoBase: reducao, ...(cbenef ? { cBenef: cbenef } : {}) }
+  }
+  return { cst: c }
+}
+
 export function infComplementarVeiculo(v: DadosVendaVeiculo['veiculo'], textoPerfil?: string | null, reducaoFrase?: string | null): string {
   const partes = [
     `Veículo: ${[v.marca, v.modelo, v.versao].filter(Boolean).join(' ')}`.trim(),
@@ -115,6 +140,19 @@ export function infComplementarVeiculo(v: DadosVendaVeiculo['veiculo'], textoPer
  * Item único da NF-e do veículo. ICMS = valor × (1 − redução) × alíquota (R$ 100.000, 95%, 12% → base 5.000, ICMS 600).
  * CFOP: 5102 dentro da UF do emitente, 6102 fora (do perfil aprovado). Sem NCM → recusa (nunca inventa).
  */
+// #9787 (ajuste) · PIS/COFINS do item do veículo lidos do PERFIL por operação (sem hardcode). MESMO motor para a VENDA
+// e para a ENTRADA/DEVOLUÇÃO: CST do perfil quando configurado, senão o padrão tributável '01' (como a venda sempre fez);
+// alíquota do perfil, senão o fallback por regime (venda) ou o padrão presumido. A entrada NÃO tem pis_pct/cofins_pct
+// no perfil (só por operação), por isso os fallbacks por regime são opcionais. Nunca OMITE os grupos: item de veículo
+// sem PIS/COFINS caía na régua de "produto sem tributação" do nfe-validator (Edição fiscal em massa), que não se aplica
+// a veículo — a tributação do veículo é do perfil fiscal, não do cadastro de produto.
+export function pisCofinsDoPerfil(op: PerfilVendaVeiculo['operacao'], perfilPisPct?: number | null, perfilCofinsPct?: number | null) {
+  return {
+    pis: { cst: op.pisCst?.trim() || '01', aliquota: op.pisAliquota ?? perfilPisPct ?? PIS_PADRAO_PRESUMIDO },
+    cofins: { cst: op.cofinsCst?.trim() || '01', aliquota: op.cofinsAliquota ?? perfilCofinsPct ?? COFINS_PADRAO_PRESUMIDO },
+  }
+}
+
 export function montarItemVeiculo(d: DadosVendaVeiculo, ufEmitente: string | undefined, ufDestino: string | undefined, ehSimples: boolean): ItemVeiculoMontado {
   const op = d.perfil.operacao
   const avisos: string[] = []
@@ -129,17 +167,11 @@ export function montarItemVeiculo(d: DadosVendaVeiculo, ufEmitente: string | und
   const cfop = (interestadual ? op.cfopForaUf : op.cfopDentroUf).trim()
 
   const cst = cstRegimeNormal(op.cstOuCsosn)
-  const reducao = op.reducaoBasePct ?? 0
   const aliq = d.perfil.icmsSaidaPct ?? ALIQUOTA_ICMS_VENDA_VEICULO_PADRAO
-  let icms: NFeProdutoItem['icms']
-  if (cst === '20') {
-    const base = round2(valor * (1 - reducao / 100))
-    icms = { cst, aliquota: aliq, base, valor: round2(base * aliq / 100), modBc: '3', reducaoBase: reducao, ...(op.cbenef ? { cBenef: op.cbenef } : {}) }
-  } else {
-    // Qualquer outro CST do perfil: não calcula nada por conta própria (nem inventa base). A rota barra no validador.
-    icms = { cst, aliquota: aliq, ...(op.cbenef ? { cBenef: op.cbenef } : {}) }
-    avisos.push(`CST ${cst || '(vazio)'} do perfil não é o 20 (redução de base) — ICMS não calculado aqui; confira com o contador.`)
-  }
+  // #bug consignação · grupo ICMS estritamente pelo CST: redução/cBenef só na CST 20; CST não tributada (ex.:
+  // consignacao_venda CST 41) sai só com o CST, mesmo com SC820019/redução sobrando no perfil.
+  const icms = icmsVeiculoPorCst(cst, valor, aliq, op.reducaoBasePct, op.cbenef)
+  if (cst !== '20') avisos.push(`CST ${cst || '(vazio)'} do perfil não é o 20 (redução de base) — ICMS não calculado aqui; confira com o contador.`)
 
   const cbsValor = round2(valor * CBS_ALIQUOTA_TESTE_2026 / 100)
   const ibsUfValor = round2(valor * IBS_UF_ALIQUOTA_TESTE_2026 / 100)
@@ -172,8 +204,7 @@ export function montarItemVeiculo(d: DadosVendaVeiculo, ufEmitente: string | und
     origem: '0',
     icms,
     // #9787 · PIS/COFINS da SAÍDA vêm do perfil por operação quando configurados (sem hardcode); senão, o padrão atual.
-    pis: { cst: op.pisCst?.trim() || '01', aliquota: op.pisAliquota ?? d.perfil.pisPct ?? PIS_PADRAO_PRESUMIDO },
-    cofins: { cst: op.cofinsCst?.trim() || '01', aliquota: op.cofinsAliquota ?? d.perfil.cofinsPct ?? COFINS_PADRAO_PRESUMIDO },
+    ...pisCofinsDoPerfil(op, d.perfil.pisPct, d.perfil.cofinsPct),
     ...(temIbsCbs ? {
       ibsCbs: {
         cst: op.ibsCbsCst as string, cClassTrib: op.ibsCbsCClassTrib as string, baseCalculo: valor,
@@ -317,17 +348,10 @@ export function montarItemVeiculoEntrada(d: DadosEntradaVeiculo, ufEmitente: str
   if (!natureza) throw new FiscalError('PAYLOAD_INVALIDO', `Natureza da operação '${d.operacao}' não configurada no perfil fiscal aprovado`)
 
   const cst = cstRegimeNormal(op.cstOuCsosn)
-  let icms: NFeProdutoItem['icms']
-  if (cst === '20') {
-    const reducao = op.reducaoBasePct ?? 0
-    const aliq = ALIQUOTA_ICMS_VENDA_VEICULO_PADRAO
-    const base = round2(valor * (1 - reducao / 100))
-    icms = { cst, aliquota: aliq, base, valor: round2(base * aliq / 100), modBc: '3', reducaoBase: reducao, ...(op.cbenef ? { cBenef: op.cbenef } : {}) }
-  } else {
-    // entrada não tributada pelo ICMS (ex.: compra PF CST 41): segue o CST do perfil, sem calcular base/valor.
-    icms = { cst, ...(op.cbenef ? { cBenef: op.cbenef } : {}) }
-    avisos.push(`ICMS pelo CST ${cst || '(vazio)'} do perfil (entrada) — sem cálculo de base/valor nesta prévia; confira com o contador.`)
-  }
+  // #bug consignação · grupo ICMS estritamente pelo CST: compra PF / consignacao_retorno (CST 41, não tributada) sai
+  // só com o CST — sem cBenef nem redução, mesmo que o perfil traga SC820019/redução (pacote do CST 20) por engano.
+  const icms = icmsVeiculoPorCst(cst, valor, ALIQUOTA_ICMS_VENDA_VEICULO_PADRAO, op.reducaoBasePct, op.cbenef)
+  if (cst !== '20') avisos.push(`ICMS pelo CST ${cst || '(vazio)'} do perfil (entrada) — sem cálculo de base/valor; confira com o contador.`)
 
   const veiculo: NonNullable<NFeProdutoItem['veiculo']> = {
     tipoOperacao: '0', chassi: d.veiculo.chassi,
@@ -340,19 +364,21 @@ export function montarItemVeiculoEntrada(d: DadosEntradaVeiculo, ufEmitente: str
   }
   const nomeVeic = [d.veiculo.marca, d.veiculo.modelo, d.veiculo.versao].filter(Boolean).join(' ')
 
-  // #9787 · PIS/COFINS da ENTRADA vêm do perfil por operação (sem hardcode). Ausentes → a nota de entrada sai sem o
-  // grupo e o nfe-validator barra na emissão real (prévia só avisa); o contador completa o perfil.
-  const pisCst = op.pisCst?.trim() || null
-  const cofinsCst = op.cofinsCst?.trim() || null
-  if (!pisCst || !cofinsCst) avisos.push('PIS/COFINS da entrada não configurados no perfil fiscal (CST) — complete com o contador antes de emitir a nota autorizada.')
+  // #9787 (ajuste) · PIS/COFINS da ENTRADA vêm do PERFIL por operação, pelo MESMO motor da venda (CST do perfil, senão
+  // '01'; alíquota do perfil, senão o padrão presumido). Antes a entrada OMITIA pis/cofins quando o perfil não trazia o
+  // CST → o nfe-validator barrava com a mensagem de "produto sem tributação" (Edição fiscal em massa), que não faz
+  // sentido para veículo (a tributação é do perfil, não do cadastro de produto). Agora a nota sai; se o perfil não
+  // especificou o CST, avisa o contador para confirmar.
+  if (!op.pisCst?.trim() || !op.cofinsCst?.trim()) {
+    avisos.push('PIS/COFINS da entrada não configurados no perfil fiscal (CST) — a nota usa o padrão tributável (01); confirme a tributação da entrada com o contador.')
+  }
 
   const item: NFeProdutoItem = {
     codigo: d.veiculo.placa || d.veiculo.chassi,
     descricao: nomeVeic || 'Veículo',
     ncm, cfop, unidade: 'UN', quantidade: 1, valorUnitario: valor, valorTotal: valor,
     origem: '0', icms,
-    ...(pisCst ? { pis: { cst: pisCst, ...(op.pisAliquota != null ? { aliquota: op.pisAliquota } : {}) } } : {}),
-    ...(cofinsCst ? { cofins: { cst: cofinsCst, ...(op.cofinsAliquota != null ? { aliquota: op.cofinsAliquota } : {}) } } : {}),
+    ...pisCofinsDoPerfil(op),
     ...(d.perfil.veicprodObrigatorioUsado ? { veiculo } : {}),
   }
 
@@ -362,6 +388,33 @@ export function montarItemVeiculoEntrada(d: DadosEntradaVeiculo, ufEmitente: str
     naturezaOperacao: natureza,
     avisos,
   }
+}
+
+// #9787 (ajuste) · A nota de ENTRADA exige a contraparte (vendedor PF na compra PF / fornecedor PJ) COMPLETA: nome,
+// documento (CPF/CNPJ) e endereço com município e UF. Diz QUAL campo falta — em vez da mensagem genérica
+// "Endereço completo do destinatário obrigatório" do validador, que não aponta onde preencher.
+export function camposFaltandoRemetenteEntrada(r: RemetenteEntrada): string[] {
+  const falta: string[] = []
+  if (!(r.nome ?? '').trim()) falta.push('nome')
+  const doc = (r.documento ?? '').replace(/\D/g, '')
+  if (!(doc.length === 11 || doc.length === 14)) falta.push(r.tipo === 'pf' ? 'CPF' : 'CNPJ')
+  const e = r.endereco
+  const endFalta: string[] = []
+  if (!(e?.logradouro ?? '').trim()) endFalta.push('logradouro')
+  if (!(e?.numero ?? '').trim()) endFalta.push('número')
+  if (!(e?.bairro ?? '').trim()) endFalta.push('bairro')
+  if (!(e?.cidade ?? '').trim()) endFalta.push('município')
+  if (!(e?.uf ?? '').trim()) endFalta.push('UF')
+  if (!(e?.cep ?? '').replace(/\D/g, '')) endFalta.push('CEP')
+  if (endFalta.length) falta.push(`endereço completo (${endFalta.join(', ')})`)
+  return falta
+}
+
+export function mensagemRemetenteEntradaIncompleto(operacao: string, tipo: 'pf' | 'pj', campos: string[]): string {
+  const quem = tipo === 'pf' ? 'o vendedor (pessoa física)' : 'o fornecedor'
+  const lista = campos.length <= 1 ? campos.join('') : `${campos.slice(0, -1).join(', ')} e ${campos[campos.length - 1]}`
+  return `Nota de entrada (${operacao}): ${quem} está incompleto — falta ${lista}. `
+    + 'Preencha os dados do vendedor no cadastro do veículo antes de emitir.'
 }
 
 /** Carrega veículo + perfil aprovado (operação de entrada) + remetente (vendedor PF na compra PF). Service role: a rota já checou a empresa. */

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/withAuth'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
-import { gravarCredencialEmpresa } from '@/lib/credenciais/servidor'
+import { gravarCredencialEmpresa, credencialEmpresa } from '@/lib/credenciais/servidor'
 import { consultarApiIbpt, gravarCacheIbpt, registrarStatusIbpt, type ConsultaIbpt } from '@/lib/fiscal/ibptEmpresa'
 import { escolherProdutoTeste, escolherVeiculoTeste, type VeiculoTeste } from '@/lib/fiscal/ibptTeste'
 
@@ -164,6 +164,45 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     })
   }
   return NextResponse.json({ ok: true, generico, testes })
+})
+
+// #bug NFS-e "sem tributos aproximados" · "Atualizar agora": reconsulta o IBPT com o token JÁ salvo (do Vault) e
+// repopula o cache (erp_ibpt_cache) + o status, SEM precisar remover/recolocar o token. Mesma consulta do "salvar e
+// testar", só que sem gravar token. Guarda: gerente (igual ao salvar).
+export const PUT = withAuth(async (req: NextRequest, { userId }) => {
+  const body = (await req.json().catch(() => ({}))) as { companyId?: string }
+  const companyId = String(body.companyId ?? '')
+  if (!companyId) return NextResponse.json({ ok: false, mensagem: 'companyId obrigatório' }, { status: 400 })
+  const negado = await guardaEmpresaFiscal({ userId, companyId, papelMinimo: 'gerente', log: { notaTipo: 'nfe', operacao: 'ibpt_token_reconsultar', endpoint: 'ibpt-token' } })
+  if (negado) return negado
+
+  const token = await credencialEmpresa(companyId, 'ibpt', 'token')
+  if (!token) return NextResponse.json({ ok: false, mensagem: 'Nenhum token do IBPT salvo nesta empresa. Cadastre o token primeiro.' }, { status: 400 })
+  const emp = await dadosEmpresa(companyId)
+  if (emp.cnpj.length !== 14 || emp.uf.length !== 2) {
+    return NextResponse.json({ ok: false, mensagem: 'Complete o CNPJ e a UF fiscal da empresa antes de atualizar o IBPT.' }, { status: 400 })
+  }
+  const { itens } = await itensDeTeste(companyId, emp.uf)
+  const resultados: Array<{ consulta: ConsultaIbpt; r: Awaited<ReturnType<typeof consultarApiIbpt>> }> = []
+  for (const consulta of itens) resultados.push({ consulta, r: await consultarApiIbpt(token, emp.cnpj, consulta) })
+  const recusado = resultados.find((x) => !x.r.ok && x.r.motivo === 'token_invalido')
+  const oks = resultados.filter((x) => x.r.ok)
+  if (recusado || oks.length === 0) {
+    const falha = (recusado ?? resultados[0]).r as { ok: false; motivo: string; mensagem: string }
+    await registrarStatusIbpt(companyId, { ultimo_erro_em: new Date().toISOString(), ultimo_erro: falha.mensagem })
+    return NextResponse.json({ ok: false, motivo: falha.motivo, mensagem: falha.mensagem }, { status: falha.motivo === 'fora_do_ar' ? 503 : 400 })
+  }
+  const agora = new Date().toISOString()
+  for (const x of oks) if (x.r.ok) await gravarCacheIbpt(companyId, x.consulta, x.r.dado, x.r.cru)
+  const ult = oks[oks.length - 1].r
+  await registrarStatusIbpt(companyId, {
+    ultima_consulta_ok: agora, ultimo_erro: null, ultimo_erro_em: null,
+    ultima_versao: ult.ok ? ult.dado.versao : null, ultima_vigencia_fim: ult.ok ? ult.dado.vigenciaFim : null,
+  })
+  return NextResponse.json({
+    ok: true, atualizados: oks.length,
+    versao: ult.ok ? ult.dado.versao : null, vigenciaFim: ult.ok ? ult.dado.vigenciaFim : null,
+  })
 })
 
 export const DELETE = withAuth(async (req: NextRequest, { userId }) => {

@@ -33,7 +33,7 @@ const STATUS: Record<string, { cor: string; label: string }> = {
   convertido: { cor: GOLD, label: 'Virou pedido' },
 }
 
-type Proposta = { id: string; company_id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null; eh_obra: boolean | null; versao: number | null; orcamento_origem_id: string | null; pdf_anexo_path: string | null; orcamentista_id: string | null; orcamentista_nome: string | null }
+type Proposta = { id: string; company_id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null; eh_obra: boolean | null; versao: number | null; orcamento_origem_id: string | null; pdf_anexo_path: string | null; orcamentista_id: string | null; orcamentista_nome: string | null; updated_at: string | null }
 // Situação visível (#3271): rascunho com orçamentista atribuído entra em "Em elaboração"; sem orçamentista volta a rascunho.
 // O status persistido segue 'rascunho' (sem risco na máquina de estados); a derivação vale na lista, no filtro e nos contadores.
 const vstatus = (l: Pick<Proposta, 'status' | 'orcamentista_id'>) => (l.status === 'rascunho' && !!l.orcamentista_id ? 'em_elaboracao' : l.status)
@@ -76,6 +76,16 @@ export default function PropostasHubPage() {
   const [filtroNumero, setFiltroNumero] = useState('')
   const [buscaNum, setBuscaNum] = useState('')
   const [ordenar, setOrdenar] = useState('data_desc')
+
+  // Entrada vinda de um indicador do Painel do Hub (§310 "todo indicador abre a lista FILTRADA"):
+  // ?status=<situação> já abre esta lista na situação clicada. Aceita um status visível conhecido ou
+  // os valores especiais 'pendente' (= rascunho OU enviado, conta do KPI "Propostas pendentes") e
+  // 'parado' (= enviado há mais de 7 dias sem retorno, conta do card "Orçamentos sem retorno").
+  // Lido uma vez, no cliente (sem useSearchParams → sem fronteira Suspense), seguindo o padrão da lista de Obras.
+  useEffect(() => {
+    const s = new URLSearchParams(window.location.search).get('status') ?? ''
+    if (s === 'pendente' || s === 'parado' || s in STATUS) setFiltro(s)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const [editId, setEditId] = useState<string | null>(null)
   const [editNum, setEditNum] = useState('')
   const [salvandoNum, setSalvandoNum] = useState(false)
@@ -103,7 +113,7 @@ export default function PropostasHubPage() {
     try {
       const { data, error, count } = await comPrazo(
         async () => {
-          let q = supabase.from('erp_orcamentos').select('id,company_id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra,versao,orcamento_origem_id,pdf_anexo_path,orcamentista_id,orcamentista_nome', { count: 'exact' })
+          let q = supabase.from('erp_orcamentos').select('id,company_id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra,versao,orcamento_origem_id,pdf_anexo_path,orcamentista_id,orcamentista_nome,updated_at', { count: 'exact' })
             .in('company_id', companyIds).is('deleted_at', null)
           // Filtro por número: consulta o banco inteiro (acha além das 100 carregadas), não só a lista client-side.
           if (buscaNum) q = q.ilike('numero', `%${buscaNum}%`)
@@ -236,7 +246,16 @@ export default function PropostasHubPage() {
 
   const vis = useMemo(() => {
     const b = busca.trim().toLowerCase()
-    const fs = linhas.filter(l => (filtro === 'todos' || vstatus(l) === filtro)
+    // Limite de "sem retorno" (card "Orçamentos sem retorno" do painel): enviado e sem toque há +7 dias.
+    // Mesma régua do painel (updated_at < hoje−7d) para a lista mostrar exatamente o que o número conta.
+    const seteDiasAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const fs = linhas.filter(l => (filtro === 'todos'
+        // 'pendente' = rascunho OU enviado (status cru), idêntico à conta do KPI "Propostas pendentes"
+        // do painel do Hub; usa o status cru porque "Em elaboração" é só a visão de um rascunho atribuído.
+        ? true
+        : filtro === 'pendente' ? (l.status === 'rascunho' || l.status === 'enviado')
+        : filtro === 'parado' ? (l.status === 'enviado' && !!l.updated_at && l.updated_at < seteDiasAtras)
+        : vstatus(l) === filtro)
       && (!soMeus || (!!meuId && l.orcamentista_id === meuId))
       && (!b || (l.numero ?? '').toLowerCase().includes(b) || (l.cliente_nome ?? '').toLowerCase().includes(b) || (l.orcamentista_nome ?? '').toLowerCase().includes(b)))
     // Padrão (data_desc) mantém a ordem do servidor (data_emissao + created_at); as demais ordenam o conjunto carregado.
@@ -393,6 +412,8 @@ export default function PropostasHubPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <select value={filtro} onChange={e => { setFiltro(e.target.value); setMostrar(POR_PAGINA) }} style={{ padding: '8px 12px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }}>
                 <option value="todos">Todos os status</option>
+                <option value="pendente">Pendentes (rascunho ou enviado)</option>
+                <option value="parado">Sem retorno (enviado há +7 dias)</option>
                 {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
               <AjudaCampo chave="projetos.propostas.status" />

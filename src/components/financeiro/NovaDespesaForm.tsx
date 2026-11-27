@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { FORMAS_PAGAMENTO, ehPix, normalizarChavePix, validarChavePix } from '@/lib/financeiro/formasPagamento'
 import { CamposPix } from './CamposPix'
+import { CampoComprovantePagar } from './ComprovantePagar'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -157,6 +158,9 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
   const [rateioAtivo, setRateioAtivo] = useState(false)
   const [rateioLinhas, setRateioLinhas] = useState<RateioLinha[]>([])
   const [numeroDocumento, setNumeroDocumento] = useState('')
+  // 22/11 · comprovante/nota do pagamento (bucket privado 'pagar-comprovantes' → erp_pagar.anexo_path).
+  const [anexoPath, setAnexoPath] = useState('')
+  const [anexoNome, setAnexoNome] = useState('')
   const [formaPagamento, setFormaPagamento] = useState('pix')
   const [tipoChavePix, setTipoChavePix] = useState('cpf_cnpj')
   const [chavePix, setChavePix] = useState('')
@@ -431,6 +435,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     setCategoriaCodigo(v.categoriaCodigo); setCentroCustoId(v.centroCustoId); setNumeroDocumento(v.numeroDocumento); setFormaPagamento(v.formaPagamento)
     setTipoChavePix(v.tipoChavePix); setChavePix(v.chavePix); setContaBancaria(v.contaBancaria)
     setObservacao(v.observacao); setCodigoBarras(v.codigoBarras); setJuros(v.juros); setMulta(v.multa); setDesconto(v.desconto)
+    setAnexoPath(String(ed.linha.anexo_path ?? '')); setAnexoNome(String(ed.linha.anexo_nome ?? ''))
     setVencimentoManual(true)   // código de barras não sobrescreve o vencimento do título
   }, [ed.linha])
 
@@ -539,6 +544,21 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     setToast(`Centro de custo "${nome}" pronto e selecionado`)
   }
 
+  // Comprovante: no CRIAR, só guarda em estado (persiste no bloco pós-insert do salvar()).
+  // No EDITAR, o título já existe → grava na hora em erp_pagar.anexo_path e confere o retorno (RD-98 p3).
+  async function aplicarAnexo(path: string, nome: string) {
+    setAnexoPath(path); setAnexoNome(nome)
+    if (!editando || !editarId) { if (path) setToast('Comprovante anexado'); return }
+    const { error } = await supabase.from('erp_pagar').update({ anexo_path: path || null, anexo_nome: nome || null }).eq('id', editarId)
+    if (error) {
+      setAnexoPath(String(ed.linha?.anexo_path ?? '')); setAnexoNome(String(ed.linha?.anexo_nome ?? ''))
+      setFeedback({ tipo: 'erro', texto: `Não foi possível salvar o comprovante: ${erroAmigavel(error, 'tente de novo')}.` })
+      return
+    }
+    setToast(path ? 'Comprovante anexado' : 'Comprovante removido')
+  }
+  function removerAnexo() { void aplicarAnexo('', '') }
+
   // Descrição OPCIONAL (pedido Jordana/BPO): se vazia, geramos a partir de
   // fornecedor + categoria do DRE — a descrição identifica a conta na lista, nos
   // relatórios e no alerta anti-duplicidade ("[descrição]"), então nunca fica vazia.
@@ -584,7 +604,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     setFornecedorId(''); setFornecedorNome(''); setDescricao(''); setValor('')
     setDataVencimento(new Date().toISOString().split('T')[0]); setDataCompetencia('')
     setParcelas(1); setIntervaloDias(30); setCategoriaCodigo(''); setCentroCustoId(''); setNumeroDocumento('')
-    setObservacao(''); setJaPago(false); setContaBancaria(''); setRateioAtivo(false); setRateioLinhas([])
+    setObservacao(''); setJaPago(false); setContaBancaria(''); setAnexoPath(''); setAnexoNome(''); setRateioAtivo(false); setRateioLinhas([])
   }
 
   // modo: 'fechar' = comportamento padrão (redireciona/onSucesso);
@@ -704,6 +724,15 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
       const { error: eCc } = await supabase.from('erp_pagar').update({ centro_custo_id: centroCustoId }).in('id', ids)
       if (eCc) {
         setFeedback({ tipo: 'erro', texto: `A despesa foi criada, mas o centro de custo não foi gravado: ${erroAmigavel(eCc, 'não foi possível gravar o centro de custo')}. Edite a despesa e escolha de novo.` })
+        return
+      }
+    }
+
+    // 22/11 · comprovante/nota do pagamento em todas as parcelas do grupo (bucket privado → anexo_path).
+    if (ids.length > 0 && anexoPath) {
+      const { error: eAnx } = await supabase.from('erp_pagar').update({ anexo_path: anexoPath, anexo_nome: anexoNome || null }).in('id', ids)
+      if (eAnx) {
+        setFeedback({ tipo: 'erro', texto: `A despesa foi criada, mas o comprovante não foi vinculado: ${erroAmigavel(eAnx, 'não foi possível gravar o comprovante')}. Edite a despesa e anexe de novo.` })
         return
       }
     }
@@ -1019,6 +1048,21 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
               {erroCentroNovo && <small style={{ ...helperStyle, color: '#b91c1c' }}>{erroCentroNovo}</small>}
             </Campo>
           )}
+
+          {/* 22/11 · comprovante/nota do pagamento — anexo no bucket privado por empresa (erp_pagar.anexo_path). */}
+          <Campo ajuda="financeiro.despesa.comprovante" ajudaRota={ROTA_AJUDA} label="Anexo (comprovante/nota)">
+            <CampoComprovantePagar
+              empresa={companyId}
+              anexoPath={anexoPath}
+              anexoNome={anexoNome}
+              onChange={(p, n) => void aplicarAnexo(p, n)}
+              onRemover={removerAnexo}
+            />
+            <small style={helperStyle}>
+              Opcional. Anexe a foto do comprovante, boleto ou nota (JPG, PNG, WEBP, HEIC ou PDF, até 20 MB).
+              Fica guardado com segurança e só quem é da empresa consegue abrir.
+            </small>
+          </Campo>
 
           {/* Rateio (gap2 PDCA 22/11): divide o lançamento entre N centros de custo por percentual. */}
           <div style={{ marginTop: 4 }}>

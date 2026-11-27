@@ -332,7 +332,7 @@ function LinhaPessoa({ p, pode, cargos, setores, onSalvar, onRemover, jornada, o
             {jornada.escala_nome && jornada.tipo_escala && <span style={{ color: MUT }}> · {jornada.tipo_escala}</span>}
             {jornada.fonte === 'sync' && <span title={`sincronizado do ponto${jornada.sincronizado_em ? ' em ' + new Date(jornada.sincronizado_em).toLocaleDateString('pt-BR') : ''}`} style={{ fontSize: 10, color: GREEN, marginLeft: 6 }}>do ponto</span>}
           </span>
-        ) : <span style={{ color: MUT }}>—</span>}
+        ) : <span style={{ color: MUT }}>Sem jornada{pode ? ' — defina ao lado' : ''}</span>}
       </td>
       <td style={td}>
         <span style={{ whiteSpace: 'nowrap' }}>

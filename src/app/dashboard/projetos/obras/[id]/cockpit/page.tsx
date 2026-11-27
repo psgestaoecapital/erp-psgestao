@@ -29,6 +29,13 @@ type Resultado = {
 }
 // Contexto da obra (avanço físico, prazo, cliente) — vem de projetos_obras, não da view de resultado financeiro.
 type ObraInfo = { pct_conclusao: number | null; data_inicio: string | null; data_prevista_fim: string | null; cliente_nome: string | null; cidade: string | null; area_construida_m2: number | null }
+// Ação 5W2H aberta ligada a esta obra (erp_plano_acao.obra_id). Leitura por fn_obra_plano_acao_abertas; não trava a tela.
+type AcaoObra = { id: string; codigo: string | null; titulo: string; quando: string | null; responsavel_nome: string | null; status: string; prioridade: string | null; atrasada: boolean }
+// Últimos diários de obra (RDO) desta obra (§329 prontuário): leitura direta de projetos_obra_rdo (RLS por empresa); não trava a tela.
+type DiarioObra = { id: string; data: string; efetivo: number | null; atividades: string | null; ocorrencias: string | null; fotos: string[] | null }
+// Etapas (tarefas do cronograma) atrasadas desta obra (§329 prontuário): fim no passado e ainda não concluídas (percentual < 100).
+// Leitura direta de projetos_obra_tarefa (RLS por empresa); não trava a tela.
+type EtapaAtrasada = { id: string; nome: string; fim: string | null; percentual: number | null }
 type Linha = { k: string; ajuda: string; l: string; v: number }
 type Card = { k: string; ajuda: string; l: string; v: string; sub: string; cor?: string; bar?: number | null; linhas?: Linha[] }
 
@@ -46,11 +53,17 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   // Breakdown financeiro do cockpit (§329 cbde929d): orçado × contratado × pago × pendente, lido por fn_obra_cockpit_orcamento
   // (guarda por empresa). Falha aqui não trava a tela — o bloco cai nos estados vazios.
   const [orc, setOrc] = useState<{ orcado: number; contratado: number; pago: number; pendente: number } | null>(null)
+  // Ações 5W2H abertas ligadas a esta obra (§112b6b3a): leitura por fn_obra_plano_acao_abertas. Falha aqui não trava a tela.
+  const [acoes, setAcoes] = useState<AcaoObra[] | null>(null)
+  // Últimos diários (RDO) desta obra (§329): os 5 mais recentes, para ver o andamento sem sair do cockpit. Falha aqui não trava a tela.
+  const [diarios, setDiarios] = useState<DiarioObra[] | null>(null)
+  // Etapas atrasadas do cronograma desta obra (§329): as 5 mais atrasadas. Falha aqui não trava a tela.
+  const [etapasAtrasadas, setEtapasAtrasadas] = useState<EtapaAtrasada[] | null>(null)
 
   const consulta = useCallback(async () => await supabase.from('v_obra_resultado_alocado').select('*').eq('obra_id', id).maybeSingle(), [id])
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); setCodigoErro('OBRA-LINK'); return }
-    setLoading(true); setErro(null); setCodigoErro(null); setOrc(null)
+    setLoading(true); setErro(null); setCodigoErro(null); setOrc(null); setAcoes(null); setDiarios(null); setEtapasAtrasadas(null)
     let res: Awaited<ReturnType<typeof consulta>>
     try { res = await comPrazo(consulta, { ms: 8000, tentativas: 1, label: 'cockpit-obra' }) } catch { setLoading(false); setErro(MSG_CARREGAMENTO_FALHOU); setCodigoErro('OBRA-REDE'); return }
     const { data, error } = res
@@ -76,6 +89,12 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
       const j = od as { ok?: boolean; orcado?: number; contratado?: number; pago?: number; pendente?: number } | null
       if (j && j.ok) setOrc({ orcado: Number(j.orcado ?? 0), contratado: Number(j.contratado ?? 0), pago: Number(j.pago ?? 0), pendente: Number(j.pendente ?? 0) })
     } catch { /* breakdown é opcional no cockpit */ }
+    // Ações 5W2H abertas desta obra: leitura guardada por empresa. Não trava a tela — o bloco cai no estado vazio.
+    try {
+      const { data: ad } = await supabase.rpc('fn_obra_plano_acao_abertas', { p_obra_id: id })
+      const j = ad as { ok?: boolean; resultados?: AcaoObra[] } | null
+      if (j && j.ok) setAcoes(Array.isArray(j.resultados) ? j.resultados : [])
+    } catch { /* bloco de ações é opcional no cockpit */ }
     // Regularização: conta documentos vencidos / a vencer em 30 dias para virar pendência. Não trava a tela.
     try {
       const { data: licData } = await supabase.rpc('fn_obra_licenca_listar', { p_obra_id: id })
@@ -88,6 +107,25 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
         })
       }
     } catch { /* leitura de licença é opcional no cockpit */ }
+    // Últimos diários de obra (RDO): os 5 mais recentes não excluídos. Leitura guardada por empresa (RLS). Não trava a tela.
+    try {
+      const { data: dd } = await supabase.from('projetos_obra_rdo')
+        .select('id,data,efetivo,atividades,ocorrencias,fotos')
+        .eq('obra_id', id).is('excluido_em', null)
+        .order('data', { ascending: false }).order('criado_em', { ascending: false }).limit(5)
+      setDiarios(Array.isArray(dd) ? (dd as DiarioObra[]) : [])
+    } catch { /* bloco de diários é opcional no cockpit */ }
+    // Etapas atrasadas (cronograma): tarefas com fim no passado e ainda não concluídas (percentual < 100 ou não lançado).
+    // As 5 mais atrasadas (fim mais antigo primeiro). Leitura guardada por empresa (RLS). Não trava a tela.
+    try {
+      const hojeStr = new Date().toISOString().slice(0, 10)
+      const { data: ea } = await supabase.from('projetos_obra_tarefa')
+        .select('id,nome,fim,percentual')
+        .eq('obra_id', id).is('excluido_em', null)
+        .lt('fim', hojeStr).or('percentual.lt.100,percentual.is.null')
+        .order('fim', { ascending: true }).limit(5)
+      setEtapasAtrasadas(Array.isArray(ea) ? (ea as EtapaAtrasada[]) : [])
+    } catch { /* bloco de etapas atrasadas é opcional no cockpit */ }
   }, [consulta, id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
@@ -293,6 +331,86 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
                   ? <div style={{ fontSize: 12, color: VERDE }}>Nenhuma pendência. Obra em ordem.</div>
                   : <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: ESP }}>{pendencias.map((p) => <li key={p}>{p}</li>)}</ul>}
               </div>
+              {/* Ações 5W2H abertas desta obra (§112b6b3a): o que ainda está em aberto, com responsável e prazo, sem sair do cockpit. */}
+              <div data-testid="cockpit-acoes-obra" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>Ações abertas desta obra <AjudaCampo chave="projetos.cockpit.acoes_abertas" rota={ROTA} /></div>
+                  <Link href="/dashboard/hub/plano-acao?area=hub" data-testid="link-plano-acao-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>Plano de ação (5W2H) →</Link>
+                </div>
+                {acoes === null
+                  ? <div style={{ fontSize: 12, color: MUT }}>Carregando ações…</div>
+                  : acoes.length === 0
+                    ? <div style={{ fontSize: 12, color: MUT }}>Nenhuma ação aberta ligada a esta obra. Registre o que precisa resolver no <Link href="/dashboard/hub/plano-acao?area=hub" style={{ color: GOLD, fontWeight: 700, textDecoration: 'none' }}>plano de ação (5W2H)</Link> e ligue à obra.</div>
+                    : <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {acoes.map((a: AcaoObra) => (
+                          <li key={a.id} data-testid="cockpit-acao-item" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, borderTop: `0.5px solid ${LINE}`, paddingTop: 8 }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 12.5, color: ESP, fontWeight: 600 }}>{a.codigo ? `${a.codigo} · ` : ''}{a.titulo}</div>
+                              <div style={{ fontSize: 11, color: MUT, marginTop: 2 }}>
+                                {a.responsavel_nome || 'Sem responsável'}
+                                {a.quando ? ` · vence ${new Date(a.quando + 'T00:00:00').toLocaleDateString('pt-BR')}` : ' · sem prazo'}
+                              </div>
+                            </div>
+                            <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, borderRadius: 999, padding: '2px 8px', color: a.atrasada ? VERM : GOLD, background: a.atrasada ? 'rgba(185,28,28,0.10)' : 'rgba(200,148,26,0.12)' }}>{a.atrasada ? 'Atrasada' : (a.status === 'em_andamento' ? 'Em andamento' : 'Aberta')}</span>
+                          </li>
+                        ))}
+                      </ul>}
+              </div>
+
+              {/* Últimos diários de obra (RDO) desta obra (§329 prontuário): o andamento recente do campo sem sair do cockpit. */}
+              <div data-testid="cockpit-diarios-obra" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>Últimos diários de obra <AjudaCampo chave="projetos.cockpit.ultimos_diarios" rota={ROTA} /></div>
+                  <Link href={`/dashboard/projetos/obras/${id}/rdo?area=hub`} data-testid="link-diarios-rdo" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>Diário de obra (RDO) →</Link>
+                </div>
+                {diarios === null
+                  ? <div style={{ fontSize: 12, color: MUT }}>Carregando diários…</div>
+                  : diarios.length === 0
+                    ? <div style={{ fontSize: 12, color: MUT }}>Nenhum diário registrado nesta obra. Registre o dia a dia da obra no <Link href={`/dashboard/projetos/obras/${id}/rdo?area=hub`} style={{ color: GOLD, fontWeight: 700, textDecoration: 'none' }}>diário de obra (RDO)</Link>.</div>
+                    : <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {diarios.map((d: DiarioObra) => (
+                          <li key={d.id} data-testid="cockpit-diario-item" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, borderTop: `0.5px solid ${LINE}`, paddingTop: 8 }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 12.5, color: ESP, fontWeight: 600 }}>{d.data ? new Date(d.data + 'T00:00:00').toLocaleDateString('pt-BR') : 'Sem data'}</div>
+                              <div style={{ fontSize: 11, color: MUT, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {d.atividades?.trim() || d.ocorrencias?.trim() || 'Sem atividades anotadas'}
+                              </div>
+                            </div>
+                            <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, borderRadius: 999, padding: '2px 8px', color: GOLD, background: 'rgba(200,148,26,0.12)' }}>{(d.efetivo ?? 0)} no efetivo{(d.fotos?.length ?? 0) > 0 ? ` · ${d.fotos?.length} foto${(d.fotos?.length ?? 0) > 1 ? 's' : ''}` : ''}</span>
+                          </li>
+                        ))}
+                      </ul>}
+              </div>
+
+              {/* Etapas atrasadas do cronograma (§329 prontuário): o que passou do prazo e não foi concluído, sem sair do cockpit. */}
+              <div data-testid="cockpit-etapas-atrasadas" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>Etapas atrasadas <AjudaCampo chave="projetos.cockpit.etapas_atrasadas" rota={ROTA} /></div>
+                  <Link href={`/dashboard/projetos/obras/${id}/cronograma?area=hub`} data-testid="link-etapas-cronograma" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>Ver cronograma →</Link>
+                </div>
+                {etapasAtrasadas === null
+                  ? <div style={{ fontSize: 12, color: MUT }}>Carregando etapas…</div>
+                  : etapasAtrasadas.length === 0
+                    ? <div style={{ fontSize: 12, color: VERDE }}>Nenhuma etapa atrasada. Cronograma em dia.</div>
+                    : <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {etapasAtrasadas.map((e: EtapaAtrasada) => {
+                          const dias = e.fim ? Math.max(0, Math.round((new Date(hoje + 'T12:00:00').getTime() - new Date(e.fim + 'T12:00:00').getTime()) / 86400000)) : null
+                          const pct = e.percentual == null ? 0 : Number(e.percentual)
+                          return (
+                            <li key={e.id} data-testid="cockpit-etapa-atrasada-item" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, borderTop: `0.5px solid ${LINE}`, paddingTop: 8 }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 12.5, color: ESP, fontWeight: 600 }}>{e.nome}</div>
+                                <div style={{ fontSize: 11, color: MUT, marginTop: 2 }}>
+                                  {pct.toFixed(0)}% concluído{e.fim ? ` · prazo ${new Date(e.fim + 'T12:00:00').toLocaleDateString('pt-BR')}` : ' · sem prazo'}
+                                </div>
+                              </div>
+                              {dias != null && <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, borderRadius: 999, padding: '2px 8px', color: VERM, background: 'rgba(185,28,28,0.10)' }}>{dias} dia{dias === 1 ? '' : 's'} de atraso</span>}
+                            </li>
+                          )
+                        })}
+                      </ul>}
+              </div>
+
               {/* Ações da obra: contêiner que quebra linha sem cortar (antes eram links soltos com margens inconsistentes que estouravam no mobile) */}
               <nav aria-label="Ações da obra" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px 18px', marginTop: 2 }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/ficha?area=hub`} data-testid="link-ficha-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Ficha da obra →</Link><AjudaCampo chave="projetos.cockpit.ficha" rota={ROTA} /></span>

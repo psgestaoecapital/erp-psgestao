@@ -146,6 +146,17 @@ export default function PropostasPage() {
   // aprovação → contrato recorrente na GE + comissão
   const [apr, setApr] = useState<Proposta | null>(null)
   const [aprForm, setAprForm] = useState({ fee: '', dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica', nParcelas: '', dataFim: '', primeiroVenc: '', clienteEmail: '', clienteTelefone: '', clienteCnpj: '' })
+  // GO-LIVE agência piloto (CEO 25/11, item 11): % padrão de comissão do comercial (Configurações › Comissões).
+  // Pré-preenche o campo de comissão na aprovação — sem isso toda comissão prevista nascia com 0%.
+  const [comPadrao, setComPadrao] = useState('')
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => {
+    if (!empresa) { setComPadrao(''); return }
+    void supabase.rpc('fn_agency_comissao_config_listar', { p_company_id: empresa }).then(({ data }) => {
+      const pct = ((data ?? []) as { papel: string; percentual: number | null }[]).find((p) => p.papel === 'comercial')?.percentual
+      setComPadrao(pct ? String(pct) : '')
+    })
+  }, [empresa])
 
   const carregar = async () => {
     if (!empresa) { setPropostas([]); setLoading(false); return }
@@ -426,7 +437,7 @@ export default function PropostasPage() {
   }
 
   function abrirAprovar(p: Proposta) {
-    setAprForm({ fee: numeroParaMoeda(p.valor_final ?? p.valor_total), dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica', nParcelas: '', dataFim: '', primeiroVenc: proximoVenc(10), clienteEmail: '', clienteTelefone: '', clienteCnpj: '' })
+    setAprForm({ fee: numeroParaMoeda(p.valor_final ?? p.valor_total), dia: '10', periodicidade: 'mensal', comPct: comPadrao, comBase: 'fee', comTipo: 'unica', nParcelas: '', dataFim: '', primeiroVenc: proximoVenc(10), clienteEmail: '', clienteTelefone: '', clienteCnpj: '' })
     setApr(p)
     // SPEC 4.1 + §3: puxa contato E CNPJ do cadastro do cliente para o bloco "Dados para o financeiro".
     // O CNPJ é obrigatório quando nasce contrato (fail-closed no banco) — se faltar, o comercial corrige o cadastro.
