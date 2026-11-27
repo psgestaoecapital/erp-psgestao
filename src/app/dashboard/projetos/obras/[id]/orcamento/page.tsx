@@ -47,6 +47,9 @@ const ehAncestral = (cod: string, p: string) => (p.startsWith('=') ? p.slice(1) 
 type Servico = { id: string; codigo: string | null; nome: string; unidade: string | null; eap_codigo: string | null; custo_material: number | null; custo_mao_obra: number | null }
 // Item individual do orçamento com complemento EAP (para editar/excluir) — fn_projetos_orcamento_item_eap_listar (#5814)
 type ItemEap = { item_id: string; servico_id: string | null; servico_codigo: string | null; servico_descricao: string | null; unidade: string | null; eap_codigo: string; local_tipo: string | null; local_nome: string | null; quantidade: number; custo_material_unit: number | null; custo_mao_obra_unit: number | null; subtotal: number }
+// §108 — orçamento candidato a ORIGEM da cópia (outro orçamento da MESMA empresa). fn_projetos_orcamento_copiar
+// ADICIONA os itens da origem a este orçamento (não substitui) — a RPC exige mesma empresa (isolamento de tenant).
+type OrcamentoOrigem = { id: string; numero: string | null; cliente_nome: string | null; total: number | null; status: string | null; data_emissao: string | null }
 // Os 6 tipos de local (projetos_local_tipo). O LOCAL é dimensão do item, não nível da EAP.
 const LOCAIS: { codigo: string; nome: string }[] = [
   { codigo: 'ambiente', nome: 'Ambiente / área comum' },
@@ -95,10 +98,25 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   const [memForm, setMemForm] = useState<{ memorial: string; especificacao: string }>({ memorial: '', especificacao: '' })
   const [memSalvando, setMemSalvando] = useState(false)
   const [memErro, setMemErro] = useState<string | null>(null)
+  // §315 (essencial): reserva do orçamento — "Riscos e imprevistos" e "Pós-obra" como % do custo (editável),
+  // com projeção do custo total. Leitura por RLS (projetos_orcamento_reserva); escrita por RPC.
+  const [reservaRiscos, setReservaRiscos] = useState('')
+  const [reservaPos, setReservaPos] = useState('')
+  const [reservaSalvando, setReservaSalvando] = useState(false)
+  const [reservaErro, setReservaErro] = useState<string | null>(null)
+  const [reservaMsg, setReservaMsg] = useState<string | null>(null)
   // §315 MODOS: modo do Hub da empresa e prefixos EAP do(s) ramo(s) da prestadora.
   const [modoHub, setModoHub] = useState<ModoHub>('construtora')
   const [prefixosRamo, setPrefixosRamo] = useState<string[]>([])
   const [soMeuRamo, setSoMeuRamo] = useState(true)
+  // §108 "Copiar de outro orçamento": modal de seleção da origem (mesma empresa) + resultado da cópia.
+  const [copiarAberto, setCopiarAberto] = useState(false)
+  const [origens, setOrigens] = useState<OrcamentoOrigem[]>([])
+  const [origensCarregando, setOrigensCarregando] = useState(false)
+  const [origemSel, setOrigemSel] = useState('')
+  const [copiando, setCopiando] = useState(false)
+  const [erroCopiar, setErroCopiar] = useState<string | null>(null)
+  const [avisoCopia, setAvisoCopia] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
@@ -122,6 +140,12 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
       mapaMem[r.orcamento_item_id] = { memorial: r.memorial_descritivo ?? '', especificacao: r.especificacao_tecnica ?? '' }
     }
     setMemoriais(mapaMem)
+    // §315: reserva (riscos/imprevistos e pós-obra) do orçamento — leitura por RLS (escrita por RPC).
+    const { data: rsv } = await supabase.from('projetos_orcamento_reserva').select('riscos_pct,pos_obra_pct').eq('orcamento_id', info.orcamento_id).maybeSingle()
+    const r = rsv as { riscos_pct?: number; pos_obra_pct?: number } | null
+    setReservaRiscos(r?.riscos_pct != null && r.riscos_pct > 0 ? String(r.riscos_pct) : '')
+    setReservaPos(r?.pos_obra_pct != null && r.pos_obra_pct > 0 ? String(r.pos_obra_pct) : '')
+    setReservaMsg(null); setReservaErro(null)
     // Total cheio do orçamento e nº de itens vivos — para distinguir a fatia EAP do total do orçamento.
     const { data: orc } = await supabase.from('erp_orcamentos').select('total,status').eq('id', info.orcamento_id).maybeSingle()
     setOrcTotal((orc as { total?: number } | null)?.total ?? null)
@@ -194,6 +218,22 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     setMemAberto(null)
   }
 
+  // §315: salva a reserva (riscos/imprevistos e pós-obra) do orçamento pela RPC (guarda por empresa).
+  const salvarReserva = async () => {
+    if (!obra?.orcamento_id) return
+    const risc = num(reservaRiscos) ?? 0
+    const pos = num(reservaPos) ?? 0
+    if (risc < 0 || risc > 100 || pos < 0 || pos > 100) { setReservaErro('Os percentuais devem ficar entre 0 e 100.'); return }
+    setReservaSalvando(true); setReservaErro(null); setReservaMsg(null)
+    const { data, error } = await supabase.rpc('fn_projetos_orcamento_reserva_salvar', {
+      p_orcamento_id: obra.orcamento_id, p_riscos_pct: risc, p_pos_obra_pct: pos,
+    })
+    setReservaSalvando(false)
+    const j = data as { ok?: boolean } | null
+    if (error || !j?.ok) { setReservaErro(erroAmigavel(error, 'Não foi possível salvar a reserva.')); return }
+    setReservaMsg('Reserva salva.')
+  }
+
   // Abre o formulário em branco para um item novo.
   const abrirNovo = () => { fecharForm(); setFormAberto(true) }
 
@@ -233,6 +273,39 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     const { error } = await supabase.rpc('fn_projetos_orcamento_garantir', { p_obra_id: id })
     setCriandoOrc(false)
     if (error) { setErro(erroAmigavel(error, 'Não foi possível criar o orçamento desta obra.')); return }
+    await carregar()
+  }
+
+  // §108: abre o seletor e carrega os OUTROS orçamentos da mesma empresa (candidatos a origem da cópia).
+  // Filtra por company_id da obra (a RPC só copia dentro da mesma empresa) e exclui o próprio destino. RLS reforça.
+  const abrirCopiar = useCallback(async () => {
+    setCopiarAberto(true); setErroCopiar(null); setOrigemSel(''); setAvisoCopia(null)
+    if (!companyId || !obra?.orcamento_id) { setOrigens([]); return }
+    setOrigensCarregando(true)
+    const { data } = await supabase.from('erp_orcamentos')
+      .select('id,numero,cliente_nome,total,status,data_emissao')
+      .eq('company_id', companyId).neq('id', obra.orcamento_id)
+      .order('data_emissao', { ascending: false, nullsFirst: false }).limit(200)
+    setOrigens((data ?? []) as OrcamentoOrigem[])
+    setOrigensCarregando(false)
+  }, [companyId, obra?.orcamento_id])
+
+  const fecharCopiar = () => { setCopiarAberto(false); setOrigemSel(''); setErroCopiar(null) }
+
+  // §108: copia (ADICIONA) os itens do orçamento de origem para este, pela RPC fn_projetos_orcamento_copiar.
+  const copiarOrcamento = async () => {
+    if (!obra?.orcamento_id) return
+    if (!origemSel) { setErroCopiar('Escolha o orçamento de origem.'); return }
+    setCopiando(true); setErroCopiar(null)
+    const { data, error } = await supabase.rpc('fn_projetos_orcamento_copiar', {
+      p_orcamento_destino: obra.orcamento_id, p_orcamento_origem: origemSel,
+    })
+    setCopiando(false)
+    const j = data as { ok?: boolean; itens_copiados?: number; eap_copiados?: number } | null
+    if (error || !j?.ok) { setErroCopiar(erroAmigavel(error, 'Não foi possível copiar o orçamento.')); return }
+    const n = j.itens_copiados ?? 0
+    setCopiarAberto(false); setOrigemSel('')
+    setAvisoCopia(`${n} ${n === 1 ? 'item copiado' : 'itens copiados'} para este orçamento.`)
     await carregar()
   }
 
@@ -359,7 +432,13 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
 
   const painelAdd = !loading && obra && obra.orcamento_id ? (
     <div style={{ marginBottom: 14 }}>
+      {avisoCopia && !formAberto && (
+        <div role="status" data-testid="orc-copiar-aviso" style={{ background: '#E8F3EC', color: '#166534', border: '0.5px solid #B7DCC4', borderRadius: 10, padding: '9px 14px', fontSize: 13, marginBottom: 10 }}>
+          {avisoCopia}
+        </div>
+      )}
       {!formAberto ? (
+        <>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button data-testid="orc-add-abrir" onClick={abrirNovo}
             style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: ESP, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
@@ -369,11 +448,47 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
             style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
             Importar da planilha (.xlsx)
           </Link>
+          <button data-testid="orc-copiar-abrir" onClick={() => void abrirCopiar()}
+            style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+            Copiar de outro orçamento
+          </button>
           <Link href={`/dashboard/projetos/obras/${id}/orcamento/relatorios`} data-testid="orc-relatorios-link"
             style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${LINE}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
             Relatórios
           </Link>
         </div>
+        {copiarAberto && (
+          <div data-testid="orc-copiar-form" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 12, marginTop: 12 }}>
+            <div style={{ fontSize: 15, color: ESP, fontWeight: 700 }}>Copiar itens de outro orçamento</div>
+            <div style={{ fontSize: 13, color: MUT, lineHeight: 1.5 }}>
+              Os itens do orçamento escolhido são <strong>adicionados</strong> a este (não substituem os que já existem). Só orçamentos da mesma empresa.
+            </div>
+            {erroCopiar && <div role="alert" data-testid="orc-copiar-erro" style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: 9, fontSize: 13 }}>{erroCopiar}</div>}
+            <label style={{ display: 'block' }}>
+              <span style={rotuloCampo}>Orçamento de origem <AjudaCampo chave="projetos.orcamento_eap.copiar_origem" rota={ROTA} /></span>
+              <select data-testid="orc-copiar-origem" value={origemSel} onChange={(e) => { setOrigemSel(e.target.value); setErroCopiar(null) }} disabled={origensCarregando} style={campo}>
+                <option value="">{origensCarregando ? 'Carregando orçamentos…' : 'Escolha o orçamento de origem…'}</option>
+                {origens.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.numero ? `Nº ${o.numero} · ` : ''}{o.cliente_nome ?? 'Sem cliente'} · {brl(o.total)}{o.status ? ` · ${SITUACAO[o.status]?.rotulo ?? o.status}` : ''}
+                  </option>
+                ))}
+              </select>
+              {!origensCarregando && origens.length === 0 && (
+                <div style={{ fontSize: 12, color: MUT, marginTop: 4 }}>Nenhum outro orçamento desta empresa para copiar.</div>
+              )}
+            </label>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button data-testid="orc-copiar-cancelar" onClick={fecharCopiar} disabled={copiando}
+                style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${LINE}`, background: '#fff', color: MUT, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Cancelar</button>
+              <button data-testid="orc-copiar-confirmar" onClick={() => void copiarOrcamento()} disabled={copiando || !origemSel}
+                style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: (copiando || !origemSel) ? MUT : ESP, color: '#fff', fontSize: 13, fontWeight: 700, cursor: (copiando || !origemSel) ? 'default' : 'pointer' }}>
+                {copiando ? 'Copiando…' : 'Copiar itens'}
+              </button>
+            </div>
+          </div>
+        )}
+        </>
       ) : (
         <div data-testid="orc-add-form" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 12 }}>
           <div style={{ fontSize: 15, color: ESP, fontWeight: 700 }}>{editId ? 'Editar item do orçamento' : 'Adicionar item ao orçamento'}</div>
@@ -533,6 +648,44 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 </div>
               )}
             </div>
+
+            {/* §315 (essencial): Reserva e projeção do custo — riscos/imprevistos e pós-obra como % do custo da EAP. */}
+            {(() => {
+              const base = arvore.total_geral
+              const valRiscos = base * ((num(reservaRiscos) ?? 0) / 100)
+              const valPos = base * ((num(reservaPos) ?? 0) / 100)
+              const totalProjetado = base + valRiscos + valPos
+              return (
+                <div data-testid="orc-reserva" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 12 }}>
+                  <div style={{ fontSize: 15, color: ESP, fontWeight: 700 }}>Reserva e projeção do custo</div>
+                  {reservaErro && <div role="alert" data-testid="orc-reserva-erro" style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: 9, fontSize: 13 }}>{reservaErro}</div>}
+                  {reservaMsg && <div data-testid="orc-reserva-ok" style={{ background: '#E8F3EC', color: '#166534', borderRadius: 8, padding: 9, fontSize: 13 }}>{reservaMsg}</div>}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                    <label style={{ display: 'block' }}>
+                      <span style={rotuloCampo}>Riscos e imprevistos (%) <AjudaCampo chave="projetos.orcamento_eap.reserva_riscos" rota={ROTA} /></span>
+                      <input data-testid="orc-reserva-riscos" inputMode="decimal" value={reservaRiscos} onChange={(e) => { setReservaRiscos(e.target.value); setReservaMsg(null) }} placeholder="0" style={campo} />
+                      <div style={{ fontSize: 12, color: MUT, marginTop: 4 }}>{brl(valRiscos)}</div>
+                    </label>
+                    <label style={{ display: 'block' }}>
+                      <span style={rotuloCampo}>Pós-obra (%) <AjudaCampo chave="projetos.orcamento_eap.reserva_pos_obra" rota={ROTA} /></span>
+                      <input data-testid="orc-reserva-pos" inputMode="decimal" value={reservaPos} onChange={(e) => { setReservaPos(e.target.value); setReservaMsg(null) }} placeholder="0" style={campo} />
+                      <div style={{ fontSize: 12, color: MUT, marginTop: 4 }}>{brl(valPos)}</div>
+                    </label>
+                    <div>
+                      <span style={rotuloCampo}>Custo total projetado <AjudaCampo chave="projetos.orcamento_eap.total_projetado" rota={ROTA} /></span>
+                      <div data-testid="orc-reserva-total" style={{ fontSize: 20, color: ESP, fontWeight: 700 }}>{brl(totalProjetado)}</div>
+                      <div style={{ fontSize: 11, color: MUT }}>Custo EAP {brl(base)} + reservas</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button data-testid="orc-reserva-salvar" onClick={() => void salvarReserva()} disabled={reservaSalvando}
+                      style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: reservaSalvando ? MUT : ESP, color: '#fff', fontSize: 13, fontWeight: 700, cursor: reservaSalvando ? 'default' : 'pointer' }}>
+                      {reservaSalvando ? 'Salvando…' : 'Salvar reserva'}
+                    </button>
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Aviso quando a EAP é só uma fatia do orçamento: há itens no orçamento sem complemento EAP. */}
             {orcTotal != null && orcTotal - arvore.total_geral > 0.005 && (

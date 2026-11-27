@@ -40,10 +40,9 @@ const SITUACAO = [
   { v: 'cancelada', l: 'Cancelada' },
 ]
 
-// Padrão construtivo e sistema estrutural (tela 314 gap 4; colunas novas aditivas — CHECK no banco).
+// Dados técnicos da obra (tela 314 · escopo 5): padrão construtivo e sistema estrutural.
 const PADRAO = [
   { v: 'popular', l: 'Popular' },
-  { v: 'economico', l: 'Econômico' },
   { v: 'normal', l: 'Normal' },
   { v: 'alto', l: 'Alto' },
   { v: 'luxo', l: 'Luxo' },
@@ -54,11 +53,9 @@ const SISTEMA = [
   { v: 'estrutura_metalica', l: 'Estrutura metálica' },
   { v: 'madeira', l: 'Madeira' },
   { v: 'pre_moldado', l: 'Pré-moldado' },
-  { v: 'steel_frame', l: 'Steel frame' },
-  { v: 'wood_frame', l: 'Wood frame' },
   { v: 'misto', l: 'Misto' },
+  { v: 'outro', l: 'Outro' },
 ]
-const SISTEMA_LABEL: Record<string, string> = Object.fromEntries(SISTEMA.map((o) => [o.v, o.l]))
 
 type Ficha = { ok: boolean; numero?: string; nome?: string | null; cliente_nome?: string | null; tipo_execucao?: string | null; modelo_contratacao?: string | null; matricula?: string | null; inscricao_imobiliaria?: string | null; tipo_edificacao?: string | null; area_construida_m2?: number | null; area_terreno_m2?: number | null; endereco?: string | null; bairro?: string | null; cidade?: string | null; uf?: string | null; cep?: string | null; erro?: string }
 
@@ -83,11 +80,9 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [tipoEdif, setTipoEdif] = useState('')
   const [areaConstruida, setAreaConstruida] = useState('')
   const [areaTerreno, setAreaTerreno] = useState('')
-  // Características construtivas — padrão construtivo e sistema estrutural (tela 314 gap 4; colunas novas)
-  const [padraoConstrutivo, setPadraoConstrutivo] = useState('')
-  const [sistemaEstrutural, setSistemaEstrutural] = useState('')
-  const [busyConstr, setBusyConstr] = useState(false)
-  const [okConstr, setOkConstr] = useState(false)
+  // Dados técnicos
+  const [padrao, setPadrao] = useState('')
+  const [sistema, setSistema] = useState('')
   // Endereço da obra
   const [endereco, setEndereco] = useState('')
   const [bairro, setBairro] = useState('')
@@ -97,10 +92,12 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [busyId, setBusyId] = useState(false)
+  const [busyTec, setBusyTec] = useState(false)
   const [busyEnd, setBusyEnd] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [ok, setOk] = useState(false)
   const [okId, setOkId] = useState(false)
+  const [okTec, setOkTec] = useState(false)
   const [okEnd, setOkEnd] = useState(false)
   // Localização no mapa (tela 314 crit. h): pino lat/long derivado do CEP, sem migration.
   const [coord, setCoord] = useState<{ lat: number; lon: number } | null>(null)
@@ -139,12 +136,10 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
       setStatus(a.status ?? ''); setDataInicio(a.data_inicio ?? ''); setDataPrevistaFim(a.data_prevista_fim ?? '')
       setDataConclusao(a.data_conclusao ?? ''); setPctConclusao(a.pct_conclusao != null ? String(a.pct_conclusao) : '')
     }
-    // Características construtivas (padrão construtivo / sistema estrutural) — leitor próprio collision-free
-    const { data: constrData } = await supabase.rpc('fn_obra_ficha_construtivo_ler', { p_obra_id: id })
-    const c = constrData as { ok?: boolean; padrao_construtivo?: string | null; sistema_estrutural?: string | null } | null
-    if (c && c.ok) {
-      setPadraoConstrutivo(c.padrao_construtivo ?? ''); setSistemaEstrutural(c.sistema_estrutural ?? '')
-    }
+    // Dados técnicos — leitor próprio (não depende de fn_obra_ficha_ler); falha aqui não derruba a ficha.
+    const { data: t } = await supabase.rpc('fn_obra_ficha_tecnica_ler', { p_obra_id: id })
+    const jt = t as { ok?: boolean; padrao_construtivo?: string | null; sistema_estrutural?: string | null } | null
+    if (jt?.ok) { setPadrao(jt.padrao_construtivo ?? ''); setSistema(jt.sistema_estrutural ?? '') }
     // Endereço vem de um leitor próprio (collision-free; fn_obra_ficha_ler não é tocado por esta fatia)
     const { data: endData } = await supabase.rpc('fn_obra_ficha_endereco_ler', { p_obra_id: id })
     const e = endData as Ficha | null
@@ -246,15 +241,15 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     setOkId(true)
   }
 
-  const salvarConstrutivo = async () => {
-    setBusyConstr(true); setErro(null); setOkConstr(false)
-    const { data, error } = await supabase.rpc('fn_obra_ficha_construtivo_salvar', {
-      p_obra_id: id, p_padrao_construtivo: padraoConstrutivo || null, p_sistema_estrutural: sistemaEstrutural || null,
+  const salvarTecnica = async () => {
+    setBusyTec(true); setErro(null); setOkTec(false)
+    const { data, error } = await supabase.rpc('fn_obra_ficha_tecnica_salvar', {
+      p_obra_id: id, p_padrao_construtivo: padrao || null, p_sistema_estrutural: sistema || null,
     })
-    setBusyConstr(false)
-    const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar as características construtivas.')); return }
-    setOkConstr(true)
+    setBusyTec(false)
+    const j = data as Ficha | null
+    if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar os dados técnicos.')); return }
+    setOkTec(true)
   }
 
   const salvarEndereco = async () => {
@@ -404,32 +399,30 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                 </div>
               </div>
 
-              {/* Características construtivas — padrão construtivo e sistema estrutural (tela 314 gap 4) */}
+              {/* Dados técnicos da obra — padrão construtivo e sistema estrutural (tela 314 · escopo 5) */}
               <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 14 }}>
-                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700 }}>Características construtivas</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
-                    <span>Padrão construtivo<AjudaCampo chave="projetos.obra_ficha.padrao_construtivo" rota={ROTA} /></span>
-                    <select data-testid="ficha-padrao-construtivo" style={campo} value={padraoConstrutivo} onChange={(e) => { setPadraoConstrutivo(e.target.value); setOkConstr(false) }}>
-                      <option value="">Não informado</option>
-                      {PADRAO.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
-                    </select>
-                  </label>
-                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
-                    <span>Sistema estrutural<AjudaCampo chave="projetos.obra_ficha.sistema_estrutural" rota={ROTA} /></span>
-                    <select data-testid="ficha-sistema-estrutural" style={campo} value={sistemaEstrutural} onChange={(e) => { setSistemaEstrutural(e.target.value); setOkConstr(false) }}>
-                      <option value="">Não informado</option>
-                      {SISTEMA.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
-                    </select>
-                  </label>
-                </div>
-                {okConstr && <div data-testid="ficha-construtivo-ok" style={{ background: '#EAF6EC', color: VERDE, borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 600 }}>Características salvas.</div>}
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700 }}>Dados técnicos da obra</div>
+                <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                  <span>Padrão construtivo<AjudaCampo chave="projetos.obra_ficha.padrao_construtivo" rota={ROTA} /></span>
+                  <select data-testid="ficha-padrao-construtivo" style={campo} value={padrao} onChange={(e) => { setPadrao(e.target.value); setOkTec(false) }}>
+                    <option value="">Não informado</option>
+                    {PADRAO.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+                  </select>
+                </label>
+                <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                  <span>Sistema estrutural<AjudaCampo chave="projetos.obra_ficha.sistema_estrutural" rota={ROTA} /></span>
+                  <select data-testid="ficha-sistema-estrutural" style={campo} value={sistema} onChange={(e) => { setSistema(e.target.value); setOkTec(false) }}>
+                    <option value="">Não informado</option>
+                    {SISTEMA.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+                  </select>
+                </label>
+                {okTec && <div data-testid="ficha-tecnica-ok" style={{ background: '#EAF6EC', color: VERDE, borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 600 }}>Dados técnicos salvos.</div>}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <button data-testid="ficha-salvar-construtivo" disabled={busyConstr} onClick={() => void salvarConstrutivo()}
-                    style={{ flex: 1, padding: '12px 16px', borderRadius: 8, border: 'none', background: ESP, color: '#fff', fontSize: 14, fontWeight: 700, cursor: busyConstr ? 'wait' : 'pointer' }}>
-                    {busyConstr ? 'Salvando…' : 'Salvar características'}
+                  <button data-testid="ficha-salvar-tecnica" disabled={busyTec} onClick={() => void salvarTecnica()}
+                    style={{ flex: 1, padding: '12px 16px', borderRadius: 8, border: 'none', background: ESP, color: '#fff', fontSize: 14, fontWeight: 700, cursor: busyTec ? 'wait' : 'pointer' }}>
+                    {busyTec ? 'Salvando…' : 'Salvar dados técnicos'}
                   </button>
-                  <AjudaCampo chave="projetos.obra_ficha.salvar_construtivo" rota={ROTA} />
+                  <AjudaCampo chave="projetos.obra_ficha.salvar_tecnica" rota={ROTA} />
                 </div>
               </div>
 

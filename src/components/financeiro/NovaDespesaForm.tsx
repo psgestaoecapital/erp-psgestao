@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { FORMAS_PAGAMENTO, ehPix, normalizarChavePix, validarChavePix } from '@/lib/financeiro/formasPagamento'
 import { CamposPix } from './CamposPix'
+import { CampoComprovantePagar } from './ComprovantePagar'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -18,6 +19,7 @@ import { validarAnoCompetencia } from '@/lib/financeiro/competencia'
 // #71 · modo edição: a mesma tela da inclusão abre o lançamento existente
 import { useEdicaoLancamento, ReplicaParcelasDialog, SituacaoEdicao, type Campos } from './edicaoLancamento'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
+import { RateioDespesa, validarRateio, rateioLinhasValidas, type RateioLinha } from './RateioDespesa'
 
 // RD-95: textos do "?" (erp_ajuda_campo) ficam na rota da tela; o formulário também abre em modal noutras telas.
 const ROTA_AJUDA = '/dashboard/financeiro/nova-despesa'
@@ -151,7 +153,14 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
   const [novoCentroNome, setNovoCentroNome] = useState('')
   const [salvandoCentro, setSalvandoCentro] = useState(false)
   const [erroCentroNovo, setErroCentroNovo] = useState<string | null>(null)
+  // Rateio (gap2 PDCA 22/11): divide o lançamento entre N centros de custo por percentual (child erp_pagar_rateio).
+  // Quando ativo, substitui o centro de custo único — o valor de cada parte é derivado do valor do lançamento.
+  const [rateioAtivo, setRateioAtivo] = useState(false)
+  const [rateioLinhas, setRateioLinhas] = useState<RateioLinha[]>([])
   const [numeroDocumento, setNumeroDocumento] = useState('')
+  // 22/11 · comprovante/nota do pagamento (bucket privado 'pagar-comprovantes' → erp_pagar.anexo_path).
+  const [anexoPath, setAnexoPath] = useState('')
+  const [anexoNome, setAnexoNome] = useState('')
   const [formaPagamento, setFormaPagamento] = useState('pix')
   const [tipoChavePix, setTipoChavePix] = useState('cpf_cnpj')
   const [chavePix, setChavePix] = useState('')
@@ -426,8 +435,28 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     setCategoriaCodigo(v.categoriaCodigo); setCentroCustoId(v.centroCustoId); setNumeroDocumento(v.numeroDocumento); setFormaPagamento(v.formaPagamento)
     setTipoChavePix(v.tipoChavePix); setChavePix(v.chavePix); setContaBancaria(v.contaBancaria)
     setObservacao(v.observacao); setCodigoBarras(v.codigoBarras); setJuros(v.juros); setMulta(v.multa); setDesconto(v.desconto)
+    setAnexoPath(String(ed.linha.anexo_path ?? '')); setAnexoNome(String(ed.linha.anexo_nome ?? ''))
     setVencimentoManual(true)   // código de barras não sobrescreve o vencimento do título
   }, [ed.linha])
+
+  // #71 · EDIÇÃO: carrega o rateio existente deste título (RD-98 — visível e editável).
+  useEffect(() => {
+    if (!editarId) return
+    let alive = true
+    ;(async () => {
+      const { data } = await supabase
+        .from('erp_pagar_rateio')
+        .select('centro_custo_id, percentual')
+        .eq('pagar_id', editarId)
+      if (!alive) return
+      const rows = (data as { centro_custo_id: string | null; percentual: number }[] | null) ?? []
+      if (rows.length > 0) {
+        setRateioAtivo(true)
+        setRateioLinhas(rows.map((r) => ({ centroCustoId: r.centro_custo_id ?? '', percentual: String(r.percentual) })))
+      }
+    })()
+    return () => { alive = false }
+  }, [editarId])
 
   async function salvarEdicao() {
     if (!ed.linha || !editarId) return
@@ -450,16 +479,24 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
       const eChave = validarChavePix(tipoChavePix, chavePix)
       if (eChave) { setErroCampo('chavePix'); setFeedback({ tipo: 'erro', texto: `Chave PIX: ${eChave}` }); return }
     }
+    if (rateioAtivo) {
+      const eRat = validarRateio(rateioLinhas)
+      if (eRat) { setErroCampo('rateio'); setFeedback({ tipo: 'erro', texto: eRat }); return }
+    }
     const fornecedorIdFinal = await garantirFornecedorId()
     const atual: ValoresDespesa = {
       fornecedorId: fornecedorIdFinal, fornecedorNome, descricao: descricao.trim() || montarDescricao(), valor, dataVencimento, dataCompetencia,
-      categoriaCodigo, centroCustoId, numeroDocumento, formaPagamento, tipoChavePix, chavePix, contaBancaria, observacao, codigoBarras,
+      // Com rateio ligado, o centro único é substituído pela divisão (erp_pagar_rateio) — zera o campo único p/ não duplicar.
+      categoriaCodigo, centroCustoId: rateioAtivo ? '' : centroCustoId, numeroDocumento, formaPagamento, tipoChavePix, chavePix, contaBancaria, observacao, codigoBarras,
       juros, multa, desconto,
     }
     setSalvandoEdicao(true)
     const r = await ed.salvarEdicao(camposEdicao(valoresDaLinha(ed.linha)), camposEdicao(atual))
     setSalvandoEdicao(false)
     if (!r.ok) { setFeedback({ tipo: 'erro', texto: r.erro }); return }
+    // Rateio (RD-98): sincroniza a divisão deste título após a edição confirmada.
+    const eRatSync = await sincronizarRateio([editarId])
+    if (eRatSync) { setFeedback({ tipo: 'erro', texto: eRatSync }); return }
     setEdicaoSalva(true)
   }
   const [salvandoEdicao, setSalvandoEdicao] = useState(false)
@@ -507,6 +544,21 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     setToast(`Centro de custo "${nome}" pronto e selecionado`)
   }
 
+  // Comprovante: no CRIAR, só guarda em estado (persiste no bloco pós-insert do salvar()).
+  // No EDITAR, o título já existe → grava na hora em erp_pagar.anexo_path e confere o retorno (RD-98 p3).
+  async function aplicarAnexo(path: string, nome: string) {
+    setAnexoPath(path); setAnexoNome(nome)
+    if (!editando || !editarId) { if (path) setToast('Comprovante anexado'); return }
+    const { error } = await supabase.from('erp_pagar').update({ anexo_path: path || null, anexo_nome: nome || null }).eq('id', editarId)
+    if (error) {
+      setAnexoPath(String(ed.linha?.anexo_path ?? '')); setAnexoNome(String(ed.linha?.anexo_nome ?? ''))
+      setFeedback({ tipo: 'erro', texto: `Não foi possível salvar o comprovante: ${erroAmigavel(error, 'tente de novo')}.` })
+      return
+    }
+    setToast(path ? 'Comprovante anexado' : 'Comprovante removido')
+  }
+  function removerAnexo() { void aplicarAnexo('', '') }
+
   // Descrição OPCIONAL (pedido Jordana/BPO): se vazia, geramos a partir de
   // fornecedor + categoria do DRE — a descrição identifica a conta na lista, nos
   // relatórios e no alerta anti-duplicidade ("[descrição]"), então nunca fica vazia.
@@ -524,6 +576,27 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     if (parcelas < 1 || parcelas > 60) return { campo: 'parcelas', banner: 'Parcelas devem ficar entre 1 e 60' }
     const eComp = validarAnoCompetencia(dataCompetencia)
     if (eComp) return { campo: 'dataCompetencia', banner: eComp }
+    if (rateioAtivo) {
+      const eRat = validarRateio(rateioLinhas)
+      if (eRat) return { campo: 'rateio', banner: eRat }
+    }
+    return null
+  }
+
+  // Grava o rateio (child erp_pagar_rateio) para os títulos informados: apaga o anterior e insere o atual
+  // (idempotente — re-salvar não duplica). Rateio desligado só limpa. Devolve a mensagem de erro, ou null.
+  async function sincronizarRateio(pagarIds: string[]): Promise<string | null> {
+    if (pagarIds.length === 0) return null
+    const { error: eDel } = await supabase.from('erp_pagar_rateio').delete().in('pagar_id', pagarIds)
+    if (eDel) return `A despesa foi salva, mas o rateio não pôde ser atualizado: ${erroAmigavel(eDel, 'não foi possível gravar o rateio')}. Edite a despesa e informe de novo.`
+    if (!rateioAtivo) return null
+    const validas = rateioLinhasValidas(rateioLinhas)
+    if (validas.length === 0) return null
+    const rows = pagarIds.flatMap((pid) => validas.map((l) => ({
+      company_id: companyId, pagar_id: pid, centro_custo_id: l.centroCustoId, percentual: l.percentual,
+    })))
+    const { error: eIns } = await supabase.from('erp_pagar_rateio').insert(rows)
+    if (eIns) return `A despesa foi salva, mas o rateio não pôde ser gravado: ${erroAmigavel(eIns, 'não foi possível gravar o rateio')}. Edite a despesa e informe o rateio de novo.`
     return null
   }
 
@@ -531,7 +604,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     setFornecedorId(''); setFornecedorNome(''); setDescricao(''); setValor('')
     setDataVencimento(new Date().toISOString().split('T')[0]); setDataCompetencia('')
     setParcelas(1); setIntervaloDias(30); setCategoriaCodigo(''); setCentroCustoId(''); setNumeroDocumento('')
-    setObservacao(''); setJaPago(false); setContaBancaria('')
+    setObservacao(''); setJaPago(false); setContaBancaria(''); setAnexoPath(''); setAnexoNome(''); setRateioAtivo(false); setRateioLinhas([])
   }
 
   // modo: 'fechar' = comportamento padrão (redireciona/onSucesso);
@@ -646,12 +719,28 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     }
 
     // 01/10 · centro de custo / obra em todas as parcelas (o trigger confere a empresa e espelha o nome no texto)
-    if (ids.length > 0 && centroCustoId) {
+    // Com rateio ligado, o centro único é substituído pela divisão (erp_pagar_rateio) — não grava aqui p/ não duplicar.
+    if (ids.length > 0 && centroCustoId && !rateioAtivo) {
       const { error: eCc } = await supabase.from('erp_pagar').update({ centro_custo_id: centroCustoId }).in('id', ids)
       if (eCc) {
         setFeedback({ tipo: 'erro', texto: `A despesa foi criada, mas o centro de custo não foi gravado: ${erroAmigavel(eCc, 'não foi possível gravar o centro de custo')}. Edite a despesa e escolha de novo.` })
         return
       }
+    }
+
+    // 22/11 · comprovante/nota do pagamento em todas as parcelas do grupo (bucket privado → anexo_path).
+    if (ids.length > 0 && anexoPath) {
+      const { error: eAnx } = await supabase.from('erp_pagar').update({ anexo_path: anexoPath, anexo_nome: anexoNome || null }).in('id', ids)
+      if (eAnx) {
+        setFeedback({ tipo: 'erro', texto: `A despesa foi criada, mas o comprovante não foi vinculado: ${erroAmigavel(eAnx, 'não foi possível gravar o comprovante')}. Edite a despesa e anexe de novo.` })
+        return
+      }
+    }
+
+    // Rateio (gap2): divide o lançamento entre N centros de custo (todas as parcelas carregam a mesma divisão).
+    if (ids.length > 0) {
+      const eRat = await sincronizarRateio(ids)
+      if (eRat) { setFeedback({ tipo: 'erro', texto: eRat }); return }
     }
 
     // VERBATIM (RD-57 · RD-55): grava o código de barras EXATAMENTE como o usuário informou, na 1ª
@@ -958,6 +1047,50 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
               </div>
               {erroCentroNovo && <small style={{ ...helperStyle, color: '#b91c1c' }}>{erroCentroNovo}</small>}
             </Campo>
+          )}
+
+          {/* 22/11 · comprovante/nota do pagamento — anexo no bucket privado por empresa (erp_pagar.anexo_path). */}
+          <Campo ajuda="financeiro.despesa.comprovante" ajudaRota={ROTA_AJUDA} label="Anexo (comprovante/nota)">
+            <CampoComprovantePagar
+              empresa={companyId}
+              anexoPath={anexoPath}
+              anexoNome={anexoNome}
+              onChange={(p, n) => void aplicarAnexo(p, n)}
+              onRemover={removerAnexo}
+            />
+            <small style={helperStyle}>
+              Opcional. Anexe a foto do comprovante, boleto ou nota (JPG, PNG, WEBP, HEIC ou PDF, até 20 MB).
+              Fica guardado com segurança e só quem é da empresa consegue abrir.
+            </small>
+          </Campo>
+
+          {/* Rateio (gap2 PDCA 22/11): divide o lançamento entre N centros de custo por percentual. */}
+          <div style={{ marginTop: 4 }}>
+            <label data-ajuda="financeiro.despesa.rateio" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', cursor: 'pointer', fontWeight: 500 }}>
+              <input
+                type="checkbox"
+                data-testid="despesa-rateio-ativar"
+                checked={rateioAtivo}
+                onChange={(e) => {
+                  const on = e.target.checked
+                  setRateioAtivo(on)
+                  if (on && rateioLinhas.length === 0) {
+                    setRateioLinhas([{ centroCustoId: centroCustoId || '', percentual: '' }])
+                  }
+                }}
+              />
+              Dividir entre centros de custo (rateio)
+            </label>
+          </div>
+
+          {rateioAtivo && (
+            <RateioDespesa
+              centros={centros}
+              linhas={rateioLinhas}
+              onChange={setRateioLinhas}
+              valorTotal={parcelas > 1 ? somaParcelas : (parseFloat(valor) || 0)}
+              rotaAjuda={ROTA_AJUDA}
+            />
           )}
 
           {!editando && (

@@ -112,6 +112,8 @@ export default function CalendarioCompliancePage() {
   const [filtroRisco, setFiltroRisco] = useState<string | null>(null)
   const [filtroStatus, setFiltroStatus] = useState<string | null>('pendente')
   const [msgOk, setMsgOk] = useState<string | null>(null)
+  // Documentos com validade cadastrados (para distinguir "calendario nao gerado" de "tudo em dia")
+  const [docsComValidade, setDocsComValidade] = useState<number>(0)
 
   const carregar = useCallback(async () => {
     if (!companyIdsKey) return
@@ -172,6 +174,17 @@ export default function CalendarioCompliancePage() {
       // ordenar por prioridade desc (ja vem ordenado por empresa, mas misturamos)
       tarefasAll.sort((a, b) => (b.prioridade ?? 0) - (a.prioridade ?? 0))
       setTarefas(tarefasAll)
+
+      // Quantos documentos com validade existem? Serve para o estado vazio: se ha documentos
+      // com vencimento mas nenhuma tarefa, a tela precisa oferecer gerar (nao dizer "tudo em dia").
+      const docRes = await supabase
+        .from('compliance_documentos')
+        .select('id', { count: 'exact', head: true })
+        .in('company_id', ids)
+        .eq('ativo', true)
+        .eq('sem_validade', false)
+        .not('data_validade', 'is', null)
+      setDocsComValidade(docRes.count ?? 0)
     } catch (e: any) {
       setErro(e?.message || 'Falha ao carregar calendario')
     } finally {
@@ -382,15 +395,47 @@ export default function CalendarioCompliancePage() {
               boxShadow: '0 1px 3px rgba(61,35,20,0.06)',
             }}
           >
-            <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
-            <h3 style={{ margin: '0 0 6px', fontSize: 16, color: C.espresso }}>Tudo em dia!</h3>
-            <p style={{ margin: '0 0 16px', fontSize: 13, color: C.muted }}>
-              Nenhuma tarefa pendente nos filtros atuais. Clique em &ldquo;Gerar tarefas&rdquo; para sincronizar com seus
-              documentos.
-            </p>
-            <button onClick={gerarTarefas} disabled={gerando} style={{ ...btnSec, padding: '10px 16px' }}>
-              ↻ Sincronizar agora
-            </button>
+            {tarefas.length === 0 && docsComValidade > 0 ? (
+              // Ha documentos com validade mas o calendario nunca foi gerado: nao e "tudo em dia".
+              <>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>🗓️</div>
+                <h3 style={{ margin: '0 0 6px', fontSize: 16, color: C.espresso }}>Calendário ainda não gerado</h3>
+                <p style={{ margin: '0 0 16px', fontSize: 13, color: C.muted }}>
+                  Você tem <strong>{docsComValidade}</strong> documento{docsComValidade === 1 ? '' : 's'} com validade que
+                  ainda não {docsComValidade === 1 ? 'está' : 'estão'} no calendário. Gere as tarefas para acompanhar os
+                  vencimentos e as multas potenciais.
+                </p>
+                <button onClick={gerarTarefas} disabled={gerando} style={{ ...btnPri, padding: '10px 18px' }}>
+                  {gerando ? 'Gerando…' : `Gerar tarefas de ${docsComValidade} documento${docsComValidade === 1 ? '' : 's'}`}
+                </button>
+              </>
+            ) : tarefas.length === 0 ? (
+              // Nao ha documentos com validade cadastrados: nada a gerar ainda.
+              <>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
+                <h3 style={{ margin: '0 0 6px', fontSize: 16, color: C.espresso }}>Nenhum documento com validade</h3>
+                <p style={{ margin: '0 0 16px', fontSize: 13, color: C.muted }}>
+                  Cadastre documentos com data de validade (ASOs, laudos, certificados, licenças) para o Calendário Legal
+                  acompanhar os vencimentos automaticamente.
+                </p>
+                <Link href="/dashboard/ehs/empresa" style={{ ...btnSec, padding: '10px 16px' }}>
+                  Cadastrar documentos
+                </Link>
+              </>
+            ) : (
+              // Ha tarefas, mas nenhuma no filtro atual: de fato esta em dia para este recorte.
+              <>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+                <h3 style={{ margin: '0 0 6px', fontSize: 16, color: C.espresso }}>Tudo em dia!</h3>
+                <p style={{ margin: '0 0 16px', fontSize: 13, color: C.muted }}>
+                  Nenhuma tarefa nos filtros atuais. Ajuste os filtros acima ou clique em sincronizar para atualizar com
+                  seus documentos.
+                </p>
+                <button onClick={gerarTarefas} disabled={gerando} style={{ ...btnSec, padding: '10px 16px' }}>
+                  ↻ Sincronizar agora
+                </button>
+              </>
+            )}
           </div>
         ) : (
           <>
