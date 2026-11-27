@@ -136,3 +136,10 @@ BEGIN
   );
 END;
 $function$;
+
+-- ACL das funções SECURITY DEFINER recriadas (check_fn_guards): espelha a ACL viva
+-- (authenticated + service_role; anon/PUBLIC revogados). CREATE OR REPLACE preserva a ACL — sem regressão de acesso.
+REVOKE ALL ON FUNCTION public.fn_ge_onboarding_status(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_onboarding_status(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_onboarding_maturidade(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_onboarding_maturidade(uuid) TO authenticated, service_role;
