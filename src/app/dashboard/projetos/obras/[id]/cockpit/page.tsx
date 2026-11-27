@@ -39,6 +39,30 @@ type EtapaAtrasada = { id: string; nome: string; fim: string | null; percentual:
 type Linha = { k: string; ajuda: string; l: string; v: number }
 type Card = { k: string; ajuda: string; l: string; v: string; sub: string; cor?: string; bar?: number | null; linhas?: Linha[] }
 
+// §329 prontuário (req 5f2ff4ac/81cec33c · "evoluir cockpit → prontuário"): navegação por assunto da obra.
+// Cada item abre a TELA DONA do assunto (sub-rota de obra já existente, RD-26 — nada é duplicado aqui).
+// Só rotas que existem de verdade em src/app/dashboard/projetos/obras/[id]/* (evita link morto).
+const PRONTUARIO_SECOES: { slug: string; label: string }[] = [
+  { slug: 'ficha', label: 'Dados gerais' },
+  { slug: 'estrutura', label: 'Estrutura' },
+  { slug: 'partes', label: 'Partes' },
+  { slug: 'orcamento', label: 'Orçamento' },
+  { slug: 'custos', label: 'Custos' },
+  { slug: 'materiais', label: 'Materiais' },
+  { slug: 'horas', label: 'Mão de obra' },
+  { slug: 'subempreiteiros', label: 'Subempreiteiros' },
+  { slug: 'medicoes', label: 'Medições' },
+  { slug: 'cronograma', label: 'Cronograma' },
+  { slug: 'rdo', label: 'Diário de obra' },
+  { slug: 'linha-do-tempo', label: 'Linha do tempo' },
+  { slug: 'regularizacao', label: 'Regularização' },
+  { slug: 'revisoes', label: 'Revisões' },
+  { slug: 'relatorio', label: 'Relatório' },
+  { slug: 'portal-cliente', label: 'Portal do cliente' },
+  { slug: 'calendario', label: 'Calendário' },
+  { slug: 'encerramento', label: 'Entrega e pós-obra' },
+]
+
 export default function CockpitObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const [r, setR] = useState<Resultado | null>(null)
@@ -266,6 +290,24 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
           )
           : (
             <>
+              {/* §329 prontuário: navegação por assunto da obra — cada atalho abre a tela dona (sub-rota existente), sem sair do fluxo. */}
+              <div data-testid="cockpit-prontuario-nav" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: '10px 12px', marginBottom: 14 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700, marginBottom: 8 }}>
+                  Prontuário da obra <AjudaCampo chave="projetos.cockpit.prontuario_navegacao" rota={ROTA} />
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {PRONTUARIO_SECOES.map((s) => (
+                    <Link
+                      key={s.slug}
+                      href={`/dashboard/projetos/obras/${id}/${s.slug}?area=hub`}
+                      data-testid={`prontuario-aba-${s.slug}`}
+                      style={{ fontSize: 12, fontWeight: 600, color: ESP, textDecoration: 'none', border: `0.5px solid ${LINE}`, borderRadius: 999, padding: '5px 11px', whiteSpace: 'nowrap', background: BG }}
+                    >
+                      {s.label}
+                    </Link>
+                  ))}
+                </div>
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 14 }}>
                 {cards.map((c) => (
                   <div key={c.k} data-testid={`cockpit-${c.k}`} style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14 }}>
