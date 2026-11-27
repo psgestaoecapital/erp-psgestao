@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { ParaTratarHoje } from "@/components/financeiro/ParaTratarHoje";
+import Link from "next/link";
 
 const ROTA = "/dashboard/financeiro/caixa-grupo";
 const BG = "var(--ps-bg,#FAF7F2)", BG2 = "var(--ps-bg2,#FFFFFF)", BG3 = "var(--ps-bg3,#F0ECE3)";
@@ -94,6 +95,9 @@ export default function CaixaGrupoPage() {
   const [titulos, setTitulos] = useState<Titulo[] | null>(null);
   // Contas de cada empresa ABERTAS por padrão (CEO 12/11): guardamos as empresas COLAPSADAS manualmente.
   const [colapsadas, setColapsadas] = useState<Set<string>>(new Set());
+  // Contas sem movimento no período ficam ESCONDIDAS por padrão (CEO/aud8 26/11): as contas reais da empresa
+  // não podem ficar enterradas no meio de dezenas de contas zeradas. Guardamos as empresas que o usuário EXPANDIU.
+  const [semMovAberta, setSemMovAberta] = useState<Set<string>>(new Set());
 
   // Intervalo efetivo: "data" é a data FINAL (até); o início sai do atalho escolhido (ou do campo De no personalizado).
   const fim = data;
@@ -212,13 +216,23 @@ export default function CaixaGrupoPage() {
       {/* Para tratar hoje — o que o financeiro precisa resolver no dia (CEO 12/11) */}
       <ParaTratarHoje companyIds={effectiveIds} data={data} multiEmpresa={multi} />
 
-      {/* Resumo do dia */}
-      {resp?.consolidado && (
-        <div style={{ background: `linear-gradient(90deg, ${GO}14, transparent)`, border: `1px solid ${GO}40`, borderRadius: 12, padding: "14px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span title={resp.resumo} style={{ fontSize: 15, fontWeight: 600, color: TX }}>{montarResumoCompacto(resp.consolidado, resp.atrasados_n)}</span>
-          <AjudaCampo chave="financeiro.caixa_grupo.resumo" rota={ROTA} />
-        </div>
-      )}
+      {/* Resumo do período — "Entrou/saiu" = títulos LIQUIDADOS no intervalo (recebido/pago bruto do período,
+          fn_caixa_grupo_periodo), não só o movimento da data final. Antes usava o consolidado do DIA (fim), que
+          mostrava "Entrou R$ 0,00, saiu R$ 0,00" quando nada era liquidado exatamente na data final, mesmo com
+          movimento no mês (bug go-live 25/11). "Caixa do grupo" segue sendo o saldo na data final (posição). */}
+      {resp?.consolidado && (() => {
+        const entradasPer = Number(respPer?.consolidado?.recebido_bruto ?? resp.consolidado.entradas) || 0;
+        const saidasPer = Number(respPer?.consolidado?.pago_bruto ?? resp.consolidado.saidas) || 0;
+        const consResumo = { ...resp.consolidado, entradas: entradasPer, saidas: saidasPer };
+        const tituloExato = `Entrou ${brl(entradasPer)}, saiu ${brl(saidasPer)}, caixa do grupo ${brl(resp.consolidado.saldo_final)}` +
+          (resp.atrasados_n > 0 ? `, ${resp.atrasados_n} título(s) atrasado(s).` : ", nenhum título atrasado.");
+        return (
+          <div style={{ background: `linear-gradient(90deg, ${GO}14, transparent)`, border: `1px solid ${GO}40`, borderRadius: 12, padding: "14px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span title={tituloExato} style={{ fontSize: 15, fontWeight: 600, color: TX }}>{montarResumoCompacto(consResumo, resp.atrasados_n)}</span>
+            <AjudaCampo chave="financeiro.caixa_grupo.resumo" rota={ROTA} />
+          </div>
+        );
+      })()}
 
       {loading ? (
         <div style={{ padding: 50, textAlign: "center", color: TXD }}>Carregando o caixa do grupo…</div>
@@ -253,7 +267,18 @@ export default function CaixaGrupoPage() {
                           {a.onboarding && <span style={{ fontSize: 10, color: TXD }}>(saldo inicial lançado no período)</span>}
                           <AjudaCampo chave={ajudaTipo(a.tipo)} rota={ROTA} />
                         </div>
-                        {a.como_resolver && <div style={{ fontSize: 11.5, color: TXM, marginTop: 3 }}>{a.como_resolver}{a.ids && a.ids.length ? ` · ${a.ids.length} lançamento(s)` : ""}</div>}
+                        {a.como_resolver && <div style={{ fontSize: 11.5, color: TXM, marginTop: 3 }}>{a.como_resolver}{a.tipo !== "saldo_divergente" && a.ids && a.ids.length ? ` · ${a.ids.length} lançamento(s)` : ""}</div>}
+                        {/* Item #5 go-live (CEO 25/11): saldo divergente → botão direto à conciliação DAQUELA conta,
+                            com a diferença (a.valor) explicada. O conta_id vem em a.ids[0] (fn_fin_inconsistencias). */}
+                        {a.tipo === "saldo_divergente" && a.ids && a.ids.length > 0 && (
+                          <Link
+                            href={`/dashboard/financeiro/conciliacao/inbox?conta=${encodeURIComponent(a.ids[0])}${a.valor != null ? `&dif=${encodeURIComponent(String(a.valor))}` : ""}`}
+                            data-testid="raiox-conciliar-conta"
+                            style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 6, fontSize: 12, fontWeight: 700, color: GO, textDecoration: "none" }}
+                          >
+                            Conciliar esta conta →
+                          </Link>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -372,7 +397,18 @@ export default function CaixaGrupoPage() {
                 const aberta = !colapsadas.has(e.company_id);
                 // Contas que SOMAM no caixa (soma_no_saldo != false, exclui a linha sintética "Sem conta"),
                 // contas de CONTROLE (soma_no_saldo === false, não entram no caixa) e o aviso "Sem conta".
-                const somam = e.contas.filter((c) => c.conta_id && c.soma_no_saldo !== false);
+                const somamTodas = e.contas.filter((c) => c.conta_id && c.soma_no_saldo !== false);
+                // "Com movimento no período" = tem saldo (inicial/final), entrada, saída OU extrato. As contas
+                // totalmente zeradas e sem extrato (ex.: contas de revenda que nunca movimentaram) ficam escondidas
+                // atrás do botão "mostrar N contas sem movimento" para o usuário achar as próprias contas.
+                const temMov = (c: Conta) =>
+                  Math.abs(Number(c.saldo_inicial)) > 0.005 || Math.abs(Number(c.entradas)) > 0.005 ||
+                  Math.abs(Number(c.saidas)) > 0.005 || Math.abs(Number(c.saldo_final)) > 0.005 ||
+                  (c.saldo_extrato !== null && c.saldo_extrato !== undefined);
+                const somam = somamTodas.filter(temMov);
+                const semMov = somamTodas.filter((c) => !temMov(c));
+                const mostrarSemMov = semMovAberta.has(e.company_id);
+                const visiveis = mostrarSemMov ? [...somam, ...semMov] : somam;
                 const controle = e.contas.filter((c) => c.soma_no_saldo === false);
                 const semN = Number(e.sem_conta_n) || 0;
                 return (
@@ -396,9 +432,11 @@ export default function CaixaGrupoPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {somam.length === 0 ? (
+                          {somamTodas.length === 0 ? (
                             <tr><td colSpan={7} style={{ padding: 16, textAlign: "center", color: TXD, fontSize: 12 }}>Sem conta bancária que some no caixa nesta empresa.</td></tr>
-                          ) : somam.map((ct, i) => {
+                          ) : visiveis.length === 0 ? (
+                            <tr><td colSpan={7} style={{ padding: 16, textAlign: "center", color: TXD, fontSize: 12 }}>Nenhuma conta com movimento no período.</td></tr>
+                          ) : visiveis.map((ct, i) => {
                             const temExtrato = ct.saldo_extrato !== null && ct.saldo_extrato !== undefined;
                             const velho = temExtrato && diasAtras(ct.saldo_extrato_em) > 3;
                             const dif = temExtrato ? Number(ct.saldo_final) - Number(ct.saldo_extrato) : 0;
@@ -429,6 +467,18 @@ export default function CaixaGrupoPage() {
                         </tbody>
                       </table>
                       </div>
+
+                      {/* Contas sem movimento no período: escondidas por padrão para não enterrar as contas reais */}
+                      {semMov.length > 0 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", borderTop: `0.5px solid ${BD}` }}>
+                          <button type="button"
+                            onClick={() => setSemMovAberta((prev) => { const n = new Set(prev); if (n.has(e.company_id)) n.delete(e.company_id); else n.add(e.company_id); return n; })}
+                            style={{ background: "transparent", border: "none", color: TXM, fontSize: 12, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>
+                            {mostrarSemMov ? "▾ Ocultar" : "▸ Mostrar"} {semMov.length} conta{semMov.length > 1 ? "s" : ""} sem movimento no período
+                          </button>
+                          <AjudaCampo chave="financeiro.caixa_grupo.sem_movimento" rota={ROTA} />
+                        </div>
+                      )}
 
                       {/* Lançamentos sem conta: aviso clicável para atribuir a conta certa */}
                       {semN > 0 && (

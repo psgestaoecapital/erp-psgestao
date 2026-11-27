@@ -139,13 +139,24 @@ export default function PropostasPage() {
   // destaque de uma proposta vinda do card do lead (?proposta=<id>)
   const [destaque, setDestaque] = useState<string | null>(null)
   // CEO 14/10 (Pdois) · pedido de contrato por proposta (criado na aprovação). O botão vira "Ver pedido de contrato".
-  const [feeMap, setFeeMap] = useState<Record<string, { id: string; numero: string | null; status: string | null }>>({})
+  const [feeMap, setFeeMap] = useState<Record<string, { id: string; numero: string | null; status: string | null; paradoDias: number | null }>>({})
   // PM-2 · veio do CRM (?from=leads): abre a proposta DIRETO no editor e, ao salvar, volta ao kanban
   const [voltarCrm, setVoltarCrm] = useState(false)
   const abriuDestaque = useRef(false)
   // aprovação → contrato recorrente na GE + comissão
   const [apr, setApr] = useState<Proposta | null>(null)
   const [aprForm, setAprForm] = useState({ fee: '', dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica', nParcelas: '', dataFim: '', primeiroVenc: '', clienteEmail: '', clienteTelefone: '', clienteCnpj: '' })
+  // GO-LIVE agência piloto (CEO 25/11, item 11): % padrão de comissão do comercial (Configurações › Comissões).
+  // Pré-preenche o campo de comissão na aprovação — sem isso toda comissão prevista nascia com 0%.
+  const [comPadrao, setComPadrao] = useState('')
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => {
+    if (!empresa) { setComPadrao(''); return }
+    void supabase.rpc('fn_agency_comissao_config_listar', { p_company_id: empresa }).then(({ data }) => {
+      const pct = ((data ?? []) as { papel: string; percentual: number | null }[]).find((p) => p.papel === 'comercial')?.percentual
+      setComPadrao(pct ? String(pct) : '')
+    })
+  }, [empresa])
 
   const carregar = async () => {
     if (!empresa) { setPropostas([]); setLoading(false); return }
@@ -160,15 +171,22 @@ export default function PropostasPage() {
     // #59 PDOIS · contrato de fee ligado à proposta (erp_contratos.proposta_id). Se existe, o botão vira
     // "Ver contrato" (abre a aba Fee no contrato). Mapa por proposta_id (1º = mais recente).
     const pIds = propRows.map((x) => x.id)
-    const fm: Record<string, { id: string; numero: string | null; status: string | null }> = {}
+    const fm: Record<string, { id: string; numero: string | null; status: string | null; paradoDias: number | null }> = {}
     if (pIds.length) {
       const { data: cts } = await supabase.from('erp_contratos')
-        .select('id, numero, status, proposta_id, created_at')
+        .select('id, numero, status, proposta_id, created_at, updated_at')
         .eq('company_id', empresa).in('proposta_id', pIds)
         .in('status', ['solicitado', 'em_elaboracao', 'aguardando_info', 'em_revisao', 'aguardando_aprovacao', 'ativo'])
         .order('created_at', { ascending: false })
-      for (const ct of (cts ?? []) as { id: string; numero: string | null; proposta_id: string | null; status: string | null }[]) {
-        if (ct.proposta_id && !fm[ct.proposta_id]) fm[ct.proposta_id] = { id: ct.id, numero: ct.numero, status: ct.status }
+      // "dias parado" (CEO 25/11, go-live item 5): pedido de contrato ainda não ativo, medido desde a última
+      // mudança (updated_at, ou created_at se faltar). Só pending — contrato 'ativo' não fica "parado".
+      const hoje = Date.now()
+      for (const ct of (cts ?? []) as { id: string; numero: string | null; proposta_id: string | null; status: string | null; created_at: string | null; updated_at: string | null }[]) {
+        if (ct.proposta_id && !fm[ct.proposta_id]) {
+          const ref = ct.updated_at ?? ct.created_at
+          const paradoDias = ct.status !== 'ativo' && ref ? Math.max(0, Math.floor((hoje - new Date(ref).getTime()) / 86400000)) : null
+          fm[ct.proposta_id] = { id: ct.id, numero: ct.numero, status: ct.status, paradoDias }
+        }
       }
     }
     setFeeMap(fm)
@@ -419,7 +437,7 @@ export default function PropostasPage() {
   }
 
   function abrirAprovar(p: Proposta) {
-    setAprForm({ fee: numeroParaMoeda(p.valor_final ?? p.valor_total), dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica', nParcelas: '', dataFim: '', primeiroVenc: proximoVenc(10), clienteEmail: '', clienteTelefone: '', clienteCnpj: '' })
+    setAprForm({ fee: numeroParaMoeda(p.valor_final ?? p.valor_total), dia: '10', periodicidade: 'mensal', comPct: comPadrao, comBase: 'fee', comTipo: 'unica', nParcelas: '', dataFim: '', primeiroVenc: proximoVenc(10), clienteEmail: '', clienteTelefone: '', clienteCnpj: '' })
     setApr(p)
     // SPEC 4.1 + §3: puxa contato E CNPJ do cadastro do cliente para o bloco "Dados para o financeiro".
     // O CNPJ é obrigatório quando nasce contrato (fail-closed no banco) — se faltar, o comercial corrige o cadastro.
@@ -526,6 +544,9 @@ export default function PropostasPage() {
                           o botão mostra "Ver pedido de contrato" com a etapa atual. Não há mais "Solicitar contrato" aqui. */}
                       {feeMap[p.id] && (
                         <button onClick={() => router.push(`/dashboard/contratos?tab=fee&c=${feeMap[p.id]!.id}`)} style={btnGanhar}><Receipt size={14} strokeWidth={1.5} style={{ verticalAlign: 'middle', marginRight: 4 }} />Ver pedido de contrato · {etapaContrato(feeMap[p.id]!.status)}</button>
+                      )}
+                      {feeMap[p.id] && (feeMap[p.id]!.paradoDias ?? 0) >= 2 && (
+                        <span title="Pedido de contrato sem movimento há vários dias — cobre o financeiro." style={{ alignSelf: 'center', fontSize: 11, fontWeight: 700, color: '#92400e', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 999, padding: '3px 10px' }}>⏳ parado há {feeMap[p.id]!.paradoDias} dias</span>
                       )}
                       {p.status === 'aprovada' && p.contrato_id && (
                         <a href="/dashboard/pm/contratos" style={{ ...btnSec, textDecoration: 'none' }}>→ Contrato recorrente</a>

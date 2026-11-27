@@ -156,7 +156,7 @@ function AbaFunil({ empresa }: { empresa: string | null }) {
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {etapas.map((e) => (
-          <div key={e.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 70px auto auto', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px' }}>
+          <div key={e.id} data-ajuda="pm.config.funil_rotulo pm.config.funil_cor pm.config.funil_situacao" style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 70px auto auto', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px' }}>
             <span title={`chave: ${e.chave}`} style={{ fontSize: 10, color: MUT, fontFamily: 'monospace', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.chave}</span>
             <input value={e.rotulo} onChange={(ev) => patch(e.id, { rotulo: ev.target.value })} style={inp} />
             <input type="color" value={e.cor ?? '#E7DECF'} onChange={(ev) => patch(e.id, { cor: ev.target.value })} style={{ width: 42, height: 32, border: `1px solid ${LINE}`, borderRadius: 6, background: '#fff', cursor: 'pointer' }} />
@@ -230,7 +230,7 @@ function AbaListas({ empresa }: { empresa: string | null }) {
       {rows.length > 0 && <span style={{ ...lblS, marginBottom: 6 }}>Opção (texto · ativa/oculta · remover)<AjudaCampo chave="pm.config.listas_rotulo" /></span>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {rows.map((o) => (
-          <div key={o.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 8, padding: '7px 10px' }}>
+          <div key={o.id} data-ajuda="pm.config.listas_rotulo" style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 8, padding: '7px 10px' }}>
             <input value={o.rotulo} onChange={(e) => setRows((arr) => arr.map((x) => (x.id === o.id ? { ...x, rotulo: e.target.value } : x)))} onBlur={() => void salvar({ id: o.id, valor: o.valor, rotulo: o.rotulo, ordem: o.ordem, ativo: o.ativo })} style={inp} />
             <button type="button" onClick={() => void salvar({ id: o.id, valor: o.valor, rotulo: o.rotulo, ordem: o.ordem, ativo: !o.ativo })} style={{ fontSize: 11, fontWeight: 700, padding: '5px 8px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${LINE}`, background: o.ativo ? '#E8F4DC' : '#F3EDE3', color: o.ativo ? '#3F7012' : MUT }}>{o.ativo ? 'ativa' : 'oculta'}</button>
             <button type="button" disabled={busy} onClick={() => void excluir(o.id)} title="Remover" style={{ ...btnGhost, color: VERM, borderColor: VERM }}>✕</button>
@@ -308,16 +308,58 @@ type Comissao = { id: string; valor_comissao: number | null; percentual: number 
 function AbaComissao({ empresa }: { empresa: string | null }) {
   const [rows, setRows] = useState<Comissao[]>([])
   const [carregou, setCarregou] = useState(false)
+  // GO-LIVE agência piloto (CEO 25/11, item 11): % padrão de comissão por papel. Pré-preenche o campo
+  // de comissão na aprovação da proposta — sem isso toda comissão prevista nascia com 0%.
+  const [cfg, setCfg] = useState<{ comercial: string; gestor: string }>({ comercial: '', gestor: '' })
+  const [busyCfg, setBusyCfg] = useState(false)
+  const [msgCfg, setMsgCfg] = useState('')
 
   const carregar = useCallback(async () => {
     if (!empresa) return
-    const { data } = await supabase.from('agency_comissao').select('id, valor_comissao, percentual, base_valor, status, competencia, tipo').eq('company_id', empresa).order('criado_em', { ascending: false })
-    setRows((data ?? []) as Comissao[]); setCarregou(true)
+    const [c, pad] = await Promise.all([
+      supabase.from('agency_comissao').select('id, valor_comissao, percentual, base_valor, status, competencia, tipo').eq('company_id', empresa).order('criado_em', { ascending: false }),
+      supabase.rpc('fn_agency_comissao_config_listar', { p_company_id: empresa }),
+    ])
+    setRows((c.data ?? []) as Comissao[]); setCarregou(true)
+    const padMap = Object.fromEntries(((pad.data ?? []) as { papel: string; percentual: number | null }[]).map((p) => [p.papel, p.percentual]))
+    setCfg({ comercial: padMap.comercial ? String(padMap.comercial) : '', gestor: padMap.gestor ? String(padMap.gestor) : '' })
   }, [empresa])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
 
+  const salvarCfg = async () => {
+    if (!empresa) return
+    setBusyCfg(true); setMsgCfg('')
+    const pares: [string, string][] = [['comercial', cfg.comercial], ['gestor', cfg.gestor]]
+    for (const [papel, valor] of pares) {
+      const pct = valor ? (parseNumBR(valor) ?? 0) : 0
+      const { data, error } = await supabase.rpc('fn_agency_comissao_config_salvar', { p_company_id: empresa, p_papel: papel, p_percentual: pct })
+      const j = data as { ok?: boolean } | null
+      if (error || !j?.ok) { setMsgCfg(erroAmigavel(error, 'Não foi possível salvar os percentuais padrão.')); setBusyCfg(false); return }
+    }
+    setMsgCfg('Percentuais padrão salvos.'); setBusyCfg(false)
+  }
+
   return (
+    <>
+    <Card>
+      <div style={{ fontSize: 13, color: ESP, fontWeight: 700, marginBottom: 4 }}>% padrão de comissão por papel</div>
+      <div style={{ fontSize: 12, color: MUT, marginBottom: 12 }}>Ao aprovar uma proposta, o campo de comissão já vem preenchido com o percentual do comercial definido aqui — você ainda ajusta antes de confirmar. Sem isso, toda comissão prevista nascia com 0%.</div>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <label style={{ flex: '1 1 160px' }}>
+          <span style={lblS}>Comercial (%)<AjudaCampo chave="pm.config.comissao_default_comercial" /></span>
+          <input style={inp} type="text" inputMode="decimal" value={cfg.comercial} onChange={(e) => setCfg({ ...cfg, comercial: e.target.value })} placeholder="0" data-testid="comissao-cfg-comercial" />
+        </label>
+        <label style={{ flex: '1 1 160px' }}>
+          <span style={lblS}>Gestor do fee (%)<AjudaCampo chave="pm.config.comissao_default_gestor" /></span>
+          <input style={inp} type="text" inputMode="decimal" value={cfg.gestor} onChange={(e) => setCfg({ ...cfg, gestor: e.target.value })} placeholder="0" data-testid="comissao-cfg-gestor" />
+        </label>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }}>
+        <button onClick={() => void salvarCfg()} disabled={busyCfg || !empresa} style={btnPrim(busyCfg || !empresa)}>{busyCfg ? 'Salvando…' : 'Salvar padrões'}</button>
+        {msgCfg && <span style={{ fontSize: 12, color: msgCfg.startsWith('Percentuais') ? VERDE : VERM }}>{msgCfg}</span>}
+      </div>
+    </Card>
     <Card>
       <div style={{ fontSize: 13, color: ESP, fontWeight: 700, marginBottom: 4 }}>Comissões geradas</div>
       <div style={{ fontSize: 12, color: MUT, marginBottom: 12 }}>Comissões que já foram lançadas nas propostas aprovadas. O modelo de regra de comissão (sobre valor × margem, por vendedor × serviço) ainda não está definido — quando estiver, vira cadastro aqui.</div>
@@ -335,6 +377,7 @@ function AbaComissao({ empresa }: { empresa: string | null }) {
         ))}
       </div>
     </Card>
+    </>
   )
 }
 

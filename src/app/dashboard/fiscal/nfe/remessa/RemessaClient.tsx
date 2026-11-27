@@ -530,7 +530,8 @@ export default function RemessaClient() {
         body: JSON.stringify({ ...payloadRemessa(), apenasPrevia: true }),
       })
       const json = await resp.json()
-      if (!resp.ok || json?.ok === false || !json?.previa?.nota) {
+      // espelho é prévia síncrona (nunca 'processando'): falhou quando não há a nota montada (sem tratar ok=false como erro, #3861)
+      if (!resp.ok || !json?.previa?.nota) {
         setErro(json?.mensagem ?? json?.motivoRejeicao ?? 'Não foi possível montar o espelho da nota.')
         return
       }
