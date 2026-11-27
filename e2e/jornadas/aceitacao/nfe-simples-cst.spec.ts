@@ -38,8 +38,16 @@ test.describe('Aceitação OS-0179 — Simples com CST trava antes do envio e de
   test.beforeAll(async () => {
     const [emp] = await dbSelect<Empresa>('companies', `id=eq.${DEMO_COMERCIO}&select=is_demo,regime_tributario,inscricao_estadual`)
     expect(emp?.is_demo, 'a aceitação só roda na empresa de demonstração').toBe(true)
-    const cfg = await dbSelect('erp_fiscal_provider_config', `company_id=eq.${DEMO_COMERCIO}&select=id`)
-    expect(cfg, 'a demo não pode ter emissor fiscal configurado (garantia de que nada chega à Focus)').toHaveLength(0)
+    // Garantia de que nada chega à Focus: a DEMO pode ter a config do Hub Fiscal semeada (#6382, sem credenciais,
+    // homologação), mas NUNCA credencial nem ambiente de produção. Sem token não há chamada possível à Focus.
+    // (Eng. Chefe 27/11: alinha o guard ao seed — antes exigia zero config e travou o @pos por 2 h.)
+    type CfgDemo = { id: string; ambiente: string | null; focus_token_vault_id: string | null; focus_token_secret_prod: string | null; focus_token_secret_homolog: string | null; api_key_encrypted: string | null }
+    const cfg = await dbSelect<CfgDemo>('erp_fiscal_provider_config', `company_id=eq.${DEMO_COMERCIO}&select=id,ambiente,focus_token_vault_id,focus_token_secret_prod,focus_token_secret_homolog,api_key_encrypted`)
+    for (const c of cfg) {
+      expect(c.ambiente, 'config fiscal da demo nunca em produção').not.toBe('producao')
+      expect([c.focus_token_vault_id, c.focus_token_secret_prod, c.focus_token_secret_homolog, c.api_key_encrypted].every((v) => v == null),
+        'a demo não pode ter credencial de emissor fiscal (garantia de que nada chega à Focus)').toBe(true)
+    }
     original = emp
     ;[prod] = await dbSelect<Produto>('erp_produtos', `company_id=eq.${DEMO_COMERCIO}&codigo=eq.${PRODUTO}&select=id,nome,cst_icms`)
     expect(prod, `produto ${PRODUTO} da demo`).toBeTruthy()
