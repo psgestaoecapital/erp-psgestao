@@ -65,6 +65,11 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'id', v_id);
 END $function$;
 
+-- Guarda (check-fn-guards · regra 1): o CREATE OR REPLACE acima é SECURITY DEFINER, então o REVOKE anon tem de
+-- ser reafirmado nesta migration. Mantém os grants atuais da função (authenticated + service_role), sem abrir a anon.
+REVOKE ALL ON FUNCTION public.fn_obra_rdo_salvar(uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_obra_rdo_salvar(uuid, jsonb) TO authenticated, service_role;
+
 -- RD-95: "?" do novo campo (mesmo padrão e rota dos demais campos do RDO: tela de OS).
 -- Idempotente sem depender de constraint única em chave.
 INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, status)
