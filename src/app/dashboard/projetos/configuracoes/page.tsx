@@ -50,6 +50,7 @@ interface Config {
   // Defaults operacionais
   validade_proposta_dias: number | null;
   prazo_pagamento_padrao_dias: number | null;
+  dias_uteis_mes: number | null;
   prefixo_orcamento: string | null;
   prefixo_obra: string | null;
   prefixo_proposta: string | null;
@@ -107,6 +108,7 @@ function cargaInicial(): Partial<Config> {
     margem_minima_pct: 8,
     validade_proposta_dias: 30,
     prazo_pagamento_padrao_dias: 30,
+    dias_uteis_mes: 22,
     prefixo_orcamento: "ORC",
     prefixo_obra: "OBR",
     prefixo_proposta: "PROP",
@@ -125,6 +127,14 @@ export default function ConfiguracoesPage() {
   const empresa = companies.find((c) => c.id === companyId);
 
   const [aba, setAba] = useState<"projetos" | "precificacao" | "produtividade">("projetos");
+  // Abre direto na aba pedida pela URL (?aba=precificacao), ex.: link "Configurar BDI" do Catálogo de Serviços.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const alvo = new URLSearchParams(window.location.search).get("aba");
+    if (alvo === "precificacao" || alvo === "produtividade" || alvo === "projetos") {
+      setAba(alvo);
+    }
+  }, []);
   const [config, setConfig] = useState<Config | null>(null);
   const [salvo, setSalvo] = useState(false); // empresa já tem linha de config gravada
   const [impactos, setImpactos] = useState<ImpactoServico[]>([]);
@@ -213,6 +223,8 @@ export default function ConfiguracoesPage() {
           dados.prazo_pagamento_padrao_dias == null
             ? 30
             : n(dados.prazo_pagamento_padrao_dias),
+        dias_uteis_mes:
+          dados.dias_uteis_mes == null ? 22 : n(dados.dias_uteis_mes),
         prefixo_orcamento: dados.prefixo_orcamento ?? "ORC",
         prefixo_obra: dados.prefixo_obra ?? "OBR",
         prefixo_proposta: dados.prefixo_proposta ?? "PROP",
@@ -260,6 +272,7 @@ export default function ConfiguracoesPage() {
           margem_minima_pct: atual.margem_minima_pct,
           validade_proposta_dias: atual.validade_proposta_dias,
           prazo_pagamento_padrao_dias: atual.prazo_pagamento_padrao_dias,
+          dias_uteis_mes: atual.dias_uteis_mes,
           prefixo_orcamento: atual.prefixo_orcamento,
           prefixo_obra: atual.prefixo_obra,
           prefixo_proposta: atual.prefixo_proposta,
@@ -611,6 +624,14 @@ export default function ConfiguracoesPage() {
             hint="Prazo entre emissão da fatura e vencimento"
             valor={config.prazo_pagamento_padrao_dias}
             onChange={(v) => setField("prazo_pagamento_padrao_dias", v)}
+            inteiro
+          />
+          <CampoNumero
+            label="Dias úteis por mês"
+            ajuda="projetos.config.dias_uteis_mes"
+            hint="Base do cálculo de consumo por período no catálogo (padrão 22)"
+            valor={config.dias_uteis_mes}
+            onChange={(v) => setField("dias_uteis_mes", v)}
             inteiro
           />
         </div>

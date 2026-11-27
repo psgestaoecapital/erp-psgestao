@@ -231,6 +231,19 @@ Deno.serve(async (req: Request) => {
       return respond(400, { ok: false, erro: "gov_nfse_municipio_codigo invalido (7 digitos)" })
     }
 
+    // #9726 · a IM do prestador na DPS e POR MUNICIPIO: Guaruja do Sul (4206603) rejeita E0120 quando a IM e
+    // informada (sem informacoes complementares no CNC NFS-e do municipio emissor), enquanto outros municipios
+    // rejeitam E0116 quando a IM NAO vai. erp_gov_nfse_municipios.informa_im (default TRUE = manda a IM = hoje).
+    // Resiliente a ordem de deploy: se a coluna ainda nao existir (erro na select), mantem o comportamento atual.
+    const { data: munEmi, error: munEmiErr } = await sb
+      .from("erp_gov_nfse_municipios")
+      .select("informa_im")
+      .eq("codigo_ibge", muniIbge)
+      .maybeSingle()
+    const informaImPrestador = munEmiErr
+      ? true
+      : ((munEmi as { informa_im?: boolean } | null)?.informa_im ?? true)
+
     const { data: emp } = await sb
       .from("companies")
       .select("cnpj, razao_social, inscricao_municipal")
@@ -356,8 +369,9 @@ Deno.serve(async (req: Request) => {
       focusPayload.regime_tributario_simples_nacional = Number(regApSN)
     }
 
-    // inscricao_municipal_prestador · so se cadastrada (ausencia evita rejeicao)
-    if (emp.inscricao_municipal && String(emp.inscricao_municipal).trim()) {
+    // inscricao_municipal_prestador · so se cadastrada E se o municipio emissor informa IM (#9726 · por municipio:
+    // ausencia evita E0120 onde a IM nao deve ir; presenca evita E0116 onde ela e exigida).
+    if (informaImPrestador && emp.inscricao_municipal && String(emp.inscricao_municipal).trim()) {
       focusPayload.inscricao_municipal_prestador = String(emp.inscricao_municipal).trim()
     }
 

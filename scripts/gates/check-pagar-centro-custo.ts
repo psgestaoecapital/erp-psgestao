@@ -36,7 +36,7 @@ ok(/fn_obras_custo[\s\S]*IN \(SELECT public\.get_user_company_ids\(\)\)[\s\S]*RE
   'custo por obra: guarda de empresa e fechado ao anon')
 
 const form = readFileSync('src/components/financeiro/NovaDespesaForm.tsx', 'utf8')
-ok(/data-testid="despesa-centro-custo"/.test(form) && /Centro de custo \/ obra/.test(form), 'Nova despesa: campo "Centro de custo / obra"')
+ok(/data-testid="despesa-centro-custo"/.test(form) && /Centro de custo/.test(form), 'Nova despesa: campo "Centro de custo" (label mudou p/ "(opcional)" em outra PR; o campo e o testid continuam)')
 ok(/from\('erp_centros_custo'\)[\s\S]{0,120}\.eq\('company_id', companyId\)/.test(form), 'lista de centros é da empresa')
 ok(/update\(\{ centro_custo_id: centroCustoId \}\)\.in\('id', ids\)/.test(form), 'criar: grava o centro em todas as parcelas')
 ok(/centro_custo_id: v\.centroCustoId \|\| null/.test(form) && /centroCustoId: String\(l\.centro_custo_id/.test(form), 'editar: carrega e salva centro_custo_id')

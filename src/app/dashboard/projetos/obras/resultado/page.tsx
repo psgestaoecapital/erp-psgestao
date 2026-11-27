@@ -532,6 +532,7 @@ function CaixaMensal({ estado, mobile }: { estado?: EstadoCaixa; mobile?: boolea
   return (
     <div style={wrap}>
       {titulo}
+      <HistogramaDesembolso linhas={linhas} mobile={mobile} />
       <div style={{ overflowX: 'auto', border: `1px solid ${LINE}`, borderRadius: 10 }}>
         <table data-testid="caixa-mensal-tabela" style={{ width: '100%', minWidth: 460, borderCollapse: 'collapse' }}>
           <thead><tr style={{ borderBottom: `1px solid ${LINE}`, background: BG }}>
@@ -553,6 +554,42 @@ function CaixaMensal({ estado, mobile }: { estado?: EstadoCaixa; mobile?: boolea
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  )
+}
+
+// Histograma de desembolso mensal em R$ (Hub · tela 318: "não só em %"). Barra por mês = saída (desembolso) do
+// caixa da obra, lendo a MESMA fonte já carregada (fn_obra_caixa_mensal) — só apresentação, sem dado ou consulta
+// nova. Altura proporcional ao maior mês; o mês de pico fica em destaque. Mobile: rola na horizontal sem quebrar
+// a tela (HB0 correção 9). RD-95: "?" no indicador (chave do "Saída", já existente no banco).
+function HistogramaDesembolso({ linhas, mobile }: { linhas: CaixaMes[]; mobile?: boolean }) {
+  const comSaida = linhas.filter(m => n(m.saida) > 0)
+  if (comSaida.length === 0) return null
+  const max = Math.max(...comSaida.map(m => n(m.saida)))
+  const mesPico = comSaida.reduce((a, m) => (n(m.saida) > n(a.saida) ? m : a), comSaida[0])
+  const altura = mobile ? 72 : 96
+  return (
+    <div data-testid="caixa-histograma" style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: MUT, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+        Desembolso mensal (R$) <AjudaCampo chave="projetos.resultado_obra.caixa_saida" />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, overflowX: 'auto', padding: '6px 4px', border: `1px solid ${LINE}`, borderRadius: 10, background: '#fff' }}>
+        {linhas.map((m, i) => {
+          const v = n(m.saida)
+          const destaque = v > 0 && m.mes === mesPico.mes
+          const h = max > 0 && v > 0 ? Math.max(3, Math.round((v / max) * altura)) : 0
+          return (
+            <div key={m.mes + i} title={`${m.mes}: ${fmtR(v)}`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 34 }}>
+              <div style={{ height: altura, display: 'flex', alignItems: 'flex-end' }}>
+                {h > 0
+                  ? <div style={{ width: 16, height: h, borderRadius: '3px 3px 0 0', background: destaque ? GOLD : `${GOLD}66` }} />
+                  : <div style={{ width: 16, height: 2, borderRadius: 2, background: LINE }} />}
+              </div>
+              <span style={{ fontSize: 9.5, color: MUT, opacity: m.mes_ordem ? 1 : 0.6, whiteSpace: 'nowrap' }}>{m.mes.length > 7 ? m.mes.slice(0, 7) : m.mes}</span>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

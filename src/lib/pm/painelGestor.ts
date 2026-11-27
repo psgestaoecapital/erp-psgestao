@@ -4,7 +4,10 @@ import { concluido, hojeISO, legado, type JobPainel } from './painel'
 
 export const LIMITE_ALERTA = 0.8
 export interface HoraDia { user_id: string | null; data: string; horas: number | null }
-export interface Pessoa { id: string; nome: string }
+// id = identidade estável da pessoa na equipe (linha de agency_equipe); userId = login vinculado,
+// usado para casar com o apontamento (agency_timesheet.user_id). Membro sem login ainda aparece na
+// cobertura (como "sem apontamento") — sinaliza a falta de vínculo, sem listar gente de fora da agência.
+export interface Pessoa { id: string; nome: string; userId?: string | null }
 
 const num = (n: number | null | undefined) => (typeof n === 'number' && isFinite(n) ? n : 0)
 const aberto = (j: JobPainel, hoje: string) => !concluido(j) && !legado(j, hoje)
@@ -13,7 +16,8 @@ export interface Cobertura { id: string; nome: string; horas: number; dias: numb
 /** Horas e dias com apontamento por pessoa na janela [de, ate]; semApontar = nenhuma hora na janela. */
 export function cobertura(pessoas: Pessoa[], horas: HoraDia[], de: string, ate: string): Cobertura[] {
   return pessoas.map((p) => {
-    const mine = horas.filter((h) => h.user_id === p.id && h.data >= de && h.data <= ate && num(h.horas) > 0)
+    const alvo = p.userId ?? p.id
+    const mine = horas.filter((h) => !!h.user_id && h.user_id === alvo && h.data >= de && h.data <= ate && num(h.horas) > 0)
     return { id: p.id, nome: p.nome, horas: Math.round(mine.reduce((s, h) => s + num(h.horas), 0) * 100) / 100, dias: new Set(mine.map((h) => h.data)).size, semApontar: mine.length === 0 }
   }).sort((a, b) => Number(b.semApontar) - Number(a.semApontar) || a.horas - b.horas)
 }

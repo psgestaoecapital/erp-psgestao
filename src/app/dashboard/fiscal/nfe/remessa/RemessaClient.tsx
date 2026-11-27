@@ -19,6 +19,7 @@ import {
   ICMS_OPCOES_SIMPLES, ICMS_OPCOES_NORMAL, type CfopSaida, type FinalidadeNFe,
 } from '@/lib/fiscal/nfeAvulsa'
 import { termosBuscaProduto, filtroTermoProduto, filtroPrefixoProduto, juntarResultados } from '@/lib/fiscal/buscaProdutoAvulsa'
+import { buscarDestinatarios, termoValido, textoOpcao, type OpcaoDestinatario } from '@/lib/fiscal/destinatarioBusca'
 import { ArrowLeft, Loader2, AlertCircle, FileText, Plus, Trash2, Info, Save, FolderOpen, Percent } from 'lucide-react'
 
 interface DestPessoa {
@@ -63,6 +64,13 @@ interface ItemRem {
   icmsBaseTexto?: string // buffers de digitação pt-BR; não vão ao payload
   icmsAliquotaTexto?: string
   icmsValorTexto?: string
+  // #9929 · IPI/PIS/COFINS POR ITEM (opcional; regime normal). Em branco = comportamento atual, sem regressão.
+  ipiCst?: string; ipiAliquota?: number; ipiValor?: number
+  ipiAliquotaTexto?: string; ipiValorTexto?: string
+  pisCst?: string; pisAliquota?: number; pisValor?: number
+  pisAliquotaTexto?: string; pisValorTexto?: string
+  cofinsCst?: string; cofinsAliquota?: number; cofinsValor?: number
+  cofinsAliquotaTexto?: string; cofinsValorTexto?: string
 }
 
 // #5660 · aceita vírgula pt-BR em campo monetário: texto + replace(',', '.') (padrão do Perfil fiscal da revenda)
@@ -114,7 +122,8 @@ interface RascunhoPayload {
   valorFrete: number
   observacoes: string
   itens: Array<Pick<ItemRem, 'produtoId' | 'produtoLabel' | 'quantidade' | 'valorUnitarioOverride' | 'cfop'
-    | 'icmsCst' | 'icmsBase' | 'icmsAliquota' | 'icmsValor'>>
+    | 'icmsCst' | 'icmsBase' | 'icmsAliquota' | 'icmsValor'
+    | 'ipiCst' | 'ipiAliquota' | 'ipiValor' | 'pisCst' | 'pisAliquota' | 'pisValor' | 'cofinsCst' | 'cofinsAliquota' | 'cofinsValor'>>
 }
 
 const fmtBRL = (v: number) =>
@@ -135,7 +144,9 @@ export default function RemessaClient() {
   const [simples, setSimples] = useState(false)
 
   const [destTabela, setDestTabela] = useState<'erp_clientes' | 'erp_fornecedores'>('erp_clientes')
-  const [pessoas, setPessoas] = useState<DestPessoa[]>([])
+  // destinatário escolhido (linha completa, lida por id) e resultado da busca feita no servidor (chamado #11084)
+  const [destSelecionado, setDestSelecionado] = useState<DestPessoa | null>(null)
+  const [destResultado, setDestResultado] = useState<{ chave: string; opcoes: OpcaoDestinatario[]; erro: string | null } | null>(null)
   const [destinatarioId, setDestinatarioId] = useState('')
 
   const [tipos, setTipos] = useState<RemessaTipo[]>([])
@@ -278,43 +289,51 @@ export default function RemessaClient() {
     })()
   }, [companyId])
 
+  // reenvio: o destinatário da nota recusada já entra escolhido
   useEffect(() => {
-    if (!companyId) return
+    if (!destPendente) return
+    setDestSelecionado(destPendente)
+    setDestinatarioId(destPendente.id)
+  }, [destPendente])
+
+  // escolhido por id (clique na busca, rascunho aberto): lê a linha completa (UF, IE, contribuinte) do cadastro da empresa
+  useEffect(() => {
+    if (!companyId || !destinatarioId || destSelecionado?.id === destinatarioId) return
     let cancelado = false
     void (async () => {
       const { data } = await supabase
         .from(destTabela)
         .select('id, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, uf, ie, contribuinte_icms')
-        .eq('company_id', companyId)
-        .eq('ativo', true)
-        .order('razao_social')
-        .limit(500)
+        .eq('id', destinatarioId).eq('company_id', companyId).maybeSingle()
       if (cancelado) return
-      const lista = (data ?? []) as DestPessoa[]
-      // reenvio: garante o destinatário da nota recusada na lista (a lista corta em 500)
-      if (destPendente && !lista.some((p) => p.id === destPendente.id)) lista.unshift(destPendente)
-      setPessoas(lista)
-      setDestinatarioId(destPendente && lista.some((p) => p.id === destPendente.id) ? destPendente.id : '')
+      if (data) setDestSelecionado(data as DestPessoa)
+      else setDestinatarioId('')   // cadastro não é desta empresa/tipo (rascunho antigo): pede para escolher de novo
     })()
     return () => { cancelado = true }
-  }, [companyId, destTabela, destPendente])
+  }, [companyId, destinatarioId, destTabela, destSelecionado?.id])
 
-  const destinatario = pessoas.find((p) => p.id === destinatarioId)
+  const destinatario = destSelecionado && destSelecionado.id === destinatarioId ? destSelecionado : undefined
   const [destBusca, setDestBusca] = useState('')
   const [destAberto, setDestAberto] = useState(false)
   const textoDest = (p: DestPessoa) =>
     `${p.razao_social ?? p.nome_fantasia ?? p.id}${p.cnpj_cpf || p.cpf_cnpj ? ` · ${p.cnpj_cpf ?? p.cpf_cnpj}` : ''}${p.uf ? ` · ${p.uf}` : ''}`
-  // busca por qualquer parte do nome/razão/fantasia (sem acento) e por CPF/CNPJ com ou sem pontuação
-  const pessoasFiltradas = useMemo(() => {
-    const norm = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
-    const q = norm(destBusca)
-    const d = soDigitos(destBusca)
-    if (!q) return pessoas.slice(0, 50)
-    return pessoas.filter((p) => {
-      if (norm(`${p.razao_social ?? ''} ${p.nome_fantasia ?? ''}`).includes(q)) return true
-      return d.length > 0 && soDigitos(p.cnpj_cpf ?? p.cpf_cnpj).includes(d)
-    }).slice(0, 50)
-  }, [pessoas, destBusca])
+
+  // busca NO SERVIDOR pela função canônica (fn_cliente_buscar / fn_fornecedor_buscar): nome fantasia OU razão social OU
+  // CPF/CNPJ — pessoa física (razão social vazia) aparece igual a pessoa jurídica, em qualquer tamanho de cadastro
+  const termoDest = destBusca.trim()
+  const chaveBusca = `${destTabela}|${companyId}|${termoDest}`
+  useEffect(() => {
+    if (!destAberto || !companyId || !termoValido(termoDest)) return
+    let vivo = true
+    const t = setTimeout(async () => {
+      const r = await buscarDestinatarios(async (fn, args) => await supabase.rpc(fn, args), destTabela, companyId, termoDest)
+      if (vivo) setDestResultado({ chave: chaveBusca, opcoes: r.opcoes, erro: r.erro })
+    }, 250)
+    return () => { vivo = false; clearTimeout(t) }
+  }, [destAberto, companyId, destTabela, termoDest, chaveBusca])
+  const buscaPronta = destResultado?.chave === chaveBusca
+  const opcoesDest = buscaPronta ? destResultado.opcoes : []
+  const buscandoDest = destAberto && termoValido(termoDest) && !buscaPronta
   const ufDest = ufDestino(destinatario?.uf)
 
   function escolherCfop(codigo: string) {
@@ -485,6 +504,16 @@ export default function RemessaClient() {
         ...(it.icmsBase != null ? { icmsBase: Number(it.icmsBase) } : {}),
         ...(it.icmsAliquota != null ? { icmsAliquota: Number(it.icmsAliquota) } : {}),
         ...(it.icmsValor != null ? { icmsValor: Number(it.icmsValor) } : {}),
+        // #9929 · IPI/PIS/COFINS por item — só vão ao payload quando preenchidos
+        ...(it.ipiCst ? { ipiCst: soDigitos(it.ipiCst) } : {}),
+        ...(it.ipiAliquota != null ? { ipiAliquota: Number(it.ipiAliquota) } : {}),
+        ...(it.ipiValor != null ? { ipiValor: Number(it.ipiValor) } : {}),
+        ...(it.pisCst ? { pisCst: soDigitos(it.pisCst) } : {}),
+        ...(it.pisAliquota != null ? { pisAliquota: Number(it.pisAliquota) } : {}),
+        ...(it.pisValor != null ? { pisValor: Number(it.pisValor) } : {}),
+        ...(it.cofinsCst ? { cofinsCst: soDigitos(it.cofinsCst) } : {}),
+        ...(it.cofinsAliquota != null ? { cofinsAliquota: Number(it.cofinsAliquota) } : {}),
+        ...(it.cofinsValor != null ? { cofinsValor: Number(it.cofinsValor) } : {}),
       })),
     }
   }
@@ -501,7 +530,8 @@ export default function RemessaClient() {
         body: JSON.stringify({ ...payloadRemessa(), apenasPrevia: true }),
       })
       const json = await resp.json()
-      if (!resp.ok || json?.ok === false || !json?.previa?.nota) {
+      // espelho é prévia síncrona (nunca 'processando'): falhou quando não há a nota montada (sem tratar ok=false como erro, #3861)
+      if (!resp.ok || !json?.previa?.nota) {
         setErro(json?.mensagem ?? json?.motivoRejeicao ?? 'Não foi possível montar o espelho da nota.')
         return
       }
@@ -593,6 +623,15 @@ export default function RemessaClient() {
         ...(it.icmsBase != null ? { icmsBase: it.icmsBase } : {}),
         ...(it.icmsAliquota != null ? { icmsAliquota: it.icmsAliquota } : {}),
         ...(it.icmsValor != null ? { icmsValor: it.icmsValor } : {}),
+        ...(it.ipiCst ? { ipiCst: it.ipiCst } : {}),
+        ...(it.ipiAliquota != null ? { ipiAliquota: it.ipiAliquota } : {}),
+        ...(it.ipiValor != null ? { ipiValor: it.ipiValor } : {}),
+        ...(it.pisCst ? { pisCst: it.pisCst } : {}),
+        ...(it.pisAliquota != null ? { pisAliquota: it.pisAliquota } : {}),
+        ...(it.pisValor != null ? { pisValor: it.pisValor } : {}),
+        ...(it.cofinsCst ? { cofinsCst: it.cofinsCst } : {}),
+        ...(it.cofinsAliquota != null ? { cofinsAliquota: it.cofinsAliquota } : {}),
+        ...(it.cofinsValor != null ? { cofinsValor: it.cofinsValor } : {}),
       })),
     }
   }
@@ -651,6 +690,15 @@ export default function RemessaClient() {
       ...(it.icmsBase != null ? { icmsBase: Number(it.icmsBase) } : {}),
       ...(it.icmsAliquota != null ? { icmsAliquota: Number(it.icmsAliquota) } : {}),
       ...(it.icmsValor != null ? { icmsValor: Number(it.icmsValor) } : {}),
+      ...(it.ipiCst ? { ipiCst: it.ipiCst } : {}),
+      ...(it.ipiAliquota != null ? { ipiAliquota: Number(it.ipiAliquota) } : {}),
+      ...(it.ipiValor != null ? { ipiValor: Number(it.ipiValor) } : {}),
+      ...(it.pisCst ? { pisCst: it.pisCst } : {}),
+      ...(it.pisAliquota != null ? { pisAliquota: Number(it.pisAliquota) } : {}),
+      ...(it.pisValor != null ? { pisValor: Number(it.pisValor) } : {}),
+      ...(it.cofinsCst ? { cofinsCst: it.cofinsCst } : {}),
+      ...(it.cofinsAliquota != null ? { cofinsAliquota: Number(it.cofinsAliquota) } : {}),
+      ...(it.cofinsValor != null ? { cofinsValor: Number(it.cofinsValor) } : {}),
     })))
     setImpostosAbertos(new Set())
     setRascunhoId(id); setErro(null); setSucesso(null)
@@ -812,7 +860,7 @@ export default function RemessaClient() {
             <span className={rotuloCls}>Tipo de pessoa <AjudaCampo chave="fiscal.nfe_avulsa.destinatario_tipo" /></span>
             <select
               value={destTabela}
-              onChange={(e) => { setDestPendente(null); setDestTabela(e.target.value as 'erp_clientes' | 'erp_fornecedores') }}
+              onChange={(e) => { setDestPendente(null); setDestSelecionado(null); setDestinatarioId(''); setDestTabela(e.target.value as 'erp_clientes' | 'erp_fornecedores') }}
               className={inputCls}
             >
               <option value="erp_clientes">Cliente</option>
@@ -834,14 +882,19 @@ export default function RemessaClient() {
             />
             {destAberto && (
               <div className="absolute z-20 left-0 right-0 mt-1 max-h-72 overflow-y-auto bg-white border border-[#3D2314]/15 rounded-lg shadow-lg">
-                {pessoasFiltradas.map((p) => (
-                  <button key={p.id} type="button"
-                    onMouseDown={() => { setDestinatarioId(p.id); setDestAberto(false) }}
+                {opcoesDest.map((o) => (
+                  <button key={o.id} type="button" data-testid="nfe-avulsa-destinatario-opcao"
+                    onMouseDown={() => { setDestinatarioId(o.id); setDestAberto(false) }}
                     className="w-full text-left px-3 py-2 hover:bg-[#FAF7F2] border-b border-[#3D2314]/5 last:border-0 text-[12px] text-[#3D2314]">
-                    {textoDest(p)}
+                    {textoOpcao(o)}
                   </button>
                 ))}
-                {pessoasFiltradas.length === 0 && (
+                {!termoValido(termoDest) && (
+                  <div className="px-3 py-2 text-[12px] text-[#3D2314]/55">Digite ao menos 2 letras do nome ou o CPF/CNPJ.</div>
+                )}
+                {buscandoDest && <div className="px-3 py-2 text-[12px] text-[#3D2314]/55">Buscando…</div>}
+                {buscaPronta && destResultado.erro && <div className="px-3 py-2 text-[12px] text-[#A32D2D]">{destResultado.erro}</div>}
+                {buscaPronta && !destResultado.erro && opcoesDest.length === 0 && (
                   <div className="px-3 py-2 text-[12px] text-[#3D2314]/55">Nenhum cadastro encontrado.</div>
                 )}
               </div>
@@ -1018,6 +1071,9 @@ export default function RemessaClient() {
                   const subtotal = (it.valorUnitarioOverride ?? 0) * it.quantidade
                   const impAberto = impostosAbertos.has(idx)
                   const temImposto = !!it.icmsCst || it.icmsBase != null || it.icmsAliquota != null || it.icmsValor != null
+                    || !!it.ipiCst || it.ipiAliquota != null || it.ipiValor != null
+                    || !!it.pisCst || it.pisAliquota != null || it.pisValor != null
+                    || !!it.cofinsCst || it.cofinsAliquota != null || it.cofinsValor != null
                   return (
                     <Fragment key={idx}>
                     <tr className="border-t border-[#3D2314]/5">
@@ -1124,6 +1180,55 @@ export default function RemessaClient() {
                               />
                             </label>
                           </div>
+                          {/* #9929 · IPI/PIS/COFINS por item — só regime normal (no Simples não há destaque). Opcional. */}
+                          {!simples && (
+                            <div className="mt-3 pt-3 border-t border-[#3D2314]/10">
+                              <div className="flex items-center gap-1.5 mb-2">
+                                <Percent size={12} className="text-[#C8941A]" />
+                                <span className="text-[10.5px] font-semibold text-[#3D2314]/70 uppercase tracking-wide">Impostos do item — IPI, PIS e COFINS</span>
+                                <AjudaCampo chave="fiscal.nfe_avulsa.item_impostos_federais" />
+                              </div>
+                              <p className="text-[11px] text-[#3D2314]/55 mb-2.5">Em branco, o item segue o cadastro do produto (sem regressão). Preencha para destacar estes tributos na NF-e.</p>
+                              {([
+                                { key: 'ipi', rot: 'IPI', cst: it.ipiCst, aliq: it.ipiAliquota, aliqTxt: it.ipiAliquotaTexto, val: it.ipiValor, valTxt: it.ipiValorTexto,
+                                  onCst: (v?: string) => atualizarItem(idx, { ipiCst: v }),
+                                  onAliq: (t: string) => atualizarItem(idx, { ipiAliquotaTexto: t, ipiAliquota: numOrNull(t) ?? undefined }), onAliqBlur: () => atualizarItem(idx, { ipiAliquotaTexto: undefined }),
+                                  onVal: (t: string) => atualizarItem(idx, { ipiValorTexto: t, ipiValor: numOrNull(t) ?? undefined }), onValBlur: () => atualizarItem(idx, { ipiValorTexto: undefined }) },
+                                { key: 'pis', rot: 'PIS', cst: it.pisCst, aliq: it.pisAliquota, aliqTxt: it.pisAliquotaTexto, val: it.pisValor, valTxt: it.pisValorTexto,
+                                  onCst: (v?: string) => atualizarItem(idx, { pisCst: v }),
+                                  onAliq: (t: string) => atualizarItem(idx, { pisAliquotaTexto: t, pisAliquota: numOrNull(t) ?? undefined }), onAliqBlur: () => atualizarItem(idx, { pisAliquotaTexto: undefined }),
+                                  onVal: (t: string) => atualizarItem(idx, { pisValorTexto: t, pisValor: numOrNull(t) ?? undefined }), onValBlur: () => atualizarItem(idx, { pisValorTexto: undefined }) },
+                                { key: 'cofins', rot: 'COFINS', cst: it.cofinsCst, aliq: it.cofinsAliquota, aliqTxt: it.cofinsAliquotaTexto, val: it.cofinsValor, valTxt: it.cofinsValorTexto,
+                                  onCst: (v?: string) => atualizarItem(idx, { cofinsCst: v }),
+                                  onAliq: (t: string) => atualizarItem(idx, { cofinsAliquotaTexto: t, cofinsAliquota: numOrNull(t) ?? undefined }), onAliqBlur: () => atualizarItem(idx, { cofinsAliquotaTexto: undefined }),
+                                  onVal: (t: string) => atualizarItem(idx, { cofinsValorTexto: t, cofinsValor: numOrNull(t) ?? undefined }), onValBlur: () => atualizarItem(idx, { cofinsValorTexto: undefined }) },
+                              ]).map((row) => (
+                                <div key={row.key} className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-2 items-end">
+                                  <span className="text-[11px] font-medium text-[#3D2314]/75 self-center">{row.rot}</span>
+                                  <label className="block">
+                                    <span className="block text-[10.5px] text-[#3D2314]/65 mb-1">CST <AjudaCampo chave={`fiscal.nfe_avulsa.item_${row.key}_cst`} /></span>
+                                    <input type="text" inputMode="numeric" value={row.cst ?? ''}
+                                      onChange={(e) => row.onCst(soDigitos(e.target.value).slice(0, 2) || undefined)}
+                                      placeholder="ex.: 50" className="w-full px-2 py-1 text-[12px] font-mono border border-[#3D2314]/15 rounded" />
+                                  </label>
+                                  <label className="block">
+                                    <span className="block text-[10.5px] text-[#3D2314]/65 mb-1">Alíquota (%) <AjudaCampo chave={`fiscal.nfe_avulsa.item_${row.key}_aliquota`} /></span>
+                                    <input type="text" inputMode="decimal"
+                                      value={row.aliqTxt ?? (row.aliq != null ? String(row.aliq).replace('.', ',') : '')}
+                                      onChange={(e) => row.onAliq(e.target.value)} onBlur={row.onAliqBlur}
+                                      placeholder="0,00" className="w-full px-2 py-1 text-right text-[12px] border border-[#3D2314]/15 rounded" />
+                                  </label>
+                                  <label className="block">
+                                    <span className="block text-[10.5px] text-[#3D2314]/65 mb-1">Valor (R$) <AjudaCampo chave={`fiscal.nfe_avulsa.item_${row.key}_valor`} /></span>
+                                    <input type="text" inputMode="decimal"
+                                      value={row.valTxt ?? (row.val != null ? String(row.val).replace('.', ',') : '')}
+                                      onChange={(e) => row.onVal(e.target.value)} onBlur={row.onValBlur}
+                                      placeholder="0,00" className="w-full px-2 py-1 text-right text-[12px] border border-[#3D2314]/15 rounded" />
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </td>
                       </tr>
                     )}

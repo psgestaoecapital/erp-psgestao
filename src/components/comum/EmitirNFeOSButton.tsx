@@ -31,6 +31,9 @@ type ItemEmitivel = {
   item_id: string; produto_id: string; descricao: string; quantidade: number
   preco_unitario: number; subtotal: number; ncm: string; cfop: string; unidade: string
   desconto_rateado?: number // #7031 · parcela do desconto geral da OS rateada neste item
+  // #9726 · troca de item de faturamento (só modo baixar_estoque): item usado (origem) × item que vai na NF-e (faturamento)
+  produto_origem_id?: string; produto_faturamento_id?: string; faturado_como?: string | null
+  tipo_item_sped?: string; faturamento_bloqueado?: boolean
 }
 type Bloqueada = { descricao: string; subtotal?: number }
 type Dest = {
@@ -45,6 +48,8 @@ type Prep = {
   desconto_os?: number; desconto_emitivel?: number // #7031 · desconto geral da OS e a parcela que a NF-e carrega
   itens_emitiveis?: ItemEmitivel[]; itens_texto_livre?: Bloqueada[]; itens_sem_fiscal?: Bloqueada[]
   destinatario?: Dest
+  // #9726 · só modo baixar_estoque permite trocar o item de faturamento e bloqueia o '99'
+  modo_baixa_estoque?: string; permite_troca?: boolean; bloqueios_sped?: number
 }
 
 const MIN_JUST = 10
@@ -76,6 +81,11 @@ export default function EmitirNFeOSButton({
   // #2167 · nota já emitida para a OS → botão verde que abre o DANFE
   const { nota, recarregar } = useNotaDaOS('nfe', osId, companyId)
   const notaEmitida = notaJaEmitida(nota)
+  // #9726 · troca de item de faturamento (só modo baixar_estoque)
+  const [trocando, setTrocando] = useState<string | null>(null)
+  const [buscaProd, setBuscaProd] = useState('')
+  const [resultadosProd, setResultadosProd] = useState<{ id: string; nome: string; ncm: string | null; saldo: number }[]>([])
+  const [buscandoProd, setBuscandoProd] = useState(false)
 
   async function preparar() {
     setErro(null); setCarregando(true)
@@ -92,7 +102,35 @@ export default function EmitirNFeOSButton({
       setPrep(p); setProducao(prod); setSel(s); setJustificativa(''); setFase('form'); setResultado(null); setAberto(true)
       setPrevia(null); setTextoInfCpl(''); editouInfCpl.current = false; setPreviaErro(null)
       setNotaMontada(null); setEspelhoErro(null)
+      setTrocando(null); setBuscaProd(''); setResultadosProd([])
     } finally { setCarregando(false) }
+  }
+
+  // #9726 · busca produtos de estoque REAL (tipo 00) com NCM, para trocar o item de faturamento.
+  async function buscarProdutos00(term: string) {
+    setBuscaProd(term)
+    const t = term.replace(/[,()*%]/g, ' ').trim()
+    if (t.length < 2) { setResultadosProd([]); return }
+    setBuscandoProd(true)
+    try {
+      const { data } = await supabase.from('erp_produtos')
+        .select('id, nome, descricao, ncm, estoque_atual')
+        .eq('company_id', companyId).eq('tipo_item_sped', '00')
+        .or(`nome.ilike.%${t}%,descricao.ilike.%${t}%`).limit(8)
+      const rows = ((data ?? []) as { id: string; nome: string | null; descricao: string | null; ncm: string | null; estoque_atual: number | null }[])
+        .filter((p) => (p.ncm ?? '').replace(/\D/g, '').length === 8)
+        .map((p) => ({ id: p.id, nome: p.descricao || p.nome || p.id, ncm: p.ncm, saldo: Number(p.estoque_atual ?? 0) }))
+      setResultadosProd(rows)
+    } finally { setBuscandoProd(false) }
+  }
+  // Define/limpa a troca no banco e recarrega a preparação (a baixa/estoque e o item da OS NÃO mudam).
+  async function trocarItem(itemId: string, produtoFaturamentoId: string | null) {
+    const { data, error } = await supabase.rpc('fn_os_nfe_item_faturamento_definir',
+      { p_os_id: osId, p_item_os_id: itemId, p_produto_faturamento_id: produtoFaturamentoId })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { setErro(error?.message ?? r?.erro ?? 'Não foi possível trocar o item de faturamento.'); return }
+    setTrocando(null); setBuscaProd(''); setResultadosProd([])
+    await preparar()
   }
 
   const emitiveis = prep?.itens_emitiveis ?? []
@@ -110,7 +148,10 @@ export default function EmitirNFeOSButton({
   const totalNFLiquido = Number((totalNF - descontoSel).toFixed(2))
   const justOk = !diverge || justificativa.trim().length >= MIN_JUST
   const destOk = !!dest?.ok
-  const podeEmitir = selecionados.length > 0 && justOk && destOk && fase === 'form' && !(!!previa && textoInfCpl.trim().length > previa.limite)
+  // #9726 · no modo baixar_estoque, item de faturamento '99 - Outras' bloqueia a emissão até a troca.
+  const permiteTroca = !!prep?.permite_troca
+  const bloqueioSelecionado = permiteTroca && selecionados.some((it) => it.faturamento_bloqueado)
+  const podeEmitir = selecionados.length > 0 && justOk && destOk && !bloqueioSelecionado && fase === 'form' && !(!!previa && textoInfCpl.trim().length > previa.limite)
 
   // Corpo da emissão (o mesmo vai na prévia, com apenasPrevia) — o texto da prévia é o da nota que sairia.
   function montarBody(): Record<string, unknown> | null {
@@ -255,6 +296,73 @@ export default function EmitirNFeOSButton({
                         <b>{brl(it.subtotal)}</b>
                       </label>
                     ))}
+                  </div>
+                )}
+
+                {/* #9726 · troca do item de faturamento (SÓ modo baixar_estoque): item '99 - Outras' não pode ser
+                    faturado; o operador troca por um produto de estoque real (tipo 00). A troca vale só para a NF-e —
+                    o item da OS, a baixa de estoque e o histórico do veículo continuam com o item usado. */}
+                {permiteTroca && emitiveis.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 6 }}>Itens de faturamento (NF-e)</div>
+                    {bloqueioSelecionado && (
+                      <div style={{ ...box(C.redBg, '#791F1F'), marginBottom: 8 }}>
+                        Há item <b>99 - Outras</b> marcado — troque o item de faturamento para emitir.
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {emitiveis.map((it) => {
+                        const bloq = !!it.faturamento_bloqueado
+                        const trocado = !!it.faturado_como
+                        return (
+                          <div key={it.item_id} style={{ border: `1px solid ${bloq ? C.red : C.line}`, borderRadius: 8, padding: 8, background: bloq ? C.redBg : '#FFFFFF' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
+                              <span style={{ flex: 1, minWidth: 160 }}>
+                                {bloq
+                                  ? <span style={{ color: '#791F1F', fontWeight: 600 }}>{it.descricao} — Item 99 - Outras não pode ser faturado; troque o item de faturamento.</span>
+                                  : trocado
+                                    ? <span style={{ color: C.espresso }}>usado: <b>{it.descricao}</b> · faturado como: <b style={{ color: C.green }}>{it.faturado_como}</b></span>
+                                    : <span style={{ color: C.espresso }}>{it.descricao}<span style={{ color: C.espressoM }}>{it.tipo_item_sped ? ` · tipo ${it.tipo_item_sped}` : ''}</span></span>}
+                              </span>
+                              <button type="button" onClick={() => { setTrocando(trocando === it.item_id ? null : it.item_id); setBuscaProd(''); setResultadosProd([]) }}
+                                style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.line}`, background: 'transparent', color: C.espresso, cursor: 'pointer' }}>
+                                {trocando === it.item_id ? 'Fechar' : 'Trocar item de faturamento'}
+                              </button>
+                              {trocado && (
+                                <button type="button" onClick={() => void trocarItem(it.item_id, null)}
+                                  style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.line}`, background: 'transparent', color: C.espressoM, cursor: 'pointer' }}>
+                                  Voltar ao original
+                                </button>
+                              )}
+                            </div>
+                            {trocando === it.item_id && (
+                              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: C.espressoM }}>
+                                  Buscar produto de estoque (tipo 00, com NCM) para faturar no lugar
+                                  <AjudaCampo chave="oficina.os.nfe_trocar_item_faturamento" rota="/dashboard/os" />
+                                </span>
+                                <input type="text" value={buscaProd} onChange={(e) => void buscarProdutos00(e.target.value)} autoFocus
+                                  placeholder="Nome ou descrição do produto…"
+                                  style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${C.line}`, borderRadius: 6, padding: '8px 10px', fontSize: 13, color: C.espresso }} />
+                                {buscandoProd && <span style={{ fontSize: 11, color: C.espressoM }}>Buscando…</span>}
+                                {resultadosProd.map((p) => (
+                                  <button type="button" key={p.id} onClick={() => void trocarItem(it.item_id, p.id)}
+                                    style={{ textAlign: 'left', border: `1px solid ${C.line}`, borderRadius: 6, padding: '6px 10px', background: '#FFFFFF', cursor: 'pointer', fontSize: 12, color: C.espresso }}>
+                                    {p.nome} <span style={{ color: C.espressoM }}>· NCM {p.ncm} · saldo {p.saldo}</span>
+                                  </button>
+                                ))}
+                                {!buscandoProd && buscaProd.trim().length >= 2 && resultadosProd.length === 0 && (
+                                  <span style={{ fontSize: 11, color: C.espressoM }}>Nenhum produto tipo 00 com NCM encontrado.</span>
+                                )}
+                              </label>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: C.espressoM, marginTop: 6 }}>
+                      O saldo é informativo — a emissão NÃO baixa estoque (a baixa é pelo botão “Baixar estoque”). A troca vale só para a nota; na OS e no histórico do veículo fica o item usado.
+                    </div>
                   </div>
                 )}
 
