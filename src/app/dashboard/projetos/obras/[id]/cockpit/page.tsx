@@ -39,6 +39,9 @@ type EtapaAtrasada = { id: string; nome: string; fim: string | null; percentual:
 // Medições da obra ainda em rascunho (§329 prontuário): aguardam aprovação — ao aprovar geram o recebível na GE.
 // Leitura direta de projetos_obra_medicao (RLS por empresa).
 type MedicaoPendente = { id: string; numero: number; competencia: string | null; valor_total: number | null }
+// Fornecedores envolvidos na obra (§329 prontuário): derivados dos custos lançados (fn_obra_custo_listar, RLS por empresa).
+// Agregado no cliente por nome do fornecedor; mostra os 5 maiores por valor, para ver a concentração de gasto sem sair do cockpit.
+type FornecedorObra = { nome: string; qtd: number; total: number; pago: number }
 type Linha = { k: string; ajuda: string; l: string; v: number }
 type Card = { k: string; ajuda: string; l: string; v: string; sub: string; cor?: string; bar?: number | null; linhas?: Linha[] }
 
@@ -88,11 +91,13 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   const [etapasAtrasadas, setEtapasAtrasadas] = useState<EtapaAtrasada[] | null>(null)
   // Medições em rascunho (aprovações pendentes) desta obra (§329): aguardam aprovação. Falha aqui não trava a tela.
   const [medicoesPendentes, setMedicoesPendentes] = useState<MedicaoPendente[] | null>(null)
+  // Fornecedores da obra (§329): os 5 maiores por valor, derivados dos custos lançados. Falha aqui não trava a tela.
+  const [fornecedores, setFornecedores] = useState<FornecedorObra[] | null>(null)
 
   const consulta = useCallback(async () => await supabase.from('v_obra_resultado_alocado').select('*').eq('obra_id', id).maybeSingle(), [id])
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); setCodigoErro('OBRA-LINK'); return }
-    setLoading(true); setErro(null); setCodigoErro(null); setOrc(null); setAcoes(null); setDiarios(null); setEtapasAtrasadas(null); setMedicoesPendentes(null)
+    setLoading(true); setErro(null); setCodigoErro(null); setOrc(null); setAcoes(null); setDiarios(null); setEtapasAtrasadas(null); setMedicoesPendentes(null); setFornecedores(null)
     let res: Awaited<ReturnType<typeof consulta>>
     try { res = await comPrazo(consulta, { ms: 8000, tentativas: 1, label: 'cockpit-obra' }) } catch { setLoading(false); setErro(MSG_CARREGAMENTO_FALHOU); setCodigoErro('OBRA-REDE'); return }
     const { data, error } = res
@@ -164,6 +169,23 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
         .order('competencia', { ascending: false }).order('numero', { ascending: false }).limit(5)
       setMedicoesPendentes(Array.isArray(mp) ? (mp as MedicaoPendente[]) : [])
     } catch { /* bloco de aprovações pendentes é opcional no cockpit */ }
+    // Fornecedores da obra: agregados dos custos lançados (fn_obra_custo_listar, guardada por empresa). Os 5 maiores por
+    // valor total. Lançamento sem fornecedor_nome é ignorado. Não trava a tela — o bloco cai no estado vazio.
+    try {
+      const { data: cd } = await supabase.rpc('fn_obra_custo_listar', { p_obra_id: id })
+      const linhas = (Array.isArray(cd) ? cd : []) as { fornecedor_nome: string | null; valor: number | null; pago: boolean | null }[]
+      const mapa = new Map<string, FornecedorObra>()
+      for (const l of linhas) {
+        const nome = (l.fornecedor_nome ?? '').trim()
+        if (!nome) continue
+        const v = Number(l.valor ?? 0)
+        const f = mapa.get(nome) ?? { nome, qtd: 0, total: 0, pago: 0 }
+        f.qtd += 1; f.total += v; if (l.pago) f.pago += v
+        mapa.set(nome, f)
+      }
+      const top = Array.from(mapa.values()).sort((a, b) => b.total - a.total).slice(0, 5)
+      setFornecedores(top)
+    } catch { /* bloco de fornecedores é opcional no cockpit */ }
   }, [consulta, id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
@@ -487,6 +509,31 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
                               </div>
                             </div>
                             <span style={{ flexShrink: 0, fontSize: 12.5, fontWeight: 700, color: ESP, fontVariantNumeric: 'tabular-nums' }}>{brl(Number(m.valor_total ?? 0))}</span>
+                          </li>
+                        ))}
+                      </ul>}
+              </div>
+
+              {/* Fornecedores da obra (§329 prontuário): os maiores por valor, derivados dos custos lançados — concentração de gasto sem sair do cockpit. */}
+              <div data-testid="cockpit-fornecedores-obra" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>Fornecedores da obra <AjudaCampo chave="projetos.cockpit.fornecedores_obra" rota={ROTA} /></div>
+                  <Link href={`/dashboard/projetos/obras/${id}/custos?area=hub`} data-testid="link-fornecedores-custos" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>Custos da obra →</Link>
+                </div>
+                {fornecedores === null
+                  ? <div style={{ fontSize: 12, color: MUT }}>Carregando fornecedores…</div>
+                  : fornecedores.length === 0
+                    ? <div style={{ fontSize: 12, color: MUT }}>Nenhum fornecedor nos custos desta obra ainda. Lance os custos com o fornecedor em <Link href={`/dashboard/projetos/obras/${id}/custos?area=hub`} style={{ color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Custos da obra</Link>.</div>
+                    : <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {fornecedores.map((f: FornecedorObra) => (
+                          <li key={f.nome} data-testid="cockpit-fornecedor-item" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, borderTop: `0.5px solid ${LINE}`, paddingTop: 8 }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 12.5, color: ESP, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.nome}</div>
+                              <div style={{ fontSize: 11, color: MUT, marginTop: 2 }}>
+                                {f.qtd} lançamento{f.qtd === 1 ? '' : 's'} · {brl(f.pago)} pago{f.pago < f.total ? ` de ${brl(f.total)}` : ''}
+                              </div>
+                            </div>
+                            <span style={{ flexShrink: 0, fontSize: 12.5, fontWeight: 700, color: ESP, fontVariantNumeric: 'tabular-nums' }}>{brl(f.total)}</span>
                           </li>
                         ))}
                       </ul>}
