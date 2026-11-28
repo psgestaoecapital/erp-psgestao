@@ -1,8 +1,8 @@
 // Gate · PM-J — importador de jobs do SIGA (CEO 02/10). Sem rede.
-// Regra do CEO: últimos 60 dias + em aberto; "em aprovação" antigo fica de fora; nada gravado sem prévia; não duplica.
+// Regra do CEO (05/10, blueprint): últimos 180 dias + em aberto; "em aprovação" antigo fica de fora; nada gravado sem prévia; não duplica.
 import { readFileSync } from 'node:fs'
 import * as XLSX from 'xlsx'
-import { adivinharMapa, dataSiga, ehCsv, numeroSiga, selecionar, situacaoSiga, textoCsv } from '../../src/lib/pm/importSiga'
+import { adivinharMapa, dataSiga, ehCsv, numeroSiga, selecionar, situacaoSiga, textoCsv, tituloSemData } from '../../src/lib/pm/importSiga'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (c) console.log('✓', m); else { falhas++; console.error('✗', m) } }
@@ -15,12 +15,23 @@ ok(situacaoSiga('Em Aprovação') === 'em_aprovacao' && situacaoSiga('Finalizado
 ok(dataSiga('05/10/2026') === '2026-10-05' && dataSiga('2026-10-05') === '2026-10-05' && dataSiga(46300) !== null && dataSiga('05/10/26') === '2026-10-05' && dataSiga('abc') === null, 'datas dd/mm/aaaa, ISO, Excel e dd/mm/aa')
 ok(JSON.stringify(numeroSiga('113223B')) === JSON.stringify({ numero: '113223', rodada: 2 }) && numeroSiga('113223')?.rodada === 0 && numeroSiga('JOB-1') === null, 'número com a letra da rodada')
 
+// PM-Q regra 00.3 · "título sem data": tira a data embutida das pontas/parênteses, preserva miolo e não-datas; idempotente.
+ok(tituloSemData('( 01/12) Post feed') === 'Post feed'
+  && tituloSemData('05/10/2026 - Campanha dia das mães') === 'Campanha dia das mães'
+  && tituloSemData('Banner promo 23/11') === 'Banner promo'
+  && tituloSemData('[05/10] Stories') === 'Stories'
+  && tituloSemData('Vídeo | 30/09/2026') === 'Vídeo'
+  && tituloSemData('Top 10/10 motivos') === 'Top 10/10 motivos'
+  && tituloSemData('Peça 99/99') === 'Peça 99/99'
+  && tituloSemData(tituloSemData('( 01/12) Post feed')) === 'Post feed',
+  'título sem data: remove data embutida nas pontas/parênteses, mantém miolo e não-datas, idempotente')
+
 const hoje = '2026-10-02'
 const linhas = [
   ['1001', 'Aberto antigo', 'C', '', 'Em produção', '2026-01-10', '2026-01-02'],      // em aberto: entra (mesmo antigo)
   ['1002', 'Concluído recente', 'C', '', 'Concluído', '2026-09-20', '2026-09-10'],   // recente: entra
-  ['1003', 'Concluído antigo', 'C', '', 'Concluído', '2026-05-20', '2026-05-10'],    // fora da janela
-  ['1004', 'Em aprovação antigo', 'C', '', 'Em aprovação', '2026-06-01', '2026-05-01'], // fora (regra do CEO)
+  ['1003', 'Concluído antigo', 'C', '', 'Concluído', '2026-01-20', '2026-01-10'],    // fora da janela (>180 dias)
+  ['1004', 'Em aprovação antigo', 'C', '', 'Em aprovação', '2026-02-01', '2026-01-15'], // fora (regra do CEO, >180 dias)
   ['1005', 'Em aprovação recente', 'C', '', 'Em aprovação', '2026-09-30', '2026-09-25'], // entra
   ['1006', 'Cancelado', 'C', '', 'Cancelado', '2026-09-30', '2026-09-25'],          // fora
   ['1002', 'Repetido', 'C', '', 'Em produção', '', '2026-09-30'],                     // repetido
@@ -28,10 +39,21 @@ const linhas = [
   ['', '', '', '', '', '', ''],                                                        // linha vazia: ignorada
 ]
 const r = selecionar(linhas, mapa, hoje)
-ok(r.entra.map((l) => l.numero).join() === '1001,1002,1005', 'entram: em aberto + últimos 60 dias (inclusive em aprovação recente)')
+ok(r.entra.map((l) => l.numero).join() === '1001,1002,1005', 'entram: em aberto + últimos 180 dias (inclusive em aprovação recente)')
 const m = Object.fromEntries(r.fora.map((f) => [f.numero ?? 'x', f.motivo]))
 ok(m['1003'] === 'fora_da_janela' && m['1004'] === 'em_aprovacao_antigo' && m['1006'] === 'cancelado' && r.fora.some((f) => f.motivo === 'repetido_na_planilha') && r.fora.some((f) => f.motivo === 'sem_numero') && r.fora.length === 5,
   'ficam de fora: concluído antigo, em aprovação antigo, cancelado, repetido, sem número (linha vazia nem conta)')
+
+// selecionar aplica o "título sem data" no job importado (PM-Q); se o título for só a data, preserva o original.
+{
+  const mapaT = { numero: 0, titulo: 1, cliente: 2, responsavel: 3, situacao: 4, prazo: 5, criacao: 6 }
+  const rT = selecionar([
+    ['2001', '( 15/03) Post carrossel', 'C', '', 'Em produção', '', '2026-09-30'],
+    ['2002', '05/10/2026', 'C', '', 'Em produção', '', '2026-09-30'],
+  ], mapaT, hoje)
+  ok(rT.entra.length === 2 && rT.entra[0].titulo === 'Post carrossel' && rT.entra[1].titulo === '05/10/2026',
+    'selecionar limpa a data do título e mantém o original quando o título é só a data')
+}
 
 const mig = readFileSync('supabase/migrations/20261002270000_pm_importar_jobs_siga.sql', 'utf8')
 ok(/PERFORM public\.fn__guarda_empresa\(p_company_id\);/.test(mig) && /fn_acessos_pode_gerir\(p_company_id\)/.test(mig), 'só gestor da empresa importa')

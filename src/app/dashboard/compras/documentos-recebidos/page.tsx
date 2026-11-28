@@ -828,12 +828,21 @@ export default function DocumentosRecebidosPage() {
                             <UploadXmlRecebidaButton companyId={empresaUnica} onDone={() => void carregar(true)} />
                           </>
                         ) : n.status === 'aguardando_xml' ? (
-                          <span
-                            className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border border-[#BA7517]/30 text-[#BA7517] font-medium bg-[#FAEEDA]"
-                            title="A SEFAZ libera o XML completo em até 2h após a manifestação. A conta é criada sozinha assim que chegar."
-                          >
-                            <Loader2 className="animate-pulse" size={11} />
-                            Aguardando SEFAZ
+                          // #5920 · "Subir XML" aparece desde a PRIMEIRA tentativa que falhar (não só no teto):
+                          // o XML ainda não chegou da SEFAZ, mas o usuário já pode subir o arquivo do fornecedor.
+                          <span className="inline-flex items-center gap-1.5 flex-wrap">
+                            <span
+                              className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border border-[#BA7517]/30 text-[#BA7517] font-medium bg-[#FAEEDA]"
+                              title={(n.xml_tentativas ?? 0) >= 1
+                                ? 'O XML ainda não chegou da SEFAZ (ela libera em até 2h após a manifestação). A conta é criada sozinha quando chegar — ou suba o arquivo do fornecedor para completar agora.'
+                                : 'A SEFAZ libera o XML completo em até 2h após a manifestação. A conta é criada sozinha assim que chegar.'}
+                            >
+                              <Loader2 className="animate-pulse" size={11} />
+                              Aguardando SEFAZ
+                            </span>
+                            {(n.xml_tentativas ?? 0) >= 1 && (
+                              <UploadXmlRecebidaButton companyId={empresaUnica} onDone={() => void carregar(true)} />
+                            )}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1">

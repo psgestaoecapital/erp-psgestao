@@ -1,8 +1,9 @@
 "use client";
-// P&M · Onda A (rentabilidade) · tela 121 "Planejamento de recursos e capacidade" · fatia 2 (tela).
-// Heatmap de utilização (faturável x não faturável) por pessoa e semana. Só leitura (RLS por empresa;
-// dado individual gated no backend por fn__mao_obra_pode_ver_individual). Fonte: fn_pm_utilizacao_heatmap
-// (PR fatia 1). Mostra horas e % de utilização — nunca custo/salário.
+// P&M · Onda A (rentabilidade) · tela 121 "Planejamento de recursos e capacidade" · fatia 3 (disponibilidade).
+// Heatmap de utilização (faturável x não faturável) por pessoa e semana + DISPONIBILIDADE (horas livres =
+// capacidade − horas apontadas) do período e por pessoa — responde "quem tem folga para pegar trabalho novo".
+// Só leitura (RLS por empresa; dado individual gated no backend por fn__mao_obra_pode_ver_individual).
+// Fonte: fn_pm_utilizacao_heatmap (fatia 1). Mostra horas e % — nunca custo/salário.
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
@@ -64,6 +65,7 @@ export default function ProdutividadePage() {
   const empresa = companyIds[0] ?? null;
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [semanasN, setSemanasN] = useState(8);
+  const [ordem, setOrdem] = useState<"nome" | "disponivel">("nome");
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -100,11 +102,19 @@ export default function ProdutividadePage() {
 
   const pessoas = useMemo(() => {
     const m = new Map<string, { user_id: string; pessoa: string; cargo: string | null }>();
+    const livre = new Map<string, number>(); // horas livres por pessoa, para ordenar por disponibilidade
     for (const l of linhas) {
       if (!m.has(l.user_id)) m.set(l.user_id, { user_id: l.user_id, pessoa: l.pessoa ?? "—", cargo: l.cargo });
+      const atual = livre.get(l.user_id) ?? 0;
+      livre.set(l.user_id, atual + ((Number(l.capacidade_horas) || 0) - (Number(l.horas_total) || 0)));
     }
-    return Array.from(m.values()).sort((a, b) => a.pessoa.localeCompare(b.pessoa, "pt-BR"));
-  }, [linhas]);
+    const lista = Array.from(m.values());
+    if (ordem === "disponivel") {
+      // mais disponível primeiro (maior folga = capacidade − apontadas); desempate pelo nome
+      return lista.sort((a, b) => (Math.max(0, livre.get(b.user_id) ?? 0) - Math.max(0, livre.get(a.user_id) ?? 0)) || a.pessoa.localeCompare(b.pessoa, "pt-BR"));
+    }
+    return lista.sort((a, b) => a.pessoa.localeCompare(b.pessoa, "pt-BR"));
+  }, [linhas, ordem]);
 
   const celula = useMemo(() => {
     const m = new Map<string, Linha>();
@@ -116,14 +126,16 @@ export default function ProdutividadePage() {
     let fat = 0, nfat = 0, cap = 0;
     for (const l of linhas) { fat += Number(l.horas_faturavel) || 0; nfat += Number(l.horas_nao_faturavel) || 0; cap += Number(l.capacidade_horas) || 0; }
     const tot = fat + nfat;
-    return { fat, nfat, tot, cap, utilMedia: cap > 0 ? Math.round((tot / cap) * 1000) / 10 : 0 };
+    // Disponibilidade = capacidade ainda livre no período (nunca negativa; estouro aparece no heatmap em vermelho).
+    const disp = Math.max(0, cap - tot);
+    return { fat, nfat, tot, cap, disp, utilMedia: cap > 0 ? Math.round((tot / cap) * 1000) / 10 : 0 };
   }, [linhas]);
 
   const totalPessoa = (uid: string) => {
     let fat = 0, nfat = 0, cap = 0;
     for (const l of linhas) if (l.user_id === uid) { fat += Number(l.horas_faturavel) || 0; nfat += Number(l.horas_nao_faturavel) || 0; cap += Number(l.capacidade_horas) || 0; }
     const tot = fat + nfat;
-    return { tot, util: cap > 0 ? Math.round((tot / cap) * 1000) / 10 : 0 };
+    return { tot, livre: Math.max(0, cap - tot), util: cap > 0 ? Math.round((tot / cap) * 1000) / 10 : 0 };
   };
 
   return (
@@ -151,6 +163,18 @@ export default function ProdutividadePage() {
           </button>
         ))}
         <AjudaCampo chave="pm.produtividade.filtro_periodo" rota={ROTA} />
+        <span className="ml-3 mr-1 text-[12px] text-[#6b5444]">Ordenar:</span>
+        {([["nome", "Nome"], ["disponivel", "Mais disponível"]] as const).map(([k, l]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setOrdem(k)}
+            className={`min-h-[40px] rounded-lg border px-3 text-[12px] ${ordem === k ? "border-[#3D2314] bg-[#3D2314] text-white" : "border-[#E7DED3] text-[#3D2314]"}`}
+          >
+            {l}
+          </button>
+        ))}
+        <AjudaCampo chave="pm.produtividade.ordenar" rota={ROTA} />
       </div>
 
       {erro && <p role="alert" className="rounded-lg bg-red-50 p-3 text-[13px] text-red-700">{erro}</p>}
@@ -168,10 +192,15 @@ export default function ProdutividadePage() {
         </section>
       ) : (
         <>
-          <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <section className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <div className={cartao}>
               <p className="text-[11px] text-[#6b5444]">Utilização média<AjudaCampo chave="pm.produtividade.utilizacao" rota={ROTA} /></p>
               <p className="text-lg font-bold text-[#3D2314]">{num(totais.utilMedia)}%</p>
+            </div>
+            <div className={cartao}>
+              <p className="text-[11px] text-[#6b5444]">Disponibilidade<AjudaCampo chave="pm.produtividade.disponibilidade" rota={ROTA} /></p>
+              <p className="text-lg font-bold text-[#2f4a1a]">{num(totais.disp)} h</p>
+              <p className="text-[10px] text-[#9a8a78]">livres de {num(totais.cap)} h de capacidade</p>
             </div>
             <div className={cartao}>
               <p className="text-[11px] text-[#6b5444]">Horas faturáveis<AjudaCampo chave="pm.produtividade.faturavel" rota={ROTA} /></p>
@@ -240,6 +269,7 @@ export default function ProdutividadePage() {
                         <td className="px-2 py-1 text-right">
                           <span className="block font-semibold text-[#3D2314]">{num(tp.tot)} h</span>
                           <span className="block text-[10px] text-[#9a8a78]">{num(tp.util)}%</span>
+                          <span className="block text-[10px] text-[#2f4a1a]" title={`Horas livres no período (capacidade − apontadas) de ${p.pessoa}`}>{num(tp.livre)} h livres</span>
                         </td>
                       </tr>
                     );
@@ -248,7 +278,7 @@ export default function ProdutividadePage() {
               </table>
             </div>
             <p className="mt-2 text-[11px] text-[#9a8a78]">
-              Utilização = horas apontadas ÷ capacidade (jornada × dias úteis da semana). Passe o mouse (ou toque) numa célula para ver o detalhe de horas.
+              Utilização = horas apontadas ÷ capacidade (jornada × dias úteis da semana). Disponibilidade = horas livres (capacidade − apontadas). Passe o mouse (ou toque) numa célula para ver o detalhe de horas.
             </p>
           </section>
         </>

@@ -156,13 +156,16 @@ export default function ResolverObraTela() {
         {obras !== null && !erro && obras.length > 0 && (
           <>
             {obras.length > 6 && (
-              <input
-                value={busca}
-                onChange={(e) => setBusca(e.target.value)}
-                placeholder="Buscar por obra, número ou cliente"
-                aria-label="Buscar obra"
-                style={{ width: '100%', border: `1px solid ${LINE}`, borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontSize: 14, background: '#fff', color: ESP }}
-              />
+              <label style={{ display: 'block', marginBottom: 12 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: MUT, fontWeight: 600, marginBottom: 6 }}>Buscar <AjudaCampo chave="projetos.obra_ir.busca" rota={ROTA} /></span>
+                <input
+                  value={busca}
+                  onChange={(e) => setBusca(e.target.value)}
+                  placeholder="Buscar por obra, número ou cliente"
+                  aria-label="Buscar obra"
+                  style={{ width: '100%', border: `1px solid ${LINE}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, background: '#fff', color: ESP }}
+                />
+              </label>
             )}
             <div style={{ display: 'grid', gap: 8 }}>
               {filtradas.map((o) => (

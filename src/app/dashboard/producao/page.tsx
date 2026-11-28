@@ -87,6 +87,28 @@ const PRIORIDADES: Record<string, { l: string; cor: string }> = {
   urgente: { l: 'Urgente', cor: RED },
 }
 
+// Higiene do job (tela 10 · go-live P&M): o título carrega o trabalho, não a data. Data no título (ex.: "( 01/12)")
+// vira texto solto que não entra em prazo/agenda e bagunça a busca. Detecta dd/mm, dd/mm/aa(aa) e dd-mm — e sugere
+// usar o campo Prazo. É só um aviso claro (nunca erro cru): o usuário pode criar o job mesmo assim.
+function dataNoTitulo(titulo: string): string | null {
+  const m = (titulo || '').match(/\(?\s*\b(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?\b\s*\)?/)
+  return m ? m[0].trim() : null
+}
+// Higiene do job (tela 10 · go-live P&M): job PUBLICADO com prazo no futuro é incoerente — a entrega já saiu,
+// mas o prazo ainda "está por vir". Avisa (nunca erro cru) para o usuário corrigir o prazo ou o estágio.
+// Higiene do job (tela 10 · go-live P&M): job sem prazo é "planejamento sem fim" — não entra na agenda nem nos
+// avisos e tende a arrastar sem nunca fechar. Avisa (nunca erro cru) quando o job ainda está em aberto e sem prazo.
+function planejamentoSemFim(status: string | undefined, dataPrazo: string | undefined): boolean {
+  if (dataPrazo) return false
+  return !['concluida', 'publicado', 'cancelado'].includes(status ?? '')
+}
+function prazoAposPublicacao(status: string | undefined, dataPrazo: string | undefined): boolean {
+  if (status !== 'publicado' || !dataPrazo) return false
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
+  const prazo = new Date(dataPrazo + 'T00:00:00')
+  return !Number.isNaN(prazo.getTime()) && prazo.getTime() > hoje.getTime()
+}
+
 function ProducaoPageInner() {
   const searchParams = useSearchParams()
   const empresaParam = searchParams.get('empresa')
@@ -603,6 +625,12 @@ function ProducaoPageInner() {
                 placeholder="Ex.: Post Dia das Crianças — carrossel 3 cards"
                 style={{ ...inp, fontSize: 15, resize: 'vertical' }} />
             </label>
+            {dataNoTitulo((form.titulo as string) ?? '') && (
+              <div data-testid="job-aviso-data-titulo" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#FFF7E3', border: '1px solid #E7C96A', borderRadius: 10, padding: '8px 11px', color: YELLOW, fontSize: 12.5 }}>
+                <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
+                <span style={{ flex: 1 }}>Parece que o título tem uma data (<b>{dataNoTitulo((form.titulo as string) ?? '')}</b>). Use o campo <b>Prazo</b> abaixo para a data entrar na agenda e nos avisos — o título fica só com o trabalho. <b>Você pode criar o job mesmo assim.</b></span>
+              </div>
+            )}
             {!editId && <JobsParecidos empresa={sel} titulo={(form.titulo as string) ?? ''} onAbrir={(id) => setCopiar(id)} />}
           </div>
           <div style={grid2}>
@@ -610,6 +638,18 @@ function ProducaoPageInner() {
             <Select label="Responsável" ajuda="pm.job.responsavel" testId="job-responsavel" v={(form.responsavel_id as string) ?? ''} on={(v) => setForm({ ...form, responsavel_id: v || null, responsavel_nome: v ? null : (form.responsavel_nome ?? null) })}
               opts={[['', '—'], ...responsaveis.map((u) => [u.id, labelUsuario(u, responsaveis)] as [string, string])]} />
           </div>
+          {prazoAposPublicacao(form.status as string | undefined, form.data_prazo as string | undefined) && (
+            <div data-testid="job-aviso-prazo-publicado" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#FFF7E3', border: '1px solid #E7C96A', borderRadius: 10, padding: '8px 11px', color: YELLOW, fontSize: 12.5, marginTop: 8 }}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
+              <span style={{ flex: 1 }}>Este job está <b>Publicado</b>, mas o <b>Prazo</b> é uma data futura. Ajuste o prazo para a data real da entrega ou reveja o estágio. <b>Você pode salvar mesmo assim.</b></span>
+            </div>
+          )}
+          {planejamentoSemFim(form.status as string | undefined, form.data_prazo as string | undefined) && (
+            <div data-testid="job-aviso-sem-prazo" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#FFF7E3', border: '1px solid #E7C96A', borderRadius: 10, padding: '8px 11px', color: YELLOW, fontSize: 12.5, marginTop: 8 }}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
+              <span style={{ flex: 1 }}>Este job está <b>sem prazo</b>: sem uma data de fim ele não entra na agenda nem nos avisos e tende a arrastar sem fechar. Defina um <b>Prazo</b> acima. <b>Você pode salvar mesmo assim.</b></span>
+            </div>
+          )}
 
           {/* BRIEFING — por último, área grande */}
           <div style={{ marginTop: 12 }}>

@@ -20,6 +20,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import {
   ArrowLeft, Plus, RefreshCw, Loader2, AlertCircle, CheckCircle2,
   Banknote, X, Lock, Trash2,
@@ -197,7 +198,7 @@ export default function ConexoesBancariasPage() {
     if (!empresaUnica) return
     const { data, error } = await supabase.rpc('fn_banco_definir_responsavel_boleto', { p_company_id: empresaUnica, p_config_id: cfg.id })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setErro(error?.message ?? r?.erro ?? 'Não foi possível definir o responsável.'); return }
+    if (error || !r?.ok) { setErro(error ? erroAmigavel(error, 'Não foi possível definir o responsável.') : codigoAmigavel(r?.erro, 'Não foi possível definir o responsável.')); return }
     setErro(null)
     await carregar()
   }
@@ -208,7 +209,7 @@ export default function ConexoesBancariasPage() {
     const { data, error } = await supabase.rpc('fn_banco_conexao_remover', { p_config_id: cfg.id })
     const r = data as { ok?: boolean; erro?: string } | null
     setRemoveBusy(false)
-    if (error || !r?.ok) { setErro(error?.message ?? r?.erro ?? 'Não foi possível remover a conexão.'); return }
+    if (error || !r?.ok) { setErro(error ? erroAmigavel(error, 'Não foi possível remover a conexão.') : codigoAmigavel(r?.erro, 'Não foi possível remover a conexão.')); return }
     setErro(null); setRemovendo(null); setMsg('Conexão removida — segredos revogados no cofre.')
     await carregar()
   }
@@ -233,7 +234,7 @@ export default function ConexoesBancariasPage() {
       supabase.from('erp_banco_erro_catalogo')
         .select('provider, codigo, titulo, o_que_e, o_que_fazer, quem_contatar, pedir_ao_banco'),
     ])
-    if (cfgRes.error) setErro(cfgRes.error.message)
+    if (cfgRes.error) setErro(erroAmigavel(cfgRes.error, 'Não foi possível carregar as conexões bancárias.'))
     // conexões revogadas (removidas) somem da lista; o histórico fica no banco (soft-delete + audit)
     else setConfigs(((cfgRes.data ?? []) as ProviderConfig[]).filter((c) => c.estado_conexao !== 'revogado'))
     if (!contasRes.error) setContas((contasRes.data ?? []) as BancoConta[])
@@ -266,7 +267,7 @@ export default function ConexoesBancariasPage() {
       if (!j.ok) throw new Error(j.erro || j.detalhe || 'falha ao sincronizar')
       setMsg(`SINCRONIZOU ${j.inseridos ?? 0} novos movimentos (${j.ignorados ?? 0} duplicados).`)
       await carregar()
-    } catch (e) { setErro((e as Error).message) }
+    } catch (e) { setErro(erroAmigavel(e, 'Não foi possível sincronizar o extrato agora. Tente de novo.')) }
     finally { setSyncing(null) }
   }
 
@@ -293,7 +294,7 @@ export default function ConexoesBancariasPage() {
       }
       await carregar()   // recarrega o "último teste"
     } catch (e) {
-      setTesteResultado((m) => ({ ...m, [cfg.id]: { ok: false, texto: (e as Error).message } }))
+      setTesteResultado((m) => ({ ...m, [cfg.id]: { ok: false, texto: erroAmigavel(e, 'Não foi possível testar a conexão agora. Tente de novo.') } }))
     } finally { setTestando(null) }
   }
 
@@ -329,18 +330,21 @@ export default function ConexoesBancariasPage() {
 
   // chamado #14 · botão + feedback do Teste de conexão (reusado nos cards "conectados" e "em configuração")
   const botaoTestar = (cfg: ProviderConfig) => (
-    <button
-      type="button"
-      onClick={() => testarConexao(cfg)}
-      disabled={testando === cfg.id}
-      title="Valida o certificado e autentica no banco (leitura — NÃO emite boleto nem envia remessa)"
-      style={{
-        background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
-        padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
-        cursor: testando === cfg.id ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
-      }}>
-      🔌 {testando === cfg.id ? 'Testando…' : 'Testar conexão'}
-    </button>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <button
+        type="button"
+        onClick={() => testarConexao(cfg)}
+        disabled={testando === cfg.id}
+        title="Valida o certificado e autentica no banco (leitura — NÃO emite boleto nem envia remessa)"
+        style={{
+          background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
+          padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+          cursor: testando === cfg.id ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+        }}>
+        🔌 {testando === cfg.id ? 'Testando…' : 'Testar conexão'}
+      </button>
+      <AjudaCampo chave="banco.testar_conexao" />
+    </span>
   )
   const feedbackTeste = (cfg: ProviderConfig) => {
     const r = testeResultado[cfg.id]
@@ -559,6 +563,9 @@ export default function ConexoesBancariasPage() {
                             <RefreshCw size={12} style={{ animation: syncing === cfg.id ? 'spin 1s linear infinite' : 'none' }} />
                             {syncing === cfg.id ? 'Sincronizando…' : 'Sincronizar extrato'}
                           </button>
+                        )}
+                        {cfg.cap_extrato && cfg.ativo && temConectorExtrato(cfg.provider) && (
+                          <AjudaCampo chave="banco.sincronizar_extrato" />
                         )}
                       </div>
                       {feedbackTeste(cfg)}
@@ -828,7 +835,7 @@ function CnabModal({ companyId, cfg, bancoNome, onClose, onSucesso }: {
       p_company_id: companyId, p_config_id: cfg.id, p_dados: f,
     })
     setSalvando(false)
-    if (error || (data as { ok?: boolean })?.ok === false) { setErro(error?.message || (data as { erro?: string })?.erro || 'falha ao salvar'); return }
+    if (error || (data as { ok?: boolean })?.ok === false) { setErro(error ? erroAmigavel(error, 'Não foi possível salvar os dados CNAB.') : codigoAmigavel((data as { erro?: string })?.erro, 'Não foi possível salvar os dados CNAB.')); return }
     onSucesso()
   }
 
@@ -855,13 +862,13 @@ function CnabModal({ companyId, cfg, bancoNome, onClose, onSucesso }: {
           </div>
         )}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          {campo('cooperativa', 'Cooperativa')}
-          {campo('posto', 'Posto')}
-          {campo('agencia', 'Agência')}
-          {campo('agencia_dv', 'DV agência')}
-          {campo('conta', 'Conta')}
-          {campo('codigo_beneficiario', 'Código do beneficiário')}
-          {campo('convenio', 'Convênio', 'O código que o banco exige no arquivo CNAB (confira no internet banking do banco).', true)}
+          {campo('cooperativa', 'Cooperativa', undefined, false, 'banco.cooperativa')}
+          {campo('posto', 'Posto', undefined, false, 'banco.posto')}
+          {campo('agencia', 'Agência', undefined, false, 'banco.agencia')}
+          {campo('agencia_dv', 'DV agência', undefined, false, 'banco.agencia_dv')}
+          {campo('conta', 'Conta', undefined, false, 'banco.conta')}
+          {campo('codigo_beneficiario', 'Código do beneficiário', undefined, false, 'banco.codigo_beneficiario')}
+          {campo('convenio', 'Convênio', 'O código que o banco exige no arquivo CNAB (confira no internet banking do banco).', true, 'banco.convenio')}
           {campo('carteira', 'Carteira', cfg.provider === 'bb' ? 'Só o número (ex.: 17), sem dígito ou texto.' : undefined, false, cfg.provider === 'bb' ? 'banco.carteira_numero' : undefined)}
           {cfg.provider === 'bb' && campo('variacao_carteira', 'Variação da carteira', 'Ex.: 35 (teste) · a de produção vem do contrato.', false, 'banco.variacao_carteira')}
           {cfg.provider === 'bb' && (
@@ -1041,7 +1048,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
       if (!j.ok || !j.pfx_base64) { setErro(j.erro || 'Falha ao converter o certificado.'); return null }
       setCertA1Base64(j.pfx_base64)
       return j.pfx_base64
-    } catch (e) { setErro((e as Error).message); return null }
+    } catch (e) { setErro(erroAmigavel(e, 'Não foi possível converter o certificado. Confira o .crt, a .key e a senha.')); return null }
     finally { setConvertendo(false) }
   }
 
@@ -1149,7 +1156,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
       }
       await checarEFinalizar()
     } catch (e) {
-      setErro((e as Error).message)
+      setErro(erroAmigavel(e, `Não foi possível salvar a conexão com ${banco.nome}. Tente de novo.`))
     } finally {
       setSalvando(false)
     }
@@ -1204,7 +1211,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
               <b>Editar configuração.</b> Os campos podem ser alterados. Os campos de <b>segredo</b> (Código de Acesso / x-api-key / senha) estão em branco: se já houver segredo guardado no Vault, <b>deixar em branco MANTÉM o atual</b>; para informar pela 1ª vez ou TROCAR, preencha.
             </div>
           )}
-          <Field label="Ambiente">
+          <Field label="Ambiente" ajuda="banco.ambiente">
             {/* #7974: trocar o ambiente recarrega os campos daquele ambiente (cada um é uma linha isolada). */}
             <select data-testid="conectar-ambiente" value={ambiente} onChange={(e) => aplicarAmbiente(e.target.value as Ambiente)} style={inp}>
               <option value="producao">Produção</option>
@@ -1222,22 +1229,22 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
             </div>
           )}
           {banco.campos.includes('client_id') && (
-            <Field label="Client ID">
+            <Field label="Client ID" ajuda="banco.client_id">
               <input value={clientId} onChange={(e) => setClientId(e.target.value)} style={inp} />
             </Field>
           )}
           {banco.campos.includes('client_secret') && (
-            <Field label="Client Secret">
+            <Field label="Client Secret" ajuda="banco.client_secret">
               <input type="password" autoComplete="off" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} style={inp} placeholder={jaTem('client_secret_vault_id') ? PH_CONFIG : undefined} />
             </Field>
           )}
           {banco.campos.includes('cooperativa') && (
-            <Field label="Cooperativa">
+            <Field label="Cooperativa" ajuda="banco.cooperativa">
               <input name="ps_coop_nofill" autoComplete="off" inputMode="numeric" pattern="[0-9]*" value={cooperativa} onChange={(e) => setCooperativa(e.target.value)} style={inp} placeholder="ex.: 4133" />
             </Field>
           )}
           {banco.campos.includes('conta') && (
-            <Field label="Conta corrente">
+            <Field label="Conta corrente" ajuda="banco.conta">
               <input value={conta} onChange={(e) => setConta(e.target.value)} style={inp} placeholder="ex.: 12345-6" />
             </Field>
           )}
@@ -1296,12 +1303,12 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
             </Field>
           )}
           {banco.campos.includes('codigo_acesso') && (
-            <Field label="Código de Acesso (Internet Banking)">
+            <Field label="Código de Acesso (Internet Banking)" ajuda="banco.codigo_acesso">
               <input type="password" name="ps_codacesso_nofill" autoComplete="new-password" value={codigoAcesso} onChange={(e) => setCodigoAcesso(e.target.value)} style={inp} placeholder={jaTem('client_secret_vault_id') ? PH_CONFIG : undefined} />
             </Field>
           )}
           {banco.campos.includes('posto') && (
-            <Field label="Posto (código da agência)">
+            <Field label="Posto (código da agência)" ajuda="banco.posto">
               <input name="ps_posto_nofill" autoComplete="off" inputMode="numeric" pattern="[0-9]*" value={posto} onChange={(e) => setPosto(e.target.value)} style={inp} placeholder="2 dígitos · ex.: 03" />
             </Field>
           )}
@@ -1313,7 +1320,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
                 🔐 <b>Certificado de comunicação bancária</b> — é o que {banco.nome} usa para autenticar a conexão (mTLS).
                 <b> Não é o certificado A1 fiscal</b> (o que assina NF-e/NFS-e); é um arquivo separado, emitido para o acesso à API do banco.
               </div>
-              <Field label="Formato do certificado">
+              <Field label="Formato do certificado" ajuda="banco.cert_formato">
                 <div style={{ display: 'flex', gap: 14, fontSize: 12.5, color: ESP }}>
                   <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
                     <input type="radio" name="cert_formato" checked={certFormato === 'pfx'} onChange={() => setCertFormato('pfx')} />
@@ -1326,27 +1333,27 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
                 </div>
               </Field>
               {certFormato === 'pfx' ? (
-                <Field label="Certificado (.pfx)">
+                <Field label="Certificado (.pfx)" ajuda="banco.cert_arquivo">
                   <input type="file" accept=".pfx,.p12" onChange={onCertFile} style={{ ...inp, padding: 5 }} />
                   {certA1Nome && <small style={{ fontSize: 10, color: ESP60 }}>Arquivo: {certA1Nome}</small>}
                 </Field>
               ) : (
                 <>
-                  <Field label="Certificado (.crt / .pem)" hint="O certificado público que o banco entregou.">
+                  <Field label="Certificado (.crt / .pem)" ajuda="banco.cert_crt" hint="O certificado público que o banco entregou.">
                     <input type="file" accept=".crt,.cer,.pem" onChange={(e) => lerPem(e, 'crt')} style={{ ...inp, padding: 5 }} />
                     {crtNome && <small style={{ fontSize: 10, color: ESP60 }}>Arquivo: {crtNome}</small>}
                   </Field>
-                  <Field label="Chave privada (.key / .pem)" hint="A chave privada do par. Fica cifrada no Vault — nunca em texto puro.">
+                  <Field label="Chave privada (.key / .pem)" ajuda="banco.cert_key" hint="A chave privada do par. Fica cifrada no Vault — nunca em texto puro.">
                     <input type="file" accept=".key,.pem" onChange={(e) => lerPem(e, 'key')} style={{ ...inp, padding: 5 }} />
                     {keyNome && <small style={{ fontSize: 10, color: ESP60 }}>Arquivo: {keyNome}</small>}
                   </Field>
-                  <Field label="Senha da chave (.key), se houver" hint="Deixe em branco se a chave não tiver senha própria.">
+                  <Field label="Senha da chave (.key), se houver" ajuda="banco.cert_key_senha" hint="Deixe em branco se a chave não tiver senha própria.">
                     <input type="password" autoComplete="off" value={keySenha} onChange={(e) => setKeySenha(e.target.value)} style={inp} />
                   </Field>
                 </>
               )}
               <Field
-                label="Senha do certificado"
+                label="Senha do certificado" ajuda="banco.cert_senha"
                 hint={certFormato === 'crtkey' ? 'Defina uma senha — ela protege o .pfx gerado a partir do .crt + .key (e será usada na conexão).' : undefined}
               >
                 <input type="password" autoComplete="off" value={certSenha} onChange={(e) => setCertSenha(e.target.value)} style={inp} placeholder={jaTem('cert_senha_vault_id') ? PH_CONFIG : undefined} />
@@ -1360,7 +1367,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
             </>
           )}
           <div style={{ marginTop: 4 }}>
-            <div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }}>Recursos habilitados</div>
+            <div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }}>Recursos habilitados <AjudaCampo chave="banco.recursos" /></div>
             <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: ESP, marginBottom: 4 }}>
               <input type="checkbox" checked={capBoleto} onChange={(e) => setCapBoleto(e.target.checked)} />
               Emitir boletos
@@ -1382,20 +1389,20 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
             <div style={{ marginTop: 4, borderTop: `0.5px solid ${LINE}`, paddingTop: 12, display: 'grid', gap: 10 }}>
               <div style={{ fontSize: 11, color: ESP60, textTransform: 'uppercase', letterSpacing: 1 }}>Encargos e instruções do boleto</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <Field label="% de juros (ao mês)" hint="Ex.: 1,5 — juros de mora por atraso. Em branco = sem juros.">
+                <Field label="% de juros (ao mês)" ajuda="banco.juros_pct" hint="Ex.: 1,5 — juros de mora por atraso. Em branco = sem juros.">
                   <input inputMode="decimal" value={jurosPct} onChange={(e) => setJurosPct(e.target.value)} style={inp} placeholder="ex.: 1,5" />
                 </Field>
-                <Field label="Dias para juros incidir" hint="Dias após o vencimento em que o juros começa. Em branco = 1 (padrão).">
+                <Field label="Dias para juros incidir" ajuda="banco.dias_juros" hint="Dias após o vencimento em que o juros começa. Em branco = 1 (padrão).">
                   <input inputMode="numeric" value={diasJuros} onChange={(e) => setDiasJuros(e.target.value)} style={inp} placeholder="ex.: 1" />
                 </Field>
-                <Field label="% de multa" hint="Ex.: 2 — multa por atraso. Em branco = sem multa.">
+                <Field label="% de multa" ajuda="banco.multa_pct" hint="Ex.: 2 — multa por atraso. Em branco = sem multa.">
                   <input inputMode="decimal" value={multaPct} onChange={(e) => setMultaPct(e.target.value)} style={inp} placeholder="ex.: 2" />
                 </Field>
-                <Field label="Dias para multa incidir" hint="Dias após o vencimento em que a multa começa. Em branco = 1 (padrão).">
+                <Field label="Dias para multa incidir" ajuda="banco.dias_multa" hint="Dias após o vencimento em que a multa começa. Em branco = 1 (padrão).">
                   <input inputMode="numeric" value={diasMulta} onChange={(e) => setDiasMulta(e.target.value)} style={inp} placeholder="ex.: 1" />
                 </Field>
               </div>
-              <Field label="Instruções para o boleto (até 4 linhas)" hint="Texto impresso no boleto (ex.: instruções de protesto, contato). Opcional.">
+              <Field label="Instruções para o boleto (até 4 linhas)" ajuda="banco.instrucoes_boleto" hint="Texto impresso no boleto (ex.: instruções de protesto, contato). Opcional.">
                 <div style={{ display: 'grid', gap: 6 }}>
                   <input value={instr1} onChange={(e) => setInstr1(e.target.value)} style={inp} placeholder="Linha 1" maxLength={80} />
                   <input value={instr2} onChange={(e) => setInstr2(e.target.value)} style={inp} placeholder="Linha 2" maxLength={80} />
