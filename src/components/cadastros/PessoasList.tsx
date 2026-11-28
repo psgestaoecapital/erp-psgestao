@@ -81,15 +81,11 @@ export default function PessoasList({ companyId, tipo }: Props) {
       // também normalizado no cliente. Assim "romario", "ROMÁRIO" e "Romário" acham o mesmo cadastro.
       if (texto) { ors.push(`busca_norm.ilike.*${semAcento(texto)}*`) }
       if (digitos) {
-        if (tabela === 'erp_clientes') {
-          // Busca por documento acha 100%: a coluna GERADA documento_digitos guarda só os
-          // dígitos, então quem digita números acha mesmo o cliente que gravou o doc FORMATADO
-          // (50% da base). Antes a busca batia na coluna CRUA e perdia esses (RD-38, 9.350/18.619).
-          ors.push(`documento_digitos.ilike.*${digitos}*`)
-        } else {
-          // Fornecedores ainda não têm a coluna de dígitos: busca nas duas colunas cruas.
-          ors.push(`cnpj_cpf.ilike.*${digitos}*`); ors.push(`cpf_cnpj.ilike.*${digitos}*`)
-        }
+        // Busca por documento acha 100%: a coluna GERADA documento_digitos guarda só os
+        // dígitos, então quem digita números acha mesmo o cadastro que gravou o doc FORMATADO.
+        // erp_clientes (RD-38 #5848: 9.350/18.619) e erp_fornecedores (RD-38: 3.053/4.601)
+        // têm a coluna canônica. Antes o ramo de fornecedor batia na coluna CRUA e perdia esses.
+        ors.push(`documento_digitos.ilike.*${digitos}*`)
       }
       if (ors.length) q = q.or(ors.join(','))
     }
