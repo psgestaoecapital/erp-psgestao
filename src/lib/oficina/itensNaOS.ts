@@ -9,13 +9,15 @@ import { decimalBanco } from '../decimalBanco'
 
 export type ItemDiagOS = {
   id?: string | null; tipo?: string | null; servico_id?: string | null; produto_id?: string | null
+  servico_fiscal_id?: string | null   // #centralizado · vínculo fiscal (erp_servicos) do item de serviço
   descricao?: string | null; quantidade?: number | string | null; preco?: number | string | null
   tempo_estimado_h?: number | string | null; severidade?: string | null; observacao?: string | null
   status_item?: string | null
 }
 
 // Linha da edição na ficha: item gravado (id) ou novo (sem id). Texto como o usuário digita ("1,5").
-export type EdicaoItemOS = { id?: string | null; chave: string; tipo: 'peca' | 'servico'; descricao: string; quantidade: string; preco: string }
+// #centralizado: serviço pode ter vínculo fiscal (servico_fiscal_id + nome só p/ exibir). Texto livre = sem vínculo.
+export type EdicaoItemOS = { id?: string | null; chave: string; tipo: 'peca' | 'servico'; descricao: string; quantidade: string; preco: string; servico_fiscal_id?: string | null; servico_fiscal_nome?: string | null }
 
 export type DiagnosticoAtualOS = { diagnostico?: string | null; km?: number | string | null; itens: ItemDiagOS[] }
 
@@ -47,6 +49,7 @@ export function edicaoInicialOS(itens: ItemDiagOS[]): EdicaoItemOS[] {
   return itens.filter((it) => !!it.id && itemEditavelNaOS(it)).map((it) => ({
     id: it.id, chave: String(it.id), tipo: it.tipo === 'servico' ? 'servico' : 'peca',
     descricao: txt(it.descricao), quantidade: txt(it.quantidade ?? 1), preco: txt(it.preco).replace('.', ','),
+    servico_fiscal_id: it.servico_fiscal_id ?? null,
   }))
 }
 
@@ -78,6 +81,8 @@ export function montarDadosDiagnosticoOS(atual: DiagnosticoAtualOS, edicoes: Edi
     const e = itemEditavelNaOS(it) ? porId.get(String(it.id)) : undefined
     return {
       id: it.id, tipo: it.tipo ?? null, servico_id: it.servico_id ?? null, produto_id: it.produto_id ?? null,
+      // #centralizado: vínculo fiscal vai no round-trip (editável usa o da linha; não-editável mantém o gravado).
+      servico_fiscal_id: e ? (e.servico_fiscal_id ?? null) : (it.servico_fiscal_id ?? null),
       descricao: e && e.descricao.trim() ? e.descricao.trim() : txt(it.descricao),
       quantidade: e ? decimalBanco(e.quantidade || '1') : txt(it.quantidade),
       tempo_estimado_h: txt(it.tempo_estimado_h), severidade: it.severidade ?? null, observacao: it.observacao ?? null,
@@ -86,7 +91,8 @@ export function montarDadosDiagnosticoOS(atual: DiagnosticoAtualOS, edicoes: Edi
   })
   // Item novo: só com descrição (a linha vazia é ignorada). Entra pendente, como no Diagnóstico.
   const novos = edicoes.filter((e) => !e.id && e.descricao.trim()).map((e) => ({
-    id: null, tipo: e.tipo, servico_id: null, produto_id: null, descricao: e.descricao.trim(),
+    id: null, tipo: e.tipo, servico_id: null, produto_id: null, servico_fiscal_id: e.servico_fiscal_id ?? null,
+    descricao: e.descricao.trim(),
     quantidade: decimalBanco(e.quantidade || '1'), tempo_estimado_h: '', severidade: null, observacao: null,
     preco: decimalBanco(e.preco),
   }))
