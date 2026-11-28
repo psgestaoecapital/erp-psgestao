@@ -29,16 +29,17 @@ const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT =
 const DIA = 86400000
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-type Tarefa = { id: string; nome: string; inicio: string; fim: string; percentual: number; inicio_base: string | null; fim_base: string | null; ordem: number; custo_previsto: number | null }
+type Tarefa = { id: string; nome: string; inicio: string; fim: string; percentual: number; inicio_base: string | null; fim_base: string | null; ordem: number; custo_previsto: number | null; responsavel_user_id: string | null }
+type Usuario = { id: string; full_name: string | null; email: string | null }
 type Dep = { id: string; tarefa_id: string; predecessora_id: string; defasagem_dias: number }
 type ItemObra = { id: string; descricao: string; unidade: string | null; quantidade_contratada: number; valor_contratado: number | null }
 type Vinculo = { tarefa_id: string; obra_item_id: string; participacao_pct: number }
 type Compra = { insumo_id: string; nome: string; unidade: string | null; quantidade: number; custo_estimado: number; tarefas: string[] }
 type Compras = { insumos: Compra[]; total_estimado: number; vinculos: number; vinculos_sem_composicao: number }
-type Form = { id: string | null; nome: string; inicio: string; fim: string; percentual: string; predecessora: string; defasagem: string; custo: string; itens: Record<string, string> }
+type Form = { id: string | null; nome: string; inicio: string; fim: string; percentual: string; predecessora: string; defasagem: string; custo: string; responsavel: string; itens: Record<string, string> }
 
 const hoje = () => new Date().toISOString().slice(0, 10)
-const vazio = (): Form => ({ id: null, nome: '', inicio: hoje(), fim: hoje(), percentual: '0', predecessora: '', defasagem: '0', custo: '', itens: {} })
+const vazio = (): Form => ({ id: null, nome: '', inicio: hoje(), fim: hoje(), percentual: '0', predecessora: '', defasagem: '0', custo: '', responsavel: '', itens: {} })
 const ms = (d: string) => new Date(d + 'T00:00:00').getTime()
 const fmt = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
 const dias = (a: string, b: string) => Math.round((ms(b) - ms(a)) / DIA) + 1
@@ -61,6 +62,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   const [erro, setErro] = useState<string | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)
   const [form, setForm] = useState<Form | null>(null)
+  const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [salvando, setSalvando] = useState(false)
   const [soCriticas, setSoCriticas] = useState(false)
   const [semanas, setSemanas] = useState(2)
@@ -71,7 +73,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   const carregar = useCallback(async () => {
     setLoading(true); setErro(null); setFalhaCarga(null)
     if (!UUID.test(id)) { setLoading(false); setFalhaCarga('Obra não encontrada. Abra o cronograma pela lista de obras.'); return }
-    const t = await supabase.from('projetos_obra_tarefa').select('id,nome,inicio,fim,percentual,inicio_base,fim_base,ordem,custo_previsto')
+    const t = await supabase.from('projetos_obra_tarefa').select('id,nome,inicio,fim,percentual,inicio_base,fim_base,ordem,custo_previsto,responsavel_user_id')
       .eq('obra_id', id).is('excluido_em', null).order('ordem').order('inicio')
     if (t.error) { setLoading(false); setFalhaCarga('Não foi possível carregar o cronograma desta obra. Atualize a página; se continuar, abra pela lista de obras.'); return }
     const lista = (t.data ?? []) as Tarefa[]
@@ -107,7 +109,22 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   }, [id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
+  // Usuários da empresa da obra para o campo Responsável (§317). RPC SECURITY DEFINER: users tem RLS.
+  useEffect(() => {
+    if (!UUID.test(id)) return
+    let vivo = true
+    void (async () => {
+      const o = await supabase.from('projetos_obras').select('company_id').eq('id', id).maybeSingle()
+      const company = (o.data as { company_id: string } | null)?.company_id
+      if (!vivo || !company) return
+      const u = await supabase.rpc('fn_usuarios_da_empresa', { p_company_id: company })
+      if (vivo && !u.error) setUsuarios((u.data ?? []) as Usuario[])
+    })()
+    return () => { vivo = false }
+  }, [id])
+
   const nomePorId = useMemo(() => new Map(tarefas.map((t) => [t.id, t.nome])), [tarefas])
+  const respNome = useMemo(() => new Map(usuarios.map((u) => [u.id, u.full_name || u.email || 'responsável'])), [usuarios])
   const predDe = useCallback((tid: string) => deps.find((d) => d.tarefa_id === tid), [deps])
 
   // janela do gráfico: do primeiro início ao último fim (considera a linha de base)
@@ -174,7 +191,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   function editar(t: Tarefa) {
     const p = predDe(t.id)
     const itens = Object.fromEntries(itensDaTarefa(t.id).map((v) => [v.obra_item_id, String(Number(v.participacao_pct))]))
-    setForm({ id: t.id, nome: t.nome, inicio: t.inicio, fim: t.fim, percentual: String(t.percentual), predecessora: p?.predecessora_id ?? '', defasagem: String(p?.defasagem_dias ?? 0), custo: t.custo_previsto == null ? '' : String(t.custo_previsto), itens })
+    setForm({ id: t.id, nome: t.nome, inicio: t.inicio, fim: t.fim, percentual: String(t.percentual), predecessora: p?.predecessora_id ?? '', defasagem: String(p?.defasagem_dias ?? 0), custo: t.custo_previsto == null ? '' : String(t.custo_previsto), responsavel: t.responsavel_user_id ?? '', itens })
   }
 
   async function salvar(e: React.FormEvent) {
@@ -191,7 +208,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
     const estouro = itens.find((x) => x.participacao_pct + usadoFora(x.obra_item_id, form.id) > 100)
     if (estouro) { setErro(`O item "${itensObra.find((i) => i.id === estouro.obra_item_id)?.descricao ?? ''}" passaria de 100% somando as tarefas.`); return }
     setSalvando(true); setErro(null); setAviso(null)
-    const dados: Record<string, unknown> = { nome: form.nome.trim(), inicio: form.inicio, fim: form.fim, percentual: pct }
+    const dados: Record<string, unknown> = { nome: form.nome.trim(), inicio: form.inicio, fim: form.fim, percentual: pct, responsavel_user_id: form.responsavel || null }
     if (form.id) dados.id = form.id; else dados.ordem = tarefas.length
     const r = await supabase.rpc('fn_obra_tarefa_salvar', { p_obra_id: id, p_dados: dados })
     if (r.error) { setSalvando(false); setErro(erroAmigavel(r.error)); return }
@@ -306,6 +323,12 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                 </label>
                 <label style={lbl}>Defasagem (dias) <AjudaCampo chave="projetos.cronograma.defasagem" rota={ROTA_AJUDA} />
                   <input type="number" step={1} value={form.defasagem} onChange={(e) => setForm({ ...form, defasagem: e.target.value })} style={inp} />
+                </label>
+                <label style={lbl}>Responsável <AjudaCampo chave="projetos.cronograma.responsavel" rota={ROTA_AJUDA} />
+                  <select value={form.responsavel} onChange={(e) => setForm({ ...form, responsavel: e.target.value })} style={inp}>
+                    <option value="">Sem responsável</option>
+                    {usuarios.map((u) => <option key={u.id} value={u.id}>{u.full_name || u.email || 'Usuário'}</option>)}
+                  </select>
                 </label>
                 <fieldset style={{ gridColumn: '1 / -1', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '8px 10px', margin: 0 }}>
                   <legend style={{ ...lbl, flexDirection: 'row', alignItems: 'center', padding: '0 4px' }}>Itens executados nesta tarefa <AjudaCampo chave="projetos.cronograma.itens_tarefa" rota={ROTA_AJUDA} /></legend>
@@ -443,7 +466,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                         <div key={t.id} style={{ ...gridGantt, padding: '6px 0', borderTop: `0.5px solid ${LINE}` }}>
                           <div>
                             <div style={{ fontSize: 12.5, fontWeight: 600, color: ESP }}>{t.nome}{critica && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: VERM, textTransform: 'uppercase', letterSpacing: 0.4 }}>crítica</span>}</div>
-                            <div style={{ fontSize: 10.5, color: MUT }}>{fmt(t.inicio)} a {fmt(t.fim)} · {t.percentual}%{diasTrab?.porTarefa[t.id] != null ? ` · ${diasTrab.porTarefa[t.id]} dia${diasTrab.porTarefa[t.id] === 1 ? '' : 's'} trab.` : ''}{p ? ` · após ${nomePorId.get(p.predecessora_id) ?? '—'}` : ''}{!critica ? ` · folga ${folga} d` : ''}</div>
+                            <div style={{ fontSize: 10.5, color: MUT }}>{fmt(t.inicio)} a {fmt(t.fim)} · {t.percentual}%{diasTrab?.porTarefa[t.id] != null ? ` · ${diasTrab.porTarefa[t.id]} dia${diasTrab.porTarefa[t.id] === 1 ? '' : 's'} trab.` : ''}{p ? ` · após ${nomePorId.get(p.predecessora_id) ?? '—'}` : ''}{!critica ? ` · folga ${folga} d` : ''}{t.responsavel_user_id ? ` · resp. ${respNome.get(t.responsavel_user_id) ?? '—'}` : ''}</div>
                             {atras && t.fim_base && <div style={{ fontSize: 10.5, color: VERM, fontWeight: 600 }}>{concluida ? 'terminou' : 'termina'} depois da linha de base ({fmt(t.fim_base)})</div>}
                           </div>
                           <div style={{ position: 'relative', height: 22 }}>
