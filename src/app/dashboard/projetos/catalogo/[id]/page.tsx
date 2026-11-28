@@ -34,6 +34,8 @@ interface Servico {
   codigo: string | null;
   nome: string;
   descricao: string | null;
+  especificacao_tecnica: string | null;
+  norma_referencia: string | null;
   categoria: string | null;
   unidade: string | null;
   produtividade_unidade_dia: number | null;
@@ -610,6 +612,36 @@ export default function ServicoEditorPage({
                 onChange={(e) => handleEdit("descricao", e.target.value)}
                 rows={2}
                 placeholder="Detalhes do serviço, especificações técnicas, condições…"
+                className="w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+              />
+            </div>
+
+            {/* Memorial descritivo (§315 C-2): "como" (especificação técnica) e "norma". O "o que" é a
+                descrição acima e o "material" é a composição (BOM) abaixo. */}
+            <div data-ajuda="projetos.catalogo.servico.especificacao_tecnica" className="mt-3">
+              <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
+                Especificação técnica
+                <AjudaCampo chave="projetos.catalogo.servico.especificacao_tecnica" rota={ROTA_AJUDA} />
+              </label>
+              <textarea
+                value={(valorAtual("especificacao_tecnica") as string) ?? ""}
+                onChange={(e) => handleEdit("especificacao_tecnica", e.target.value)}
+                rows={3}
+                placeholder="Como o serviço é executado: método, sequência, materiais e cuidados técnicos…"
+                className="w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+              />
+            </div>
+
+            <div data-ajuda="projetos.catalogo.servico.norma_referencia" className="mt-3">
+              <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
+                Norma de referência
+                <AjudaCampo chave="projetos.catalogo.servico.norma_referencia" rota={ROTA_AJUDA} />
+              </label>
+              <input
+                type="text"
+                value={(valorAtual("norma_referencia") as string) ?? ""}
+                onChange={(e) => handleEdit("norma_referencia", e.target.value)}
+                placeholder="Ex.: ABNT NBR 13753; ABNT NBR 15575"
                 className="w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
               />
             </div>
