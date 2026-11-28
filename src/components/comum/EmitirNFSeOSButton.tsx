@@ -30,16 +30,19 @@ type ServicoFiscal = {
   aliquota_iss: number | null
 }
 type ItemDisc = { descricao: string | null; quantidade: number; valor: number }
+type CadastroGrupo = { servico_fiscal_id: string; descricao: string | null }
 type GrupoFiscal = {
-  servico_fiscal_id: string
+  servico_fiscal_id: string        // sugerido: cadastro do item de maior valor (operador pode trocar entre `cadastros`)
   descricao: string | null
   codigo_lc116: string | null
   codigo_servico_municipio: string | null
   aliquota_iss: number | null
   iss_retido?: boolean
+  tipo_tributacao?: string | null
   valor_total: number
   qtd_itens: number
   itens: ItemDisc[]
+  cadastros?: CadastroGrupo[]       // candidatos (mesma chave fiscal) para escolher o serviço da nota
 }
 type SemVinculo = { qtd: number; valor_total: number; itens: ItemDisc[] }
 type Prep = {
@@ -109,6 +112,8 @@ export default function EmitirNFSeOSButton({
   // #centralizado · fila de notas a emitir (uma por serviço fiscal). Vazia = fluxo antigo (nota única).
   const [fila, setFila] = useState<NotaSpec[]>([])
   const [filaIdx, setFilaIdx] = useState(0)
+  // ajuste #6426 · por grupo (índice), qual cadastro o operador escolheu como serviço da nota (default = sugerido).
+  const [escolhaCadastro, setEscolhaCadastro] = useState<Record<number, string>>({})
   const { nota, recarregar } = useNotaDaOS('nfse', osId, companyId)
   const notaEmitida = notaJaEmitida(nota)
 
@@ -126,7 +131,7 @@ export default function EmitirNFSeOSButton({
       const p = rpc.data as Prep | null
       if (!p?.ok) { setErro(p?.erro ?? 'Não foi possível preparar a NFS-e.'); return }
       setPrep(p)
-      setFila([]); setFilaIdx(0)
+      setFila([]); setFilaIdx(0); setEscolhaCadastro({})
       const osDados = os.data as (DadosOSNfse & { cliente_id?: string | null; veic_veiculo_id?: string | null }) | null
       setClienteId(osDados?.cliente_id ?? null)
       setObsOS(montarObservacoesNfseOS(osDados ? { ...osDados, veiculo: await buscarVeiculoLigado(osDados.veic_veiculo_id,
@@ -152,16 +157,22 @@ export default function EmitirNFSeOSButton({
 
   function continuar() {
     if (temVinculo) {
-      const specs: NotaSpec[] = grupos.map((g) => ({
-        servicoId: g.servico_fiscal_id,
-        descricao: g.descricao || prep?.descricao_sugerida || 'Serviços',
-        valor: g.valor_total,
-        codigoLC116: g.codigo_lc116 ?? undefined,
-        codigoServicoMunicipio: g.codigo_servico_municipio ?? undefined,
-        aliquotaIss: g.aliquota_iss ?? undefined,
-        observacoes: comDiscriminacao(obsBase, g.itens),
-        rotulo: `${g.descricao ?? 'Serviço'} · ${brl(g.valor_total)}`,
-      }))
+      const specs: NotaSpec[] = grupos.map((g, gi) => {
+        // serviço da nota = cadastro escolhido pelo operador (ou o sugerido). O VALOR não muda: é o total do grupo.
+        const escolhidoId = escolhaCadastro[gi] ?? g.servico_fiscal_id
+        const cad = g.cadastros?.find((c) => c.servico_fiscal_id === escolhidoId)
+        const desc = cad?.descricao || g.descricao || prep?.descricao_sugerida || 'Serviços'
+        return {
+          servicoId: escolhidoId,
+          descricao: desc,
+          valor: g.valor_total,
+          codigoLC116: g.codigo_lc116 ?? undefined,
+          codigoServicoMunicipio: g.codigo_servico_municipio ?? undefined,
+          aliquotaIss: g.aliquota_iss ?? undefined,
+          observacoes: comDiscriminacao(obsBase, g.itens),
+          rotulo: `${desc} · ${brl(g.valor_total)}`,
+        }
+      })
       if (precisaSeletorSemVinculo && servico) {
         specs.push({
           servicoId: servico.id,
@@ -254,13 +265,26 @@ export default function EmitirNFSeOSButton({
                   {totalNotas > 1 ? <>Serão emitidas <b>{totalNotas} notas</b> (uma por serviço fiscal):</> : <>Serviço fiscal da OS (preenchido automaticamente):</>}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {grupos.map((g) => (
-                    <div key={g.servico_fiscal_id} style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: '8px 10px' }}>
-                      <div style={{ fontSize: 13, color: C.espresso, fontWeight: 600 }}>{g.descricao} <span style={{ color: C.espressoM, fontWeight: 400 }}>· LC {g.codigo_lc116}</span></div>
-                      <div style={{ fontSize: 13, color: C.green, fontWeight: 700 }}>{brl(g.valor_total)} <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 400 }}>· {g.qtd_itens} {g.qtd_itens === 1 ? 'item' : 'itens'}</span></div>
-                      {g.qtd_itens > 1 && <div style={{ fontSize: 11, color: C.espressoM, marginTop: 2 }}>Discriminação na nota: {g.itens.map((it) => it.descricao).filter(Boolean).join(' · ')}</div>}
-                    </div>
-                  ))}
+                  {grupos.map((g, gi) => {
+                    const cadastros = g.cadastros ?? []
+                    const escolhido = escolhaCadastro[gi] ?? g.servico_fiscal_id
+                    return (
+                      <div key={gi} style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: '8px 10px' }}>
+                        <div style={{ fontSize: 13, color: C.green, fontWeight: 700 }}>{brl(g.valor_total)} <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 400 }}>· {g.qtd_itens} {g.qtd_itens === 1 ? 'item' : 'itens'} · LC {g.codigo_lc116}</span></div>
+                        <div style={{ fontSize: 11, color: C.espressoM, marginTop: 2 }}>Itens (na discriminação da nota): {g.itens.map((it) => `${(it.descricao ?? '').trim()} (${brl(it.valor)})`).filter(Boolean).join(' · ')}</div>
+                        {cadastros.length > 1 ? (
+                          <label style={{ display: 'block', marginTop: 6 }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.espressoM, marginBottom: 3 }}>Serviço da nota <AjudaCampo chave="oficina.os.nfse_servico_nota" rota="/dashboard/os" /></span>
+                            <select value={escolhido} onChange={(e) => setEscolhaCadastro((m) => ({ ...m, [gi]: e.target.value }))} style={selStyle}>
+                              {cadastros.map((c) => (<option key={c.servico_fiscal_id} value={c.servico_fiscal_id}>{c.descricao}</option>))}
+                            </select>
+                          </label>
+                        ) : (
+                          <div style={{ fontSize: 12, color: C.espresso, marginTop: 4 }}>Serviço da nota: <b>{g.descricao}</b></div>
+                        )}
+                      </div>
+                    )
+                  })}
                   {precisaSeletorSemVinculo && (
                     <div style={{ border: `1px dashed ${C.amber}`, borderRadius: 8, padding: '8px 10px' }}>
                       <div style={{ fontSize: 12, color: C.amber, marginBottom: 4 }}>{semVinculo!.qtd} serviço(s) sem vínculo (texto livre) — escolha o serviço fiscal para eles ({brl(semVinculo!.valor_total)}):</div>

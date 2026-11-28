@@ -42,9 +42,11 @@ test.describe('Hub — tipo de empresa e guarda de rota', () => {
     await expect(page.getByRole('button', { name: /Construtora/, pressed: true })).toBeVisible({ timeout: 15000 })
   })
 
-  test('prestadora (pisos): a guarda bloqueia Permutas e libera Ordens de serviço', { tag: '@pos-migration' }, async ({ page }) => {
+  // Permutas saiu do Hub para o Gestão Empresarial (CEO 27/11): a tela construtora-only usada aqui passou a ser o
+  // Simulador de Obra (ramos_aplicaveis sem hub_prestadora), que a guarda continua bloqueando para a prestadora.
+  test('prestadora (pisos): a guarda bloqueia o Simulador de Obra e libera Ordens de serviço', { tag: '@pos-migration' }, async ({ page }) => {
     await semear('prestadora', ['pisos_revestimentos'])
-    await entrar(page, '/dashboard/hub/permutas')
+    await entrar(page, '/dashboard/projetos/simulador')
     await expect(page.getByText(BLOQUEIO)).toBeVisible({ timeout: 30000 })
 
     await page.goto('/dashboard/os')
