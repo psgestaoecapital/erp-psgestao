@@ -12,6 +12,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { acharErroCatalogo, type ErroCatalogo } from '@/lib/banco/erroCatalogo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.55)'
@@ -104,7 +105,8 @@ export default function AssistenteConexaoPage() {
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_banco_copiar_config', { p_origem_company: origem, p_destino_company: empresa, p_provider: provider })
     setBusy(false)
-    if (error || (data && data.ok === false)) { setMsg('❌ ' + (error?.message || data?.erro)); return }
+    // RD-98 (e): erro de infra (error) nunca vai cru ao usuário; o ramo controlado (data.erro) já é do nosso catálogo.
+    if (error || (data && data.ok === false)) { setMsg('❌ ' + (error ? erroAmigavel(error, 'Não foi possível copiar a configuração. Tente de novo.') : (data?.erro ?? 'Não foi possível copiar a configuração. Tente de novo.'))); return }
     setMsg('✅ Forma copiada (scopes/ambiente/conta). Preencha só: ' + (data?.operador_preenche ?? []).join(' · '))
     carregar()
   }
@@ -131,7 +133,8 @@ export default function AssistenteConexaoPage() {
       }
       await carregar()
     } catch (e) {
-      setMsg('❌ ' + (e as Error).message)
+      // RD-98 (e): falha de rede/exceção vira frase do usuário, nunca o erro cru.
+      setMsg('❌ ' + erroAmigavel(e, 'Não foi possível rodar a escada de teste. Verifique a conexão.'))
     } finally { setRodando(false) }
   }
 
