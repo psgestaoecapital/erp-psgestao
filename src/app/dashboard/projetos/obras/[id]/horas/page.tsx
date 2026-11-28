@@ -149,7 +149,8 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
               <option value="">Sem função</option>{funcoes.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></div>
           <div><label style={lab}>Colaborador</label>
             <AjudaCampo chave="projetos.horas_obra.membro" rota={ROTA} /> <select value={f.membro_id} onChange={e => escolherMembro(e.target.value)} style={inp} data-testid="horas-membro">
-              <option value="">Sem colaborador</option>{membros.map(x => <option key={x.id} value={x.id}>{x.nome_pessoa}</option>)}</select></div>
+              <option value="">Sem colaborador</option>{membros.map(x => <option key={x.id} value={x.id}>{x.nome_pessoa}</option>)}</select>
+            {!loading && membros.length === 0 && <div style={{ fontSize: 11.5, color: MUT, marginTop: 4, lineHeight: 1.4 }} data-testid="horas-membro-vazio">Nenhum colaborador cadastrado ainda. <Link href="/dashboard/projetos/mao-obra" style={{ color: GOLD, fontWeight: 600 }}>Cadastre a equipe em Mão de obra › Equipes</Link> para apontar as horas por pessoa.</div>}</div>
           <div><label style={lab}>Horas</label>
             <input inputMode="decimal" value={f.horas} onChange={e => setF({ ...f, horas: e.target.value })} style={inp} data-testid="horas-horas" /> <AjudaCampo chave="projetos.horas_obra.horas" rota={ROTA} /></div>
           <div><label style={lab}>Custo da hora (R$)</label>
@@ -201,7 +202,8 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
                 <option value="">Sem função</option>{funcoes.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></div>
             <div><label style={lab}>Colaborador</label>
               <AjudaCampo chave="projetos.horas_obra.membro" rota={ROTA} /> <select value={ef.membro_id} onChange={e => setEf({ ...ef, membro_id: e.target.value })} style={inp} data-testid="horas-editar-membro">
-                <option value="">Sem colaborador</option>{membros.map(x => <option key={x.id} value={x.id}>{x.nome_pessoa}</option>)}</select></div>
+                <option value="">Sem colaborador</option>{membros.map(x => <option key={x.id} value={x.id}>{x.nome_pessoa}</option>)}</select>
+              {membros.length === 0 && <div style={{ fontSize: 11.5, color: MUT, marginTop: 4, lineHeight: 1.4 }} data-testid="horas-editar-membro-vazio">Nenhum colaborador cadastrado. <Link href="/dashboard/projetos/mao-obra" style={{ color: GOLD, fontWeight: 600 }}>Cadastre em Mão de obra › Equipes</Link>.</div>}</div>
             <div><label style={lab}>Horas</label>
               <input inputMode="decimal" value={ef.horas} onChange={e => setEf({ ...ef, horas: e.target.value })} style={inp} data-testid="horas-editar-horas" /> <AjudaCampo chave="projetos.horas_obra.horas" rota={ROTA} /></div>
             <div><label style={lab}>Custo da hora (R$)</label>
