@@ -5,6 +5,7 @@ import { FiscalError } from './errors'
 import { enderecoComMunicipioOficial } from './municipioDestinatario'
 import { montarItemVeiculo, montarItemVeiculoEntrada, type DadosVendaVeiculo, type ItemVeiculoMontado, type DadosEntradaVeiculo, type ItemVeiculoEntradaMontado } from './nfe-veiculo'
 import { type CondicaoCreditoSN, aliquotaCreditoValida, csosnDoItem, observacoesComSimples, valorCreditoSN } from './creditoIcmsSimples'
+import { dataBrasil } from './dataBrasil'
 
 // UFs válidas (27). Fora desta lista não é UF nacional confiável (exterior, texto sujo) → não deriva CFOP.
 const UFS_BR = new Set([
@@ -107,7 +108,7 @@ export interface NFeBuilderInput {
   consignacaoRetorno?: DadosEntradaVeiculo
 }
 
-export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeRequest> {
+export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeRequest & { avisoCreditoSN?: string | null; creditoMesFaltante?: boolean }> {
   const { data: emp, error: empErr } = await supabaseAdmin
     .from('companies')
     .select('cnpj, razao_social, inscricao_estadual, ie_isento, inscricao_municipal, regime_tributario, uf_fiscal, pais')
@@ -431,10 +432,48 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   const indDestFinal = destinatario.indicadorIE ?? (destinatario.inscricaoEstadual ? 1 : 9)
   const consumidorFinal = input.consumidorFinal ?? (indDestFinal !== 1)
 
-  // #2876 · crédito de ICMS do Simples (CSOSN 101): só para a empresa do Simples com a alíquota cadastrada pelo
-  // contador, vendendo a contribuinte que não é consumidor final. Sem alíquota cadastrada, nada muda.
-  const aliqCreditoSN = cfg?.aliquota_credito_icms_sn != null ? Number(cfg.aliquota_credito_icms_sn) : null
-  const condCreditoSN: CondicaoCreditoSN = { ehSimples, aliquota: aliqCreditoSN, indIEDest: indDestFinal, consumidorFinal, finalidade }
+  // #2876/#11424 · crédito de ICMS do Simples (CSOSN 101). OPT-IN = aliquota_credito_icms_sn > 0 do provider_config;
+  // o VALOR vem do crédito da COMPETÊNCIA (mês da emissão) em erp_fiscal_credito_sn.
+  // AJUSTE DA REVISÃO (#6169): a empresa que OPTOU nunca cai pra 102 em silêncio — sem o mês lançado, usa o ÚLTIMO
+  // valor conhecido (competência ≤ mês), ou o valor configurado (flat), e dispara o alerta VISÍVEL de desatualização
+  // (creditoMesFaltante, surfado pela rota/tela). A rota pode BLOQUEAR (opção b) se o perfil pedir.
+  const flatCreditoSN = cfg?.aliquota_credito_icms_sn != null ? Number(cfg.aliquota_credito_icms_sn) : null
+  const optouCreditoSN = flatCreditoSN != null && flatCreditoSN > 0
+  const compCreditoIso = `${dataBrasil().slice(0, 7)}-01` // competência = mês de Brasília (data de emissão) · #1944
+  const { data: credMes } = await supabaseAdmin
+    .from('erp_fiscal_credito_sn')
+    .select('credito')
+    .eq('company_id', input.companyId)
+    .eq('competencia', compCreditoIso)
+    .maybeSingle()
+  const creditoDoMes = credMes?.credito != null ? Number(credMes.credito) : null
+  let aliqCreditoSN = creditoDoMes
+  let creditoFallbackDe: string | null = null // competência (YYYY-MM) do valor usado quando o mês corrente não está lançado
+  if (creditoDoMes == null && optouCreditoSN) {
+    const { data: ult } = await supabaseAdmin
+      .from('erp_fiscal_credito_sn')
+      .select('credito, competencia')
+      .eq('company_id', input.companyId)
+      .lte('competencia', compCreditoIso)
+      .order('competencia', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const ultValor = ult?.credito != null ? Number(ult.credito) : null
+    aliqCreditoSN = ultValor ?? flatCreditoSN // último conhecido, senão o valor configurado — nunca 102 silencioso
+    creditoFallbackDe = ult?.competencia ? String(ult.competencia).slice(0, 7) : (flatCreditoSN != null ? 'config' : null)
+  }
+  const condCreditoSN: CondicaoCreditoSN = { ehSimples, aliquota: aliqCreditoSN, optouCredito: optouCreditoSN, indIEDest: indDestFinal, consumidorFinal, finalidade }
+  // #11424 · a empresa optou, a nota CARREGARIA crédito (contribuinte, não consumidor final, normal) e o MÊS corrente
+  // não foi lançado → alerta VISÍVEL (a rota surfa; não cai pra 102 em silêncio — usou o fallback acima).
+  const cobraCreditoSN = ehSimples && optouCreditoSN && indDestFinal === 1 && consumidorFinal === false && finalidade === 'normal'
+  const creditoMesFaltante = cobraCreditoSN && creditoDoMes == null
+  const mesCreditoBR = `${compCreditoIso.slice(5, 7)}/${compCreditoIso.slice(0, 4)}`
+  const fmtComp = (c: string) => `${c.slice(5, 7)}/${c.slice(0, 4)}`
+  const avisoCreditoSN = creditoMesFaltante
+    ? (aliqCreditoSN != null
+        ? `Crédito de ICMS do Simples: a competência ${mesCreditoBR} ainda NÃO foi lançada na Configuração Fiscal. A nota está usando o último valor conhecido (${String(aliqCreditoSN).replace('.', ',')}%${creditoFallbackDe && creditoFallbackDe !== 'config' ? `, de ${fmtComp(creditoFallbackDe)}` : ' configurado'}). Lance a alíquota do mês para manter o crédito correto.`
+        : `Crédito de ICMS do Simples: a competência ${mesCreditoBR} não tem crédito lançado e não há valor anterior — a nota sairá SEM crédito (CSOSN 102). Lance a alíquota do mês.`)
+    : null
 
   const itensNFe: NFeProdutoItem[] = itensInput.map((it) => {
     const prod = produtos.find((p) => p.id === it.produtoId)
@@ -574,6 +613,10 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   }
 
   return {
+    // #11424 · advisory (NÃO vai no XML/SEFAZ): a rota de emissão o devolve na prévia (soft-gate). Os provedores
+    // mapeiam campos explícitos, então este campo extra é inerte no payload.
+    ...(avisoCreditoSN ? { avisoCreditoSN } : {}),
+    ...(creditoMesFaltante ? { creditoMesFaltante: true as const } : {}),
     serie: cfg?.serie_nfe_padrao ?? '1',
     naturezaOperacao: naturezaOp,
     finalidade,
