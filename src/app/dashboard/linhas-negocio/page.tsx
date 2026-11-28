@@ -8,6 +8,7 @@ import HealthScorePanel from '@/components/linhas-negocio/HealthScore'
 import BudgetVsRealizado from '@/components/linhas-negocio/BudgetVsRealizado'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import type { DREPorLinha, LinhaNegocio } from '@/types/linhas-negocio'
 
 // Design system PS premium (RD-96) — mesmos tokens das telas irmãs da jornada (Divisões / P&M):
@@ -28,6 +29,9 @@ export default function LinhasNegocioPage() {
   const { data: benchmark } = useBenchmark(empresaId, periodo)
   const { linhas, loading: loadingLinhas, refetch: refetchLinhas } = useLinhasNegocio(empresaId)
   const [removendoId, setRemovendoId] = useState<string | null>(null)
+  // Critério (e): o caminho de erro do "Remover" nunca mostra a string crua do banco. A mensagem vira
+  // frase do usuário (erroAmigavel) num aviso inline no bloco da lista — mesmo padrão das telas-irmãs da GE.
+  const [erroRemover, setErroRemover] = useState<string | null>(null)
 
   const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 
@@ -35,6 +39,7 @@ export default function LinhasNegocioPage() {
   // (/api/linhas-negocio?id=...), que DESATIVA a linha (ativo=false, com guarda por empresa) — histórico mantido.
   async function removerLinha(l: LinhaNegocio) {
     if (!window.confirm(`Remover a linha "${l.nome}"? Ela sai dos indicadores; o histórico é mantido.`)) return
+    setErroRemover(null)
     setRemovendoId(l.id)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -43,9 +48,12 @@ export default function LinhasNegocioPage() {
       })
       if (!res.ok) {
         const j = await res.json().catch(() => ({} as { error?: string }))
-        window.alert('Não consegui remover a linha: ' + (j?.error ?? res.statusText)); return
+        const bruto = typeof j?.error === 'string' ? j.error : ''
+        setErroRemover(erroAmigavel({ message: bruto }, 'Não consegui remover a linha. Tente de novo.')); return
       }
       refetchLinhas()
+    } catch (e) {
+      setErroRemover(erroAmigavel(e, 'Não consegui remover a linha. Tente de novo.'))
     } finally { setRemovendoId(null) }
   }
 
@@ -111,6 +119,14 @@ export default function LinhasNegocioPage() {
                 <AjudaCampo chave='ge.linhas.nova_linha' />
               </span>
             </div>
+            {erroRemover && (
+              <div role='alert' style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#FBECEC', border: '1px solid #E8C7C7', color: '#A32D2D', borderRadius: 10, padding: '10px 12px', fontSize: 12.5, margin: '0 0 10px' }}>
+                <span aria-hidden>⚠</span>
+                <span style={{ flex: 1 }}>{erroRemover}</span>
+                <button onClick={() => setErroRemover(null)} aria-label='Fechar aviso'
+                  style={{ background: 'transparent', border: 'none', color: '#A32D2D', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
+              </div>
+            )}
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column' }}>
               {linhas.map((l, i) => (
                 <li key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 2px', borderTop: i === 0 ? 'none' : `1px solid ${BORDA}`, flexWrap: 'wrap' }}>
