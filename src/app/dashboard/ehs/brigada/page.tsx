@@ -126,7 +126,8 @@ export default function BrigadaPage() {
       if (error) throw error
       setRegistros((data || []) as Brigadista[])
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao carregar a brigada')
+      console.error('carregar brigada', e)
+      setErro('Não foi possível carregar a brigada. Tente novamente em instantes.')
     } finally {
       setLoading(false)
     }
@@ -158,15 +159,15 @@ export default function BrigadaPage() {
     if (motivo === null) return
     if (!motivo.trim()) { alert('Informe o motivo para desativar.'); return }
     try {
-      const { data: userData } = await supabase.auth.getUser()
-      const { error } = await supabase
-        .from('ehs_brigada')
-        .update({ ativo: false, excluido_em: new Date().toISOString(), excluido_por: userData?.user?.id ?? null, excluido_motivo: motivo.trim(), atualizado_em: new Date().toISOString() })
-        .eq('id', b.id)
+      // RD-98 p4 + rastro: a desativação grava quem/quando/motivo e um registro em audit_log_global via RPC
+      // guardada por empresa (soft-delete rastreável), nunca um UPDATE solto pelo cliente.
+      const { data, error } = await supabase.rpc('fn_ehs_brigada_desativar', { p_id: b.id, p_motivo: motivo.trim() })
       if (error) throw error
+      if (data && data.ok === false) { alert(data.erro || 'Não foi possível desativar o brigadista.'); return }
       carregar()
     } catch (err: any) {
-      alert(err?.message || 'Falha ao desativar')
+      console.error('fn_ehs_brigada_desativar', err)
+      alert('Não foi possível desativar o brigadista. Tente novamente.')
     }
   }
 
@@ -345,19 +346,19 @@ function BrigadistaFormModal({ companyId, brigadista, onClose, onSaved }: { comp
         apto,
         observacao: observacao.trim() || null,
       }
-      if (brigadista?.id) {
-        const { error } = await supabase.from('ehs_brigada')
-          .update({ ...comum, atualizado_em: new Date().toISOString() })
-          .eq('id', brigadista.id)
-        if (error) throw error
-      } else {
-        const { error } = await supabase.from('ehs_brigada')
-          .insert({ company_id: companyId, ...comum })
-        if (error) throw error
-      }
+      // RD-98 p3 + rastro: criar/atualizar passa por RPC guardada por empresa com registro em audit_log_global,
+      // nunca por insert/update solto pelo cliente.
+      const { data, error } = await supabase.rpc('fn_ehs_brigada_salvar', {
+        p_id: brigadista?.id ?? null,
+        p_company_id: companyId,
+        p_dados: comum,
+      })
+      if (error) throw error
+      if (data && data.ok === false) { setErro(data.erro || 'Não foi possível salvar o brigadista.'); setSalvando(false); return }
       onSaved()
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao salvar o brigadista')
+      console.error('fn_ehs_brigada_salvar', e)
+      setErro('Não foi possível salvar o brigadista. Confira os dados e tente novamente.')
       setSalvando(false)
     }
   }
