@@ -26,6 +26,8 @@ const C = {
   redBg: '#fce8e8',
 }
 
+type Regime = 'normal' | 'frio_artificial' | 'calor' | 'externo'
+
 type Setor = {
   id: string
   company_id: string | null
@@ -35,7 +37,25 @@ type Setor = {
   is_global: boolean
   ordem_exibicao: number | null
   ativo: boolean
+  ambiente_temp_min: number | null
+  ambiente_temp_max: number | null
+  ambiente_regime: Regime | null
   created_at?: string
+}
+
+const REGIME_OPCOES: { v: Regime; label: string }[] = [
+  { v: 'normal', label: 'Normal' },
+  { v: 'frio_artificial', label: 'Frio artificial' },
+  { v: 'calor', label: 'Calor' },
+  { v: 'externo', label: 'Externo' },
+]
+const regimeLabel = (r: string | null) => REGIME_OPCOES.find((o) => o.v === r)?.label ?? null
+const fmtTemp = (n: number | null) => (n === null || n === undefined ? null : `${Number(n)} °C`)
+function fmtFaixa(min: number | null, max: number | null): string | null {
+  if (min === null && max === null) return null
+  if (min !== null && max !== null) return `${Number(min)} a ${Number(max)} °C`
+  if (min !== null) return `≥ ${fmtTemp(min)}`
+  return `≤ ${fmtTemp(max)}`
 }
 
 export default function SetoresPage() {
@@ -72,7 +92,7 @@ export default function SetoresPage() {
       const ids = companyIdsKey ? companyIdsKey.split(',').filter(Boolean) : []
       let query = supabase
         .from('compliance_setores')
-        .select('id, company_id, nome, slug, descricao, is_global, ordem_exibicao, ativo, created_at')
+        .select('id, company_id, nome, slug, descricao, is_global, ordem_exibicao, ativo, ambiente_temp_min, ambiente_temp_max, ambiente_regime, created_at')
         .order('is_global', { ascending: false })
         .order('ordem_exibicao', { ascending: true, nullsFirst: false })
         .order('nome', { ascending: true })
@@ -224,14 +244,15 @@ export default function SetoresPage() {
                   <Th><span style={thLabel}>Nome<AjudaCampo chave="ehs.setores.col_nome" rota={ROTA_AJUDA} /></span></Th>
                   <Th><span style={thLabel}>Identificador<AjudaCampo chave="ehs.setores.col_slug" rota={ROTA_AJUDA} /></span></Th>
                   <Th><span style={thLabel}>Descrição<AjudaCampo chave="ehs.setores.col_descricao" rota={ROTA_AJUDA} /></span></Th>
+                  <Th><span style={thLabel}>Ambiente<AjudaCampo chave="ehs.setores.col_ambiente" rota={ROTA_AJUDA} /></span></Th>
                   {aba === 'meus' && multiEmpresa && <Th><span style={thLabel}>Empresa<AjudaCampo chave="ehs.setores.col_empresa" rota={ROTA_AJUDA} /></span></Th>}
                   {aba === 'meus' && <Th><span style={thLabel}>Ações<AjudaCampo chave="ehs.setores.col_acoes" rota={ROTA_AJUDA} /></span></Th>}
                 </tr>
               </thead>
               <tbody>
-                {loading && (<tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Carregando…</td></tr>)}
+                {loading && (<tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Carregando…</td></tr>)}
                 {!loading && setoresFiltrados.length === 0 && (
-                  <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: C.muted }}>
+                  <tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: C.muted }}>
                     {aba === 'globais' ? 'Nenhum setor global ativo' : 'Você ainda não tem setores próprios. Crie um!'}
                   </td></tr>
                 )}
@@ -248,6 +269,26 @@ export default function SetoresPage() {
                     <Td mono>{s.slug}</Td>
                     <Td>
                       <span style={{ color: s.descricao ? C.ink : C.muted }}>{s.descricao || '—'}</span>
+                    </Td>
+                    <Td>
+                      {(() => {
+                        const faixa = fmtFaixa(s.ambiente_temp_min, s.ambiente_temp_max)
+                        const reg = regimeLabel(s.ambiente_regime)
+                        if (!faixa && !reg) return <span style={{ color: C.muted }}>—</span>
+                        const corReg = s.ambiente_regime === 'frio_artificial' ? '#2563eb'
+                          : s.ambiente_regime === 'calor' ? '#dc2626'
+                          : s.ambiente_regime === 'externo' ? '#16a34a' : C.gold
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            {reg && (
+                              <span style={{ alignSelf: 'flex-start', padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 700, backgroundColor: corReg + '22', color: corReg }}>
+                                {reg}
+                              </span>
+                            )}
+                            {faixa && <span style={{ fontSize: 12, color: C.espresso }}>{faixa}</span>}
+                          </div>
+                        )
+                      })()}
                     </Td>
                     {aba === 'meus' && multiEmpresa && (
                       <Td>{empresaPorId.get(s.company_id || '') || '—'}</Td>
@@ -316,8 +357,18 @@ function SetorFormModal({
 }) {
   const [nome, setNome] = useState(setor?.nome || '')
   const [descricao, setDescricao] = useState(setor?.descricao || '')
+  const [tempMin, setTempMin] = useState(setor?.ambiente_temp_min != null ? String(setor.ambiente_temp_min) : '')
+  const [tempMax, setTempMax] = useState(setor?.ambiente_temp_max != null ? String(setor.ambiente_temp_max) : '')
+  const [regime, setRegime] = useState<string>(setor?.ambiente_regime || '')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+
+  const parseTemp = (s: string): number | null => {
+    const t = s.trim().replace(',', '.')
+    if (t === '') return null
+    const n = Number(t)
+    return Number.isFinite(n) ? n : NaN as any
+  }
 
   function gerarSlug(s: string): string {
     return s.toLowerCase()
@@ -329,6 +380,15 @@ function SetorFormModal({
 
   async function salvar() {
     if (!nome.trim()) { setErro('Nome obrigatório'); return }
+    const tMin = parseTemp(tempMin)
+    const tMax = parseTemp(tempMax)
+    if (Number.isNaN(tMin as any) || Number.isNaN(tMax as any)) { setErro('Temperatura inválida — use só números (ex.: -18).'); return }
+    if (tMin !== null && tMax !== null && tMin > tMax) { setErro('A temperatura mínima não pode ser maior que a máxima.'); return }
+    const ambiente = {
+      ambiente_temp_min: tMin,
+      ambiente_temp_max: tMax,
+      ambiente_regime: regime || null,
+    }
     setSalvando(true)
     setErro(null)
     try {
@@ -336,7 +396,7 @@ function SetorFormModal({
         // UPDATE — slug nao muda
         const { error } = await supabase
           .from('compliance_setores')
-          .update({ nome: nome.trim(), descricao: descricao.trim() || null })
+          .update({ nome: nome.trim(), descricao: descricao.trim() || null, ...ambiente })
           .eq('id', setor.id)
         if (error) throw error
       } else {
@@ -351,6 +411,7 @@ function SetorFormModal({
             descricao: descricao.trim() || null,
             is_global: false,
             ativo: true,
+            ...ambiente,
           })
         if (error) throw error
       }
@@ -378,6 +439,34 @@ function SetorFormModal({
           <label style={labelStyle}>Descrição (opcional)</label>
           <textarea value={descricao} onChange={(e) => setDescricao(e.target.value)} style={{ ...inputStyle(), minHeight: 60 }} />
         </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ ...labelStyle }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              Faixa de temperatura (°C) <span style={{ textTransform: 'none', fontWeight: 400, marginLeft: 6, color: C.muted }}>— opcional</span>
+              <AjudaCampo chave="ehs.setores.form_temperatura" rota={ROTA_AJUDA} />
+            </span>
+            <span style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, textTransform: 'none', letterSpacing: 'normal', fontWeight: 400 }}>
+              <input value={tempMin} onChange={(e) => setTempMin(e.target.value)} inputMode="decimal" style={inputStyle()} placeholder="mínima (ex.: -18)" aria-label="Temperatura mínima em graus Celsius" />
+              <span style={{ color: C.muted, fontSize: 13 }}>a</span>
+              <input value={tempMax} onChange={(e) => setTempMax(e.target.value)} inputMode="decimal" style={inputStyle()} placeholder="máxima (ex.: -5)" aria-label="Temperatura máxima em graus Celsius" />
+            </span>
+          </label>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ ...labelStyle }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              Regime do ambiente <span style={{ textTransform: 'none', fontWeight: 400, marginLeft: 6, color: C.muted }}>— opcional</span>
+              <AjudaCampo chave="ehs.setores.form_regime" rota={ROTA_AJUDA} />
+            </span>
+            <select value={regime} onChange={(e) => setRegime(e.target.value)} style={{ ...inputStyle(), marginTop: 6, textTransform: 'none', letterSpacing: 'normal', fontWeight: 400 }} aria-label="Regime térmico do ambiente">
+              <option value="">Não classificado</option>
+              {REGIME_OPCOES.map((o) => (<option key={o.v} value={o.v}>{o.label}</option>))}
+            </select>
+          </label>
+        </div>
+
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
           <button onClick={onClose} disabled={salvando} style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
           <button onClick={salvar} disabled={salvando || !nome.trim()} style={{ padding: '8px 12px', borderRadius: 8, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 12, fontWeight: 600, cursor: !salvando && nome.trim() ? 'pointer' : 'not-allowed', opacity: !salvando && nome.trim() ? 1 : 0.6 }}>
