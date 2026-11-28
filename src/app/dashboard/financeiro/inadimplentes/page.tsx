@@ -53,6 +53,16 @@ interface Resposta {
 
 type Tab = 'atrasadas' | 'em_andamento' | 'resolvidas'
 
+interface AgingFaixa {
+  faixa: '0-30' | '31-60' | '61-90' | '90+'
+  valor: number
+  qtd: number
+}
+interface Aging {
+  faixas: AgingFaixa[]
+  total: { valor: number; qtd: number }
+}
+
 function fmt(n: number | null | undefined): string {
   return Number(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
@@ -131,6 +141,7 @@ export default function InadimplentesPage() {
   const empresaUnica = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
 
   const [data, setData] = useState<Resposta | null>(null)
+  const [aging, setAging] = useState<Aging | null>(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>('atrasadas')
   const [expandido, setExpandido] = useState<Set<string>>(new Set())
@@ -147,12 +158,14 @@ export default function InadimplentesPage() {
     if (!empresaUnica) { setLoading(false); return }
     ;(async () => {
       setLoading(true)
-      const [{ data: result }, { data: contas }] = await Promise.all([
+      const [{ data: result }, { data: contas }, { data: agingRes }] = await Promise.all([
         supabase.rpc('fn_inadimplentes_por_status', { p_company_id: empresaUnica }),
         supabase.from('erp_banco_contas').select('id, nome').eq('company_id', empresaUnica).eq('ativo', true).order('nome'),
+        supabase.rpc('fn_receber_aging', { p_company_id: empresaUnica }),
       ])
       if (ignore) return
       setData(result as Resposta)
+      setAging((agingRes as Aging) ?? null)
       if (contas && contas.length > 0) setContaPadrao(contas[0].id as string)
       setLoading(false)
     })()
@@ -269,6 +282,8 @@ export default function InadimplentesPage() {
             ✅ Resolvidas ({countResolvidas})
           </TabBtn>
         </div>
+
+        {tab === 'atrasadas' && aging && <AgingPanel aging={aging} />}
 
         {tab === 'atrasadas' && (
           <ConteudoAtrasadas
@@ -654,6 +669,70 @@ function TabBtn({ ativa, onClick, children }: { ativa: boolean; onClick: () => v
     >
       {children}
     </button>
+  )
+}
+
+const FAIXA_ROTULO: Record<AgingFaixa['faixa'], string> = {
+  '0-30': '0–30 dias',
+  '31-60': '31–60 dias',
+  '61-90': '61–90 dias',
+  '90+': 'mais de 90 dias',
+}
+
+function AgingPanel({ aging }: { aging: Aging }) {
+  return (
+    <section
+      style={{
+        background: '#FFFFFF',
+        border: '0.5px solid rgba(61,35,20,0.14)',
+        borderRadius: 14,
+        padding: '18px 18px 16px',
+        marginBottom: 16,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <span style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 16, color: '#3D2314' }}>
+            Aging · a receber vencido por faixa de atraso
+          </span>
+          <AjudaCampo chave="ge.inadimplentes.aging" rota={ROTA_AJUDA} />
+        </div>
+        <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.6)' }}>
+          Total vencido em aberto: <strong style={{ color: '#3D2314' }}>R$ {fmt(aging.total.valor)}</strong> · {aging.total.qtd} {aging.total.qtd === 1 ? 'conta' : 'contas'}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        {aging.faixas.map((f) => {
+          const critico = f.faixa === '90+'
+          const alerta = f.faixa === '61-90'
+          const borda = critico ? 'rgba(168,52,35,0.35)' : alerta ? 'rgba(180,120,30,0.3)' : 'rgba(61,35,20,0.14)'
+          const corValor = f.qtd === 0 ? 'rgba(61,35,20,0.4)' : critico ? '#A83423' : '#3D2314'
+          return (
+            <div
+              key={f.faixa}
+              style={{
+                flex: '1 1 150px',
+                minWidth: 140,
+                background: '#FAF7F2',
+                border: `0.5px solid ${borda}`,
+                borderRadius: 10,
+                padding: '12px 14px',
+              }}
+            >
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: 'rgba(61,35,20,0.55)', marginBottom: 6 }}>
+                {FAIXA_ROTULO[f.faixa]}
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 600, color: corValor, fontVariantNumeric: 'tabular-nums' }}>
+                R$ {fmt(f.valor)}
+              </div>
+              <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)', marginTop: 2 }}>
+                {f.qtd} {f.qtd === 1 ? 'conta' : 'contas'}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 
