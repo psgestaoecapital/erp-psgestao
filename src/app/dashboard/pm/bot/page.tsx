@@ -66,8 +66,10 @@ export default function BotSlackPage() {
   const [historico, setHistorico] = useState<Envio[]>([])
   const [testando, setTestando] = useState(false)
   // Empresa de demonstração (companies.is_demo): na DEMO a entrega ao Slack é ENCENADA com sucesso
-  // (fn_pm_bot_disparar, branch is_demo), então o histórico mostra "Enviada". Sem isso, o texto honesto
-  // de produção ("ainda sendo ativada / na fila") contradiz o que o usuário vê logo abaixo.
+  // (fn_pm_bot_disparar, branch is_demo), então o histórico mostra "Enviada". Em empresa real, a entrega
+  // está NO AR: fn_pm_bot_disparar chama net.http_post -> edge pm-bot-enviar (ACTIVE) -> webhook do canal,
+  // e o cron pm-bot-envio-reaper reprocessa envios que falharam. Por isso o texto de produção abaixo é
+  // honesto dizendo que a entrega acontece ao conectar o webhook (não "sendo ativada / na fila").
   const [demo, setDemo] = useState(false)
 
   const carregarHistorico = useCallback(async () => {
@@ -110,7 +112,7 @@ export default function BotSlackPage() {
     }
     setWebhook(''); setToast(demo
       ? 'Canal conectado. Os avisos marcados são detectados e, nesta demonstração, a entrega ao Slack é simulada — veja no histórico abaixo cada aviso como "Enviada".'
-      : 'Canal conectado. Os avisos marcados são detectados e entram na fila; a entrega ao Slack ainda está sendo ativada.')
+      : 'Canal conectado. Os avisos marcados são detectados e enviados automaticamente ao seu canal no Slack; acompanhe cada envio no histórico abaixo.')
     await carregar()
   }
 
@@ -340,9 +342,10 @@ export default function BotSlackPage() {
             </>
           ) : (
             <>
-              {' '}A <strong>entrega ao Slack está sendo ativada</strong>: por enquanto os avisos ficam
-              <strong> na fila</strong> e o <strong>histórico</strong> abaixo mostra cada um (o envio de teste
-              também fica registrado ali). Assim que a entrega estiver no ar, as mensagens passam a sair sozinhas.
+              {' '}A <strong>entrega ao Slack está no ar</strong>: assim que você conecta o webhook do seu
+              canal, cada aviso marcado é <strong>enviado automaticamente</strong> ao Slack e aparece no
+              <strong> histórico</strong> abaixo com o status de envio (o envio de teste também). Se um envio
+              falhar, o sistema <strong>tenta de novo sozinho</strong>.
             </>
           )}
         </p>
