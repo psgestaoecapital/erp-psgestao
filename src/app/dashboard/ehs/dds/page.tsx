@@ -1,7 +1,9 @@
 // src/app/dashboard/ehs/dds/page.tsx
 // PS EHS · EHS-7 / M10 — Campo digital: DDS (Diálogo Diário de Segurança)
 // O líder registra o DDS do dia (tema, conteúdo, setor, duração) e a presença digital de quem participou.
-// Backend: ehs_dds + ehs_dds_presenca (RLS por empresa via get_user_company_ids). Soft delete (ativo=false).
+// Backend: ehs_dds + ehs_dds_presenca (RLS por empresa via get_user_company_ids). Exclusão rastreável
+// (RD-98 p4): desativar o DDS e reescrever a presença passam por RPC (fn_ehs_dds_desativar /
+// fn_ehs_dds_presencas_salvar) com quem/quando + audit_log_global — sem DELETE físico (presença é prova).
 
 'use client'
 
@@ -79,6 +81,7 @@ export default function DdsPage() {
         .from('ehs_dds')
         .select('id, company_id, data, tema, conteudo, setor, responsavel, duracao_min, observacoes, ativo, ehs_dds_presenca(count)')
         .eq('ativo', true)
+        .eq('ehs_dds_presenca.ativo', true)
         .in('company_id', ids)
         .order('data', { ascending: false })
       if (error) throw error
@@ -88,7 +91,8 @@ export default function DdsPage() {
       })) as Dds[]
       setRegistros(linhas)
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao carregar os DDS')
+      console.error('carregar DDS', e)
+      setErro('Não foi possível carregar os DDS. Tente novamente em instantes.')
     } finally {
       setLoading(false)
     }
@@ -106,14 +110,15 @@ export default function DdsPage() {
     if (motivo === null) return
     if (!motivo.trim()) { alert('Informe o motivo para desativar.'); return }
     try {
-      const { error } = await supabase
-        .from('ehs_dds')
-        .update({ ativo: false, observacoes: ((d.observacoes ? d.observacoes + ' ' : '') + `[desativado: ${motivo.trim()}]`).slice(0, 2000), atualizado_em: new Date().toISOString() })
-        .eq('id', d.id)
+      // RD-98 p4: o DDS é documento de segurança (a presença é prova de treinamento) — a desativação grava
+      // quem/quando/motivo e um registro em audit_log_global via RPC (soft-delete rastreável).
+      const { data, error } = await supabase.rpc('fn_ehs_dds_desativar', { p_id: d.id, p_motivo: motivo.trim() })
       if (error) throw error
+      if (data && data.ok === false) { alert(data.erro || 'Não foi possível desativar o DDS.'); return }
       carregar()
     } catch (e: any) {
-      alert(e?.message || 'Falha ao desativar')
+      console.error('fn_ehs_dds_desativar', e)
+      alert('Não foi possível desativar o DDS. Tente novamente.')
     }
   }
 
@@ -240,6 +245,7 @@ function DdsFormModal({ companyId, dds, onClose, onSaved }: { companyId: string;
         .from('ehs_dds_presenca')
         .select('id, participante_nome, funcao')
         .eq('dds_id', dds.id)
+        .eq('ativo', true)
         .order('participante_nome', { ascending: true })
       if (!vivo) return
       setPresencas((data || []) as Presenca[])
@@ -267,8 +273,6 @@ function DdsFormModal({ companyId, dds, onClose, onSaved }: { companyId: string;
           .update({ data, tema: tema.trim(), conteudo: conteudo.trim() || null, setor: setor.trim() || null, responsavel: responsavel.trim() || null, duracao_min: duracao, observacoes: observacoes.trim() || null, atualizado_em: new Date().toISOString() })
           .eq('id', ddsId)
         if (error) throw error
-        const { error: delErr } = await supabase.from('ehs_dds_presenca').delete().eq('dds_id', ddsId)
-        if (delErr) throw delErr
       } else {
         const { data: nova, error } = await supabase.from('ehs_dds')
           .insert({ company_id: companyId, data, tema: tema.trim(), conteudo: conteudo.trim() || null, setor: setor.trim() || null, responsavel: responsavel.trim() || null, duracao_min: duracao, observacoes: observacoes.trim() || null })
@@ -276,14 +280,18 @@ function DdsFormModal({ companyId, dds, onClose, onSaved }: { companyId: string;
         if (error) throw error
         ddsId = nova!.id
       }
-      if (participantes.length > 0) {
-        const payload = participantes.map((p) => ({ company_id: companyId, dds_id: ddsId, participante_nome: p.participante_nome, funcao: p.funcao, presente: true }))
-        const { error: insErr } = await supabase.from('ehs_dds_presenca').insert(payload)
-        if (insErr) throw insErr
-      }
+      // RD-98 p4: a lista de presença é prova de treinamento/assinatura — reescrita por RPC (soft-delete
+      // das antigas + insert das novas, com rastro em audit_log_global), nunca por DELETE físico.
+      const { data: prData, error: prErr } = await supabase.rpc('fn_ehs_dds_presencas_salvar', {
+        p_dds_id: ddsId,
+        p_presencas: participantes.map((p) => ({ participante_nome: p.participante_nome, funcao: p.funcao, presente: true })),
+      })
+      if (prErr) throw prErr
+      if (prData && prData.ok === false) { setErro(prData.erro || 'Não foi possível salvar a presença.'); setSalvando(false); return }
       onSaved()
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao salvar o DDS')
+      console.error('salvar DDS', e)
+      setErro('Não foi possível salvar o DDS. Confira os dados e tente novamente.')
       setSalvando(false)
     }
   }
