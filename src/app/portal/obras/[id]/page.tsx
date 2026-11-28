@@ -24,6 +24,14 @@ type Avanco = {
 }
 type FotoDia = { data: string | null; clima: string | null; atividades: string | null; fotos: string[] }
 type MedicaoPrev = { numero: number | null; competencia: string | null; status: string | null; valor_total: number | null; aprovada_em: string | null }
+type Aprovacao = {
+  id: string; tipo: string; titulo: string; descricao: string | null
+  valor_referencia: number | null; status: 'pendente' | 'aprovado' | 'recusado'
+  criado_por_nome: string | null; criado_em: string
+  decidido_por_nome: string | null; decidido_em: string | null; decisao_comentario: string | null
+}
+const aprovTipoRotulo = (t: string) =>
+  ({ orcamento: 'Orçamento', alteracao: 'Alteração de escopo', medicao: 'Medição', servico_extra: 'Serviço extra' } as Record<string, string>)[t] ?? t
 
 const fmtData = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'
@@ -45,8 +53,11 @@ export default function PortalObraDetalhePage({ params }: { params: Promise<{ id
   const [avanco, setAvanco] = useState<Avanco | null>(null)
   const [fotos, setFotos] = useState<FotoDia[]>([])
   const [medicoes, setMedicoes] = useState<MedicaoPrev[]>([])
+  const [aprovacoes, setAprovacoes] = useState<Aprovacao[]>([])
+  const [decidindo, setDecidindo] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
+  const [aviso, setAviso] = useState('')
   const [bloqueado, setBloqueado] = useState(false)
 
   const carregar = useCallback(async () => {
@@ -62,12 +73,14 @@ export default function PortalObraDetalhePage({ params }: { params: Promise<{ id
       }
       if (av.data && Object.keys(av.data as object).length > 0) setAvanco(av.data as Avanco)
 
-      const [ft, md] = await Promise.all([
+      const [ft, md, ap] = await Promise.all([
         supabase.rpc('fn_obra_portal_fotos', { p_obra_id: id }),
         supabase.rpc('fn_obra_portal_medicoes', { p_obra_id: id }),
+        supabase.rpc('fn_obra_portal_aprovacoes_listar', { p_obra_id: id }),
       ])
       if (!ft.error && Array.isArray(ft.data)) setFotos(ft.data as FotoDia[])
       if (!md.error && Array.isArray(md.data)) setMedicoes(md.data as MedicaoPrev[])
+      if (!ap.error && Array.isArray(ap.data)) setAprovacoes(ap.data as Aprovacao[])
     } catch (e) {
       setErro(erroAmigavel(e, 'Não foi possível carregar o acompanhamento desta obra.'))
     } finally {
@@ -76,6 +89,31 @@ export default function PortalObraDetalhePage({ params }: { params: Promise<{ id
   }, [id, router])
 
   useEffect(() => { void carregar() }, [carregar])
+
+  const decidir = useCallback(async (a: Aprovacao, decisao: 'aprovar' | 'recusar') => {
+    let comentario: string | null = null
+    if (typeof window !== 'undefined') {
+      if (decisao === 'recusar') {
+        comentario = window.prompt(`Recusar "${a.titulo}"?\nMotivo (opcional):`, '')
+        if (comentario === null) return // cancelou
+      } else if (!window.confirm(`Aprovar "${a.titulo}"?`)) {
+        return
+      }
+    }
+    setDecidindo(a.id); setErro(''); setAviso('')
+    try {
+      const { error } = await supabase.rpc('fn_obra_portal_aprovacao_decidir', {
+        p_aprovacao_id: a.id, p_decisao: decisao, p_comentario: comentario || null,
+      })
+      if (error) throw error
+      setAviso(decisao === 'aprovar' ? 'Aprovação registrada. A equipe já pode seguir.' : 'Pedido recusado. A equipe foi informada.')
+      await carregar()
+    } catch (e) {
+      setErro(erroAmigavel(e, 'Não foi possível registrar sua decisão.'))
+    } finally {
+      setDecidindo(null)
+    }
+  }, [carregar])
 
   const card: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 18 }
   const lbl: React.CSSProperties = { fontSize: 12, fontWeight: 700, color: ESP, display: 'flex', alignItems: 'center', gap: 4 }
@@ -94,6 +132,7 @@ export default function PortalObraDetalhePage({ params }: { params: Promise<{ id
         </p>
 
         {erro && <div style={{ ...card, borderColor: VERM, color: VERM, marginTop: 14, fontSize: 13 }} data-testid="erro">{erro}</div>}
+        {aviso && <div style={{ ...card, borderColor: VERDE, color: VERDE, marginTop: 14, fontSize: 13 }} data-testid="aviso">{aviso}</div>}
 
         {bloqueado ? (
           <div style={{ ...card, marginTop: 16, color: MUT, fontSize: 13 }} data-testid="portal-sem-acesso">
@@ -177,6 +216,52 @@ export default function PortalObraDetalhePage({ params }: { params: Promise<{ id
                       <span style={{ fontSize: 14, color: ESP, fontWeight: 700 }}>{fmtBRL(m.valor_total)}</span>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+
+            {/* Aprovações pedidas pela equipe (SLICE 2) */}
+            <div style={card} data-testid="detalhe-aprovacoes">
+              <div style={{ ...lbl, marginBottom: 10 }}>Aprovações <AjudaCampo chave="portal.obras.aprovacoes" rota={ROTA} /></div>
+              {aprovacoes.length === 0 ? (
+                <div style={{ fontSize: 13, color: MUT }}>Nenhum pedido de aprovação no momento. Quando a construtora pedir seu aceite (orçamento, medição, alteração ou serviço extra), ele aparece aqui para você aprovar ou recusar.</div>
+              ) : (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {aprovacoes.map((a) => {
+                    const cor = a.status === 'aprovado' ? VERDE : a.status === 'recusado' ? VERM : GOLD
+                    const rot = a.status === 'aprovado' ? 'Aprovado' : a.status === 'recusado' ? 'Recusado' : 'Aguardando você'
+                    return (
+                      <div key={a.id} style={{ border: `1px solid ${LINE}`, borderRadius: 12, padding: 12 }} data-testid={`portal-aprov-${a.id}`}>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: GOLD, background: 'rgba(200,148,26,0.1)', padding: '3px 8px', borderRadius: 14 }}>{aprovTipoRotulo(a.tipo)}</span>
+                          <div style={{ flex: '1 1 180px', minWidth: 0, fontWeight: 700, color: ESP, fontSize: 14 }}>{a.titulo}</div>
+                          {a.valor_referencia != null && <span style={{ fontSize: 13, fontWeight: 700, color: ESP }}>{fmtBRL(a.valor_referencia)}</span>}
+                          <span style={{ fontSize: 11, fontWeight: 700, color: cor, background: `${cor}1a`, padding: '4px 10px', borderRadius: 20 }}>{rot}</span>
+                        </div>
+                        {a.descricao && <div style={{ fontSize: 13, color: ESP, marginTop: 6, whiteSpace: 'pre-wrap' }}>{a.descricao}</div>}
+                        <div style={{ fontSize: 11, color: MUT, marginTop: 6 }}>
+                          Solicitado em {fmtData(a.criado_em)}{a.criado_por_nome ? ` por ${a.criado_por_nome}` : ''}
+                          {a.status !== 'pendente' && (
+                            <> · {rot === 'Aprovado' ? 'Aprovado' : 'Recusado'} em {fmtData(a.decidido_em)}{a.decisao_comentario ? ` — “${a.decisao_comentario}”` : ''}</>
+                          )}
+                        </div>
+                        {a.status === 'pendente' && (
+                          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                            <button onClick={() => void decidir(a, 'aprovar')} disabled={decidindo === a.id}
+                              style={{ background: VERDE, color: '#fff', border: 'none', borderRadius: 9, padding: '10px 16px', fontSize: 14, fontWeight: 700, cursor: 'pointer', minHeight: 44, opacity: decidindo === a.id ? 0.6 : 1 }}
+                              data-testid={`portal-aprovar-${a.id}`}>
+                              {decidindo === a.id ? 'Enviando…' : 'Aprovar'}
+                            </button>
+                            <button onClick={() => void decidir(a, 'recusar')} disabled={decidindo === a.id}
+                              style={{ background: 'transparent', color: VERM, border: `1px solid ${VERM}`, borderRadius: 9, padding: '10px 16px', fontSize: 14, fontWeight: 700, cursor: 'pointer', minHeight: 44, opacity: decidindo === a.id ? 0.6 : 1 }}
+                              data-testid={`portal-recusar-${a.id}`}>
+                              Recusar
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>

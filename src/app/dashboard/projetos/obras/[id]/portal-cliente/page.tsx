@@ -51,6 +51,19 @@ type Acesso = {
   ativo: boolean; criado_em: string; convidado_por_nome: string | null
   revogado_em: string | null; revogado_motivo: string | null
 }
+type Aprovacao = {
+  id: string; tipo: string; titulo: string; descricao: string | null
+  valor_referencia: number | null; status: 'pendente' | 'aprovado' | 'recusado'
+  criado_por_nome: string | null; criado_em: string
+  decidido_por_nome: string | null; decidido_em: string | null; decisao_comentario: string | null
+}
+const APROV_TIPOS: { v: string; r: string }[] = [
+  { v: 'orcamento', r: 'Orçamento' },
+  { v: 'alteracao', r: 'Alteração de escopo' },
+  { v: 'medicao', r: 'Medição' },
+  { v: 'servico_extra', r: 'Serviço extra' },
+]
+const aprovTipoRotulo = (t: string) => APROV_TIPOS.find((x) => x.v === t)?.r ?? t
 
 export default function PortalClienteObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -66,6 +79,12 @@ export default function PortalClienteObraPage({ params }: { params: Promise<{ id
   const [fotos, setFotos] = useState<FotoDia[]>([])
   const [medicoes, setMedicoes] = useState<MedicaoPrev[]>([])
   const [previaCarregando, setPreviaCarregando] = useState(true)
+  const [aprovacoes, setAprovacoes] = useState<Aprovacao[]>([])
+  const [aprovTipo, setAprovTipo] = useState('medicao')
+  const [aprovTitulo, setAprovTitulo] = useState('')
+  const [aprovDescricao, setAprovDescricao] = useState('')
+  const [aprovValor, setAprovValor] = useState('')
+  const [salvandoAprov, setSalvandoAprov] = useState(false)
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro('')
@@ -142,6 +161,54 @@ export default function PortalClienteObraPage({ params }: { params: Promise<{ id
       setErro(erroAmigavel(e, 'Não foi possível revogar o acesso.'))
     }
   }, [carregar])
+
+  // Aprovações do cliente (SLICE 2) — a equipe registra; o cliente decide no portal, com rastro.
+  const carregarAprovacoes = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.rpc('fn_obra_portal_aprovacoes_listar', { p_obra_id: id })
+      if (error) { if (recursoEmLiberacao(error)) setEmLiberacao(true); return }
+      setAprovacoes((data ?? []) as Aprovacao[])
+    } catch {
+      /* complementar: nunca derruba a tela */
+    }
+  }, [id])
+
+  useEffect(() => { void carregarAprovacoes() }, [carregarAprovacoes])
+
+  const registrarAprov = useCallback(async () => {
+    const titulo = aprovTitulo.trim()
+    if (!titulo) { setErro('Dê um título para o pedido de aprovação.'); return }
+    const valorNum = aprovValor.trim() ? Number(aprovValor.replace(/\./g, '').replace(',', '.')) : null
+    if (valorNum != null && !Number.isFinite(valorNum)) { setErro('Valor de referência inválido.'); return }
+    setSalvandoAprov(true); setErro(''); setAviso('')
+    try {
+      const { error } = await supabase.rpc('fn_obra_portal_aprovacao_registrar', {
+        p_obra_id: id, p_tipo: aprovTipo, p_titulo: titulo,
+        p_descricao: aprovDescricao.trim() || null, p_valor: valorNum,
+      })
+      if (error) throw error
+      setAprovTitulo(''); setAprovDescricao(''); setAprovValor('')
+      setAviso('Pedido de aprovação registrado. O cliente já pode responder no portal.')
+      await carregarAprovacoes()
+    } catch (e) {
+      setErro(erroAmigavel(e, 'Não foi possível registrar o pedido de aprovação.'))
+    } finally {
+      setSalvandoAprov(false)
+    }
+  }, [aprovTipo, aprovTitulo, aprovDescricao, aprovValor, id, carregarAprovacoes])
+
+  const excluirAprov = useCallback(async (a: Aprovacao) => {
+    if (typeof window !== 'undefined' && !window.confirm(`Excluir o pedido "${a.titulo}"?`)) return
+    setErro(''); setAviso('')
+    try {
+      const { error } = await supabase.rpc('fn_obra_portal_aprovacao_excluir', { p_aprovacao_id: a.id })
+      if (error) throw error
+      setAviso('Pedido excluído.')
+      await carregarAprovacoes()
+    } catch (e) {
+      setErro(erroAmigavel(e, 'Não foi possível excluir o pedido.'))
+    }
+  }, [carregarAprovacoes])
 
   const ativos = useMemo(() => acessos.filter((a) => a.ativo), [acessos])
   const revogados = useMemo(() => acessos.filter((a) => !a.ativo), [acessos])
@@ -251,6 +318,89 @@ export default function PortalClienteObraPage({ params }: { params: Promise<{ id
                   <div style={{ fontSize: 12, fontWeight: 700, color: MUT, marginTop: 8 }}>Acessos revogados (histórico)</div>
                 )}
                 {revogados.map(linhaAcesso)}
+              </div>
+            )}
+
+            {/* Aprovações do cliente (SLICE 2) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 28 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 800, color: ESP, margin: 0 }}>Aprovações do cliente</h2>
+              <AjudaCampo chave="obra.portal.aprovacoes" rota={ROTA} />
+              <span style={{ fontSize: 12, color: MUT }}>
+                ({aprovacoes.filter((a) => a.status === 'pendente').length} pendente{aprovacoes.filter((a) => a.status === 'pendente').length === 1 ? '' : 's'})
+              </span>
+            </div>
+            <p style={{ fontSize: 12, color: MUT, marginTop: 4, maxWidth: 680 }}>
+              Registre o que o cliente precisa aprovar (orçamento, alteração, medição, serviço extra). Ele responde no portal e fica o rastro de quem aprovou e quando.
+            </p>
+
+            {/* Registrar pedido */}
+            <div style={{ ...card, marginTop: 12 }}>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <label style={{ flex: '1 1 160px' }}>
+                  <div style={{ ...lbl, marginBottom: 6 }}>Tipo <AjudaCampo chave="obra.portal.aprovacao_tipo" rota={ROTA} /></div>
+                  <select value={aprovTipo} onChange={(e) => setAprovTipo(e.target.value)} style={inp} data-testid="aprov-tipo">
+                    {APROV_TIPOS.map((t) => <option key={t.v} value={t.v}>{t.r}</option>)}
+                  </select>
+                </label>
+                <label style={{ flex: '2 1 240px' }}>
+                  <div style={{ ...lbl, marginBottom: 6 }}>Título e descrição <AjudaCampo chave="obra.portal.aprovacao_titulo" rota={ROTA} /></div>
+                  <input value={aprovTitulo} onChange={(e) => setAprovTitulo(e.target.value)} placeholder="ex.: Medição nº 3" style={inp} data-testid="aprov-titulo" />
+                </label>
+                <label style={{ flex: '1 1 140px' }}>
+                  <div style={{ ...lbl, marginBottom: 6 }}>Valor (opcional) <AjudaCampo chave="obra.portal.aprovacao_titulo" rota={ROTA} /></div>
+                  <input value={aprovValor} onChange={(e) => setAprovValor(e.target.value)} inputMode="decimal" placeholder="R$" style={inp} data-testid="aprov-valor" />
+                </label>
+              </div>
+              <label style={{ display: 'block', marginTop: 10 }}>
+                <div style={{ ...lbl, marginBottom: 6 }}>Descrição (opcional) <AjudaCampo chave="obra.portal.aprovacao_titulo" rota={ROTA} /></div>
+                <textarea value={aprovDescricao} onChange={(e) => setAprovDescricao(e.target.value)} placeholder="Descrição do que o cliente vai aprovar (opcional)" rows={2} style={{ ...inp, resize: 'vertical' }} data-testid="aprov-descricao" />
+              </label>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+                <button onClick={() => void registrarAprov()} disabled={salvandoAprov || !aprovTitulo.trim()} style={{ ...btn(GOLD, ESP), opacity: salvandoAprov || !aprovTitulo.trim() ? 0.6 : 1 }} data-testid="aprov-registrar">
+                  {salvandoAprov ? 'Registrando…' : 'Registrar pedido'}
+                </button>
+              </div>
+            </div>
+
+            {/* Lista de pedidos */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 14 }}>
+              <span style={{ ...lbl, fontSize: 13 }}>Pedidos</span>
+              <AjudaCampo chave="obra.portal.aprovacao_status" rota={ROTA} />
+            </div>
+            {aprovacoes.length === 0 ? (
+              <div style={{ ...card, marginTop: 10, color: MUT, fontSize: 13 }} data-testid="aprov-vazio">
+                Nenhum pedido de aprovação ainda. Registre acima o que o cliente precisa aprovar.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 10, marginTop: 10 }}>
+                {aprovacoes.map((a) => {
+                  const cor = a.status === 'aprovado' ? VERDE : a.status === 'recusado' ? VERM : GOLD
+                  const rot = a.status === 'aprovado' ? 'Aprovado' : a.status === 'recusado' ? 'Recusado' : 'Pendente'
+                  return (
+                    <div key={a.id} style={{ ...card, padding: 14 }} data-testid={`aprov-${a.id}`}>
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: GOLD, background: 'rgba(200,148,26,0.1)', padding: '3px 8px', borderRadius: 14 }}>{aprovTipoRotulo(a.tipo)}</span>
+                        <div style={{ flex: '1 1 200px', minWidth: 0, fontWeight: 700, color: ESP, fontSize: 14 }}>{a.titulo}</div>
+                        {a.valor_referencia != null && <span style={{ fontSize: 13, fontWeight: 700, color: ESP }}>{fmtBRL(a.valor_referencia)}</span>}
+                        <span style={{ fontSize: 11, fontWeight: 700, color: cor, background: `${cor}1a`, padding: '4px 10px', borderRadius: 20 }}>{rot}</span>
+                      </div>
+                      {a.descricao && <div style={{ fontSize: 13, color: ESP, marginTop: 6, whiteSpace: 'pre-wrap' }}>{a.descricao}</div>}
+                      <div style={{ fontSize: 11, color: MUT, marginTop: 6 }}>
+                        Registrado em {fmtData(a.criado_em)}{a.criado_por_nome ? ` por ${a.criado_por_nome}` : ''}
+                        {a.status !== 'pendente' && (
+                          <> · {rot} em {fmtData(a.decidido_em)}{a.decidido_por_nome ? ` por ${a.decidido_por_nome}` : ''}{a.decisao_comentario ? ` — “${a.decisao_comentario}”` : ''}</>
+                        )}
+                      </div>
+                      {a.status === 'pendente' && (
+                        <div style={{ marginTop: 8 }}>
+                          <button onClick={() => void excluirAprov(a)} style={{ ...btn('transparent', VERM), border: `1px solid ${VERM}`, padding: '6px 12px', fontSize: 13 }} data-testid={`aprov-excluir-${a.id}`}>
+                            Excluir
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
 
