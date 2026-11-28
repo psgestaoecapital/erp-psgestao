@@ -16,7 +16,7 @@
 -- Não há colisão entre linhas vivas (verificado: 0 grupos (company_id, codigo) com >1 linha viva),
 -- então o índice parcial constrói sem erro.
 
-DROP INDEX IF EXISTS public.projetos_servicos_codigo_unico;
+ALTER TABLE public.projetos_servicos DROP CONSTRAINT IF EXISTS projetos_servicos_codigo_unico;  -- conserto-main: o objeto é uma UNIQUE CONSTRAINT (não índice avulso); DROP INDEX falha com 2BP01. Já aplicado em produção pelo guardião (RD-52) e ledgerado; este alinhamento garante rebuild do zero.
 
 CREATE UNIQUE INDEX IF NOT EXISTS projetos_servicos_codigo_unico
   ON public.projetos_servicos (company_id, codigo)
