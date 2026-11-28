@@ -132,7 +132,8 @@ export default function CombateIncendioPage() {
       if (error) throw error
       setRegistros((data || []) as Equipamento[])
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao carregar os equipamentos')
+      console.error('[ehs/combate-incendio] carregar equipamentos', e)
+      setErro('Não foi possível carregar os equipamentos agora. Tente novamente em instantes.')
     } finally {
       setLoading(false)
     }
@@ -169,7 +170,8 @@ export default function CombateIncendioPage() {
       if (error) throw error
       carregar()
     } catch (err: any) {
-      alert(err?.message || 'Falha ao desativar')
+      console.error('[ehs/combate-incendio] desativar equipamento', err)
+      alert('Não foi possível desativar o equipamento. Tente novamente.')
     }
   }
 
@@ -363,7 +365,8 @@ function EquipamentoFormModal({ companyId, equipamento, onClose, onSaved }: { co
       }
       onSaved()
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao salvar o equipamento')
+      console.error('[ehs/combate-incendio] salvar equipamento', e)
+      setErro('Não foi possível salvar o equipamento. Confira os dados e tente novamente.')
       setSalvando(false)
     }
   }
