@@ -72,7 +72,7 @@ export default function ImportarSigaPage() {
     if (!empresa || !sel) return;
     setOcupado(true); setErro(null);
     const payload = sel.entra.map((l) => ({ numero: l.numero, rodada: l.rodada, titulo: l.titulo, cliente: l.cliente, responsavel: l.responsavel,
-      situacao: l.situacao, prazo: l.prazo, criacao: l.criacao, peca: l.peca, briefing: l.briefing }));
+      situacao: l.situacao, prazo: l.prazo, criacao: l.criacao, peca: l.peca, briefing: l.briefing, fornecedor: l.fornecedor, terceiros: l.terceiros }));
     const { data, error } = await supabase.rpc("fn_pm_importar_jobs_siga", { p_company_id: empresa, p_linhas: payload, p_gravar: gravar });
     setOcupado(false);
     const r = data as Conferencia | null;

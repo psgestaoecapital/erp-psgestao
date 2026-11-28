@@ -15,6 +15,23 @@ ok(situacaoSiga('Em Aprovação') === 'em_aprovacao' && situacaoSiga('Finalizado
 ok(dataSiga('05/10/2026') === '2026-10-05' && dataSiga('2026-10-05') === '2026-10-05' && dataSiga(46300) !== null && dataSiga('05/10/26') === '2026-10-05' && dataSiga('abc') === null, 'datas dd/mm/aaaa, ISO, Excel e dd/mm/aa')
 ok(JSON.stringify(numeroSiga('113223B')) === JSON.stringify({ numero: '113223', rodada: 2 }) && numeroSiga('113223')?.rodada === 0 && numeroSiga('JOB-1') === null, 'número com a letra da rodada')
 
+// PM-Q · regra 00.3 · fatia a: fornecedor e terceiros vêm em colunas próprias do sistema anterior e migram para o job.
+{
+  const cabFT = ['Nº Job', 'Título', 'Cliente', 'Responsável', 'Status', 'Prazo', 'Criação', 'Peça', 'Briefing', 'Fornecedor', 'Terceiros']
+  const mapaFT = adivinharMapa(cabFT)
+  ok(mapaFT.fornecedor === 9 && mapaFT.terceiros === 10 && mapaFT.cliente === 2, 'reconhece as colunas Fornecedor e Terceiros sem roubar as demais')
+  const rFT = selecionar([
+    ['9001', 'Campanha', 'Café Serra Azul', 'Ana', 'Em produção', '', '2026-09-30', 'Post', '', 'Gráfica Boa Vista', 'Freela João'],
+  ], mapaFT, '2026-10-02')
+  ok(rFT.entra.length === 1 && rFT.entra[0].fornecedor === 'Gráfica Boa Vista' && rFT.entra[0].terceiros === 'Freela João',
+    'selecionar carrega fornecedor e terceiros para o job importado')
+  const migFT = readFileSync('supabase/migrations/20261129200045_pm_importar_siga_fornecedor_terceiros.sql', 'utf8')
+  ok(/ADD COLUMN IF NOT EXISTS fornecedor text/.test(migFT) && /ADD COLUMN IF NOT EXISTS terceiros text/.test(migFT), 'migration adiciona as colunas fornecedor e terceiros (idempotente)')
+  ok(/l->>'fornecedor'/.test(migFT) && /l->>'terceiros'/.test(migFT) && /fornecedor, terceiros/.test(migFT), 'função grava fornecedor e terceiros no agency_jobs')
+  ok(/REVOKE ALL ON FUNCTION public\.fn_pm_importar_jobs_siga\(uuid, jsonb, boolean\) FROM PUBLIC, anon;/.test(migFT), 'função continua fechada a anônimo')
+  ok(readFileSync('src/app/dashboard/pm/importar-sistema-anterior/page.tsx', 'utf8').includes('fornecedor: l.fornecedor, terceiros: l.terceiros'), 'a tela envia fornecedor e terceiros no payload')
+}
+
 // PM-Q regra 00.3 · "título sem data": tira a data embutida das pontas/parênteses, preserva miolo e não-datas; idempotente.
 ok(tituloSemData('( 01/12) Post feed') === 'Post feed'
   && tituloSemData('05/10/2026 - Campanha dia das mães') === 'Campanha dia das mães'
