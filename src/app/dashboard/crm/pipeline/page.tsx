@@ -71,7 +71,7 @@ export default function PipelinePage() {
   return (
     <Pagina>
       <Cabecalho titulo="Funil de vendas" subtitulo="Arraste o negócio para a próxima etapa. No celular, use “Mover para”."
-        acoes={!soLeitura && cfg ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><button style={btnPri} onClick={() => setNovo(true)} data-testid="crm-novo-negocio">+ Novo negócio</button><AjudaCampo chave="crm.hoje.novo_negocio" /></span> : undefined} />
+        acoes={!soLeitura && cfg && funis.length > 0 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><button style={btnPri} onClick={() => setNovo(true)} data-testid="crm-novo-negocio">+ Novo negócio</button><AjudaCampo chave="crm.hoje.novo_negocio" /></span> : undefined} />
       <Aviso texto={erroCfg || erro} onFechar={() => setErro(null)} />
       <Aviso texto={ok} tipo="ok" onFechar={() => setOk(null)} />
 
@@ -100,7 +100,9 @@ export default function PipelinePage() {
         )}
       </div>
 
-      {carregando || !quadro ? <div style={{ padding: 40, textAlign: 'center', color: C.TEXTM }}>Carregando…</div>
+      {carregando ? <div style={{ padding: 40, textAlign: 'center', color: C.TEXTM }}>Carregando…</div>
+        : funis.length === 0 ? <Vazio texto="Você ainda não tem um funil de vendas. Crie o seu para definir as colunas do quadro (ex.: Visita feita · Orçando · Proposta enviada · Aprovado · Reprovado) — você escolhe os nomes e a ordem das etapas." acao={<Link href="/dashboard/crm/funis" style={{ ...btnPri, textDecoration: 'none', display: 'inline-block' }}>Criar meu funil</Link>} />
+        : !quadro ? <div style={{ padding: 40, textAlign: 'center', color: C.TEXTM }}>Carregando…</div>
         : etapas.length === 0 ? <Vazio texto="Este funil ainda não tem etapas." acao={<Link href="/dashboard/crm/funis" style={{ ...btnPri, textDecoration: 'none', display: 'inline-block' }}>Cadastrar etapas</Link>} />
         : (
           <>
