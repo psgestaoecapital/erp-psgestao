@@ -36,6 +36,9 @@ type DiarioObra = { id: string; data: string; efetivo: number | null; atividades
 // Etapas (tarefas do cronograma) atrasadas desta obra (§329 prontuário): fim no passado e ainda não concluídas (percentual < 100).
 // Leitura direta de projetos_obra_tarefa (RLS por empresa); não trava a tela.
 type EtapaAtrasada = { id: string; nome: string; fim: string | null; percentual: number | null }
+// Medições da obra ainda em rascunho (§329 prontuário): aguardam aprovação — ao aprovar geram o recebível na GE.
+// Leitura direta de projetos_obra_medicao (RLS por empresa).
+type MedicaoPendente = { id: string; numero: number; competencia: string | null; valor_total: number | null }
 type Linha = { k: string; ajuda: string; l: string; v: number }
 type Card = { k: string; ajuda: string; l: string; v: string; sub: string; cor?: string; bar?: number | null; linhas?: Linha[] }
 
@@ -83,11 +86,13 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   const [diarios, setDiarios] = useState<DiarioObra[] | null>(null)
   // Etapas atrasadas do cronograma desta obra (§329): as 5 mais atrasadas. Falha aqui não trava a tela.
   const [etapasAtrasadas, setEtapasAtrasadas] = useState<EtapaAtrasada[] | null>(null)
+  // Medições em rascunho (aprovações pendentes) desta obra (§329): aguardam aprovação. Falha aqui não trava a tela.
+  const [medicoesPendentes, setMedicoesPendentes] = useState<MedicaoPendente[] | null>(null)
 
   const consulta = useCallback(async () => await supabase.from('v_obra_resultado_alocado').select('*').eq('obra_id', id).maybeSingle(), [id])
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); setCodigoErro('OBRA-LINK'); return }
-    setLoading(true); setErro(null); setCodigoErro(null); setOrc(null); setAcoes(null); setDiarios(null); setEtapasAtrasadas(null)
+    setLoading(true); setErro(null); setCodigoErro(null); setOrc(null); setAcoes(null); setDiarios(null); setEtapasAtrasadas(null); setMedicoesPendentes(null)
     let res: Awaited<ReturnType<typeof consulta>>
     try { res = await comPrazo(consulta, { ms: 8000, tentativas: 1, label: 'cockpit-obra' }) } catch { setLoading(false); setErro(MSG_CARREGAMENTO_FALHOU); setCodigoErro('OBRA-REDE'); return }
     const { data, error } = res
@@ -150,6 +155,15 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
         .order('fim', { ascending: true }).limit(5)
       setEtapasAtrasadas(Array.isArray(ea) ? (ea as EtapaAtrasada[]) : [])
     } catch { /* bloco de etapas atrasadas é opcional no cockpit */ }
+    // Aprovações pendentes: medições da obra ainda em rascunho (aguardando aprovação). As 5 mais recentes.
+    // Leitura direta de projetos_obra_medicao (RLS por empresa). Não trava a tela — o bloco cai no estado vazio.
+    try {
+      const { data: mp } = await supabase.from('projetos_obra_medicao')
+        .select('id,numero,competencia,valor_total')
+        .eq('obra_id', id).eq('status', 'rascunho').is('excluido_em', null)
+        .order('competencia', { ascending: false }).order('numero', { ascending: false }).limit(5)
+      setMedicoesPendentes(Array.isArray(mp) ? (mp as MedicaoPendente[]) : [])
+    } catch { /* bloco de aprovações pendentes é opcional no cockpit */ }
   }, [consulta, id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
@@ -450,6 +464,31 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
                             </li>
                           )
                         })}
+                      </ul>}
+              </div>
+
+              {/* Aprovações pendentes (§329 prontuário): medições da obra ainda em rascunho — ao aprovar geram o recebível na GE. */}
+              <div data-testid="cockpit-aprovacoes-pendentes" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>Aprovações pendentes <AjudaCampo chave="projetos.cockpit.aprovacoes_pendentes" rota={ROTA} /></div>
+                  <Link href={`/dashboard/projetos/obras/${id}/medicoes?area=hub`} data-testid="link-aprovacoes-medicoes" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>Medições →</Link>
+                </div>
+                {medicoesPendentes === null
+                  ? <div style={{ fontSize: 12, color: MUT }}>Carregando medições…</div>
+                  : medicoesPendentes.length === 0
+                    ? <div style={{ fontSize: 12, color: VERDE }}>Nenhuma medição aguardando aprovação.</div>
+                    : <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {medicoesPendentes.map((m: MedicaoPendente) => (
+                          <li key={m.id} data-testid="cockpit-aprovacao-item" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, borderTop: `0.5px solid ${LINE}`, paddingTop: 8 }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 12.5, color: ESP, fontWeight: 600 }}>Medição nº {m.numero}</div>
+                              <div style={{ fontSize: 11, color: MUT, marginTop: 2 }}>
+                                {m.competencia ? `Competência ${new Date(m.competencia + 'T12:00:00').toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' })}` : 'Sem competência'} · Rascunho
+                              </div>
+                            </div>
+                            <span style={{ flexShrink: 0, fontSize: 12.5, fontWeight: 700, color: ESP, fontVariantNumeric: 'tabular-nums' }}>{brl(Number(m.valor_total ?? 0))}</span>
+                          </li>
+                        ))}
                       </ul>}
               </div>
 
