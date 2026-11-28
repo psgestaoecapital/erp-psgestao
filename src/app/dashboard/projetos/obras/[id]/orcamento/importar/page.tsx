@@ -112,6 +112,8 @@ type Linha = {
 }
 type LinhaValidada = Linha & { idx: number; status: 'ok' | 'erro'; motivos: string[] }
 type Passo = 'upload' | 'preview' | 'resultado'
+// §334 gap 1 — candidato da Biblioteca padrão PS (projetos_ref_servico_padrao) para um item importado.
+type Cand = { codigo: string; nome: string; unidade: string; confianca: number; unidade_confere: boolean }
 
 // Acha, nas primeiras linhas, qual é o cabeçalho e o índice de cada coluna que conhecemos.
 function mapearColunas(matriz: string[][]): { headerRow: number; col: Record<string, number> } | null {
@@ -182,6 +184,15 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
   // §334 conferência do total: soma importada (Σ qtd × (material + mão de obra)) × total declarado na planilha.
   const [totalImportado, setTotalImportado] = useState(0)
   const [totalPlanilha, setTotalPlanilha] = useState<number | null>(null)
+  // §334 gap 1 — Biblioteca padrão PS. `sugestoes` = candidatos por idx (1-based, mesmo idx da validação).
+  // `escolha` = decisão explícita do usuário por idx (codigo da biblioteca, '' = serviço próprio); idx AUSENTE
+  // segue a regra automática (vincula a melhor sugestão quando a confiança ≥ limiar). `autoNivel` escolhe o limiar.
+  // `sugeriuOk` diz se a sugestão rodou — se não (arquivo enorme/erro), a gravação não envia decisão (comportamento
+  // legado: origem 'importado'). Sem auto-vínculo silencioso de baixa confiança: só a partir do limiar escolhido.
+  const [sugestoes, setSugestoes] = useState<Record<number, Cand[]>>({})
+  const [escolha, setEscolha] = useState<Record<number, string>>({})
+  const [autoNivel, setAutoNivel] = useState<'alta' | 'media'>('alta')
+  const [sugeriuOk, setSugeriuOk] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
@@ -299,16 +310,41 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       if (error) { setAviso(''); setErro(erroAmigavel(error, 'Não foi possível validar a planilha.')); return }
       const r = data as { validos: number; com_erro: number; linhas: LinhaValidada[] }
       setValidadas(r.linhas ?? []); setResumo({ validos: r.validos ?? 0, com_erro: r.com_erro ?? 0 })
+      // §334 gap 1: sugere, por linha, o serviço da Biblioteca padrão PS que casa por descrição + unidade.
+      // Read-only; se falhar (arquivo grande/timeout), a prévia segue sem sugestão e a gravação cai no legado.
+      setSugestoes({}); setEscolha({}); setAutoNivel('alta'); setSugeriuOk(false)
+      try {
+        const { data: ds, error: es } = await comPrazo(async () => await supabase.rpc('fn_projetos_orcamento_eap_sugerir_padrao', { p_orcamento_id: orcamentoId, p_linhas: lin }), { ms: 15000, tentativas: 1, label: 'eap-sugerir' })
+        if (!es && ds) {
+          const sug = (ds as { sugestoes?: { idx: number; candidatos: Cand[] }[] }).sugestoes ?? []
+          const mapa: Record<number, Cand[]> = {}
+          for (const s of sug) if (Array.isArray(s.candidatos) && s.candidatos.length) mapa[s.idx] = s.candidatos
+          setSugestoes(mapa); setSugeriuOk(true)
+        }
+      } catch { /* sugestão é opcional; a importação funciona sem ela */ }
       setPasso('preview'); setAviso('')
     } catch {
       setAviso(''); setErro('Não consegui ler a planilha. Use um arquivo .xlsx válido.')
     } finally { setBusy(false) }
   }
 
+  // §334 gap 1 — limiar de confiança para auto-vincular a melhor sugestão (Alta = 60%, Média = 40%).
+  const THR = autoNivel === 'alta' ? 0.6 : 0.4
+  const melhorDe = (idx: number): Cand | null => sugestoes[idx]?.[0] ?? null
+  // ref efetivo da linha: decisão explícita do usuário, senão a regra automática (melhor sugestão ≥ limiar).
+  const refEfetivo = (idx: number): string => {
+    const sel = escolha[idx]
+    if (sel !== undefined) return sel
+    const m = melhorDe(idx)
+    return m && m.confianca >= THR ? m.codigo : ''
+  }
+
   const confirmar = async () => {
     if (!orcamentoId || !linhas.length) return
     setBusy(true); setErro(null)
-    const { data, error } = await comPrazo(async () => await supabase.rpc('fn_projetos_orcamento_eap_importar', { p_orcamento_id: orcamentoId, p_linhas: linhas, p_arquivo_hash: hash, p_arquivo_nome: arquivoNome }), { ms: 30000, tentativas: 1, label: 'eap-importar' })
+    // §334 gap 1: só anexa a decisão da biblioteca quando a sugestão rodou (senão, gravação legada = origem 'importado').
+    const payload = sugeriuOk ? linhas.map((l, i) => ({ ...l, ref_padrao_codigo: refEfetivo(i + 1) })) : linhas
+    const { data, error } = await comPrazo(async () => await supabase.rpc('fn_projetos_orcamento_eap_importar', { p_orcamento_id: orcamentoId, p_linhas: payload, p_arquivo_hash: hash, p_arquivo_nome: arquivoNome }), { ms: 30000, tentativas: 1, label: 'eap-importar' })
     setBusy(false)
     if (error) { setErro(erroAmigavel(error, 'Não foi possível importar. Tente de novo.')); return }
     const r = data as { importados: number; ignorados: number; erros: number; ja_importado?: boolean }
@@ -316,7 +352,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
     setPasso('resultado')
   }
 
-  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false); setCodigosRepetidos([]); setLinhasIgnoradas(0); setUnidadesNormalizadas(0); setAgrupadoresEstrutura(0); setValorUnicoAviso(false); setAbaImportada(null); setTotalImportado(0); setTotalPlanilha(null) }
+  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false); setCodigosRepetidos([]); setLinhasIgnoradas(0); setUnidadesNormalizadas(0); setAgrupadoresEstrutura(0); setValorUnicoAviso(false); setAbaImportada(null); setTotalImportado(0); setTotalPlanilha(null); setSugestoes({}); setEscolha({}); setAutoNivel('alta'); setSugeriuOk(false) }
 
   // diferença entre a soma importada e o total declarado na planilha; "confere" quando ≤ 1 centavo.
   const difTotal = totalPlanilha === null ? null : Math.round((totalImportado - totalPlanilha) * 100) / 100
@@ -338,6 +374,22 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
     }
     return [...m.entries()].map(([motivo, v]) => ({ motivo, ...v })).sort((a, b) => b.vezes - a.vezes)
   })()
+
+  // §334 gap 1 — quantos itens válidos vão vinculados à Biblioteca padrão PS × quantos como serviço próprio,
+  // e quantos têm ao menos uma sugestão (para orientar o usuário). Só leitura; derivado de `validadas`/`escolha`.
+  const vinc = (() => {
+    let ligados = 0, proprios = 0, comSugestao = 0
+    for (const l of validadas) {
+      if (l.status !== 'ok') continue
+      if (sugestoes[l.idx]?.length) comSugestao++
+      if (refEfetivo(l.idx)) ligados++; else proprios++
+    }
+    return { ligados, proprios, comSugestao }
+  })()
+  const temSugestoes = Object.keys(sugestoes).length > 0
+  // rótulo e cor do grau de confiança (0..1) para o selo da sugestão.
+  const grauConfianca = (c: number): { rotulo: string; cor: string } =>
+    c >= 0.6 ? { rotulo: 'Alta', cor: VERDE } : c >= 0.4 ? { rotulo: 'Média', cor: GOLD } : { rotulo: 'Baixa', cor: MUT }
 
   return (
     <div style={{ minHeight: '100vh', background: BG, padding: '20px 16px 48px' }}>
@@ -464,6 +516,44 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
                 </span>
               )}
             </div>
+            <div data-testid="eap-importar-biblioteca" style={{ ...CARD, display: 'grid', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <strong style={{ color: ESP, fontSize: 14 }}>Biblioteca padrão PS de serviços</strong>
+                <AjudaCampo chave="projetos.orcamento_eap.importar_biblioteca" />
+              </div>
+              {!sugeriuOk ? (
+                <span style={{ fontSize: 13, color: MUT, lineHeight: 1.5 }}>
+                  Não foi possível casar os itens com a biblioteca padrão agora — eles entram como <strong style={{ color: ESP }}>serviço próprio da empresa</strong>. Você poderá vinculá-los depois, no orçamento.
+                </span>
+              ) : !temSugestoes ? (
+                <span style={{ fontSize: 13, color: MUT, lineHeight: 1.5 }}>
+                  Nenhum item casou com a biblioteca padrão PS. Todos entram como <strong style={{ color: ESP }}>serviço próprio da empresa</strong> — o que é esperado quando as descrições são bem específicas da obra.
+                </span>
+              ) : (
+                <>
+                  <span style={{ fontSize: 13, color: ESP, lineHeight: 1.5 }}>
+                    Casamos cada item com um serviço da biblioteca padrão por descrição e unidade, com um grau de confiança. Confira na tabela abaixo (coluna <strong>Biblioteca padrão PS</strong>): aceite a sugestão, escolha outro serviço ou deixe como serviço próprio da empresa.
+                  </span>
+                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span data-testid="eap-importar-biblioteca-ligados" style={{ fontSize: 13, color: VERDE, fontWeight: 700 }}>{vinc.ligados} vinculado(s) à biblioteca</span>
+                    <span data-testid="eap-importar-biblioteca-proprios" style={{ fontSize: 13, color: MUT, fontWeight: 700 }}>{vinc.proprios} como serviço próprio</span>
+                    <span style={{ fontSize: 12.5, color: MUT }}>{vinc.comSugestao} item(ns) com sugestão</span>
+                    <label style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: MUT }}>
+                      Vincular automaticamente quando a confiança for <AjudaCampo chave="projetos.orcamento_eap.importar_biblioteca" />
+                      <select
+                        data-testid="eap-importar-biblioteca-nivel"
+                        value={autoNivel}
+                        onChange={(e) => setAutoNivel(e.target.value as 'alta' | 'media')}
+                        style={{ fontSize: 12.5, padding: '5px 8px', border: `1px solid ${LINE}`, borderRadius: 8, color: ESP, background: '#fff' }}
+                      >
+                        <option value="alta">Alta (60%+)</option>
+                        <option value="media">Média ou mais (40%+)</option>
+                      </select>
+                    </label>
+                  </div>
+                </>
+              )}
+            </div>
             {codigosNumericos.size > 0 && (
               <div data-testid="eap-importar-aviso-numerico" role="alert" style={{ ...CARD, borderColor: GOLD, background: 'rgba(200,148,26,0.06)', display: 'grid', gap: 10 }}>
                 <strong style={{ color: ESP, fontSize: 14 }}>Confira os códigos que vieram como número</strong>
@@ -495,6 +585,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
                     <th style={{ padding: '8px 10px', textAlign: 'right' }}>Qtd</th>
                     <th style={{ padding: '8px 10px', textAlign: 'right' }}>Material</th>
                     <th style={{ padding: '8px 10px', textAlign: 'right' }}>Mão de obra</th>
+                    {temSugestoes && <th style={{ padding: '8px 10px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Biblioteca padrão PS <AjudaCampo chave="projetos.orcamento_eap.importar_biblioteca" /></span></th>}
                     <th style={{ padding: '8px 10px' }}>Situação</th>
                   </tr>
                 </thead>
@@ -511,6 +602,29 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
                       <td style={{ padding: '7px 10px', textAlign: 'right' }}>{l.quantidade || '—'}</td>
                       <td style={{ padding: '7px 10px', textAlign: 'right' }}>{l.custo_material_unit ? brl(Number(l.custo_material_unit)) : '—'}</td>
                       <td style={{ padding: '7px 10px', textAlign: 'right' }}>{l.custo_mao_obra_unit ? brl(Number(l.custo_mao_obra_unit)) : '—'}</td>
+                      {temSugestoes && (
+                        <td style={{ padding: '7px 10px', minWidth: 220 }}>
+                          {l.status === 'erro' || (sugestoes[l.idx]?.length ?? 0) === 0 ? (
+                            <span style={{ fontSize: 12, color: MUT }}>Serviço próprio</span>
+                          ) : (
+                            <div style={{ display: 'grid', gap: 3 }}>
+                              <select
+                                data-testid={`eap-importar-biblioteca-sel-${l.idx}`}
+                                value={refEfetivo(l.idx)}
+                                onChange={(e) => setEscolha((s) => ({ ...s, [l.idx]: e.target.value }))}
+                                style={{ fontSize: 12, padding: '5px 6px', border: `1px solid ${LINE}`, borderRadius: 7, color: ESP, background: '#fff', maxWidth: 300 }}
+                              >
+                                <option value="">Serviço próprio da empresa</option>
+                                {(sugestoes[l.idx] ?? []).map((c) => (
+                                  <option key={c.codigo} value={c.codigo}>{c.nome} · {c.unidade || '—'} · {Math.round(c.confianca * 100)}%</option>
+                                ))}
+                              </select>
+                              {(() => { const m = melhorDe(l.idx); if (!m) return null; const g = grauConfianca(m.confianca)
+                                return <span style={{ fontSize: 10.5, color: g.cor, fontWeight: 700 }}>sugestão: {g.rotulo} ({Math.round(m.confianca * 100)}%{m.unidade_confere ? ' · unidade confere' : ''})</span> })()}
+                            </div>
+                          )}
+                        </td>
+                      )}
                       <td style={{ padding: '7px 10px', color: l.status === 'erro' ? VERM : VERDE }}>{l.status === 'erro' ? (l.motivos || []).join('; ') : 'OK'}</td>
                     </tr>
                   ))}
