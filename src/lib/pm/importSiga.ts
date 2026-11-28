@@ -5,7 +5,7 @@
 // Regra do CEO (05/10, blueprint): entram os jobs dos últimos 180 dias + os em aberto; os "em aprovação" antigos
 // (parados há mais de 180 dias) ficam de fora. Nada é gravado sem a prévia — e o banco confere de novo (cliente, responsável, número repetido).
 
-export type CampoSiga = 'numero' | 'titulo' | 'cliente' | 'responsavel' | 'situacao' | 'prazo' | 'criacao' | 'peca' | 'briefing'
+export type CampoSiga = 'numero' | 'titulo' | 'cliente' | 'responsavel' | 'situacao' | 'prazo' | 'criacao' | 'peca' | 'briefing' | 'fornecedor' | 'terceiros'
 export const CAMPOS: { id: CampoSiga; rotulo: string; obrigatorio?: boolean }[] = [
   { id: 'numero', rotulo: 'Número do job', obrigatorio: true },
   { id: 'titulo', rotulo: 'Título', obrigatorio: true },
@@ -16,6 +16,10 @@ export const CAMPOS: { id: CampoSiga; rotulo: string; obrigatorio?: boolean }[] 
   { id: 'criacao', rotulo: 'Data de criação' },
   { id: 'peca', rotulo: 'Peça / tipo' },
   { id: 'briefing', rotulo: 'Briefing / descrição' },
+  // PM-Q (PDCA 27/11): o sistema anterior guarda, por job, o fornecedor (gráfica/produtora) e os terceiros
+  // (freelancers/parceiros). Migram para não se perder na implantação; ficam gravados no job (texto livre).
+  { id: 'fornecedor', rotulo: 'Fornecedor' },
+  { id: 'terceiros', rotulo: 'Terceiros' },
 ]
 
 const SINONIMOS: Record<CampoSiga, string[]> = {
@@ -28,6 +32,8 @@ const SINONIMOS: Record<CampoSiga, string[]> = {
   criacao: ['data', 'data de criacao', 'criado em', 'abertura', 'data de abertura', 'data cadastro', 'cadastro'],
   peca: ['peca', 'tipo', 'tipo de peca', 'servico', 'tipo de servico', 'formato'],
   briefing: ['briefing', 'descricao', 'observacao', 'observacoes', 'detalhes'],
+  fornecedor: ['fornecedor', 'fornecedores', 'grafica', 'graficas', 'produtora', 'produtoras'],
+  terceiros: ['terceiros', 'terceiro', 'terceirizados', 'freelancer', 'freelancers', 'freela', 'freelas', 'colaborador externo', 'colaboradores externos'],
 }
 export const normalizar = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 
@@ -99,6 +105,7 @@ export function numeroSiga(v: unknown): { numero: string; rodada: number } | nul
 export type LinhaSiga = {
   linha: number; numero: string; rodada: number; titulo: string; cliente: string | null; responsavel: string | null
   situacao: Situacao; situacao_original: string | null; prazo: string | null; criacao: string | null; peca: string | null; briefing: string | null
+  fornecedor: string | null; terceiros: string | null
 }
 export type Motivo = 'sem_numero' | 'sem_titulo' | 'fora_da_janela' | 'em_aprovacao_antigo' | 'cancelado' | 'repetido_na_planilha'
 export type Resultado = { entra: LinhaSiga[]; fora: { linha: number; numero: string | null; motivo: Motivo }[] }
@@ -129,7 +136,8 @@ export function selecionar(linhas: unknown[][], mapa: Partial<Record<CampoSiga, 
     vistos.add(num.numero)
     const tituloLimpo = (tituloSemData(titulo) || titulo.replace(/\s+/g, ' ').trim()).slice(0, 300)
     entra.push({ linha, numero: num.numero, rodada: num.rodada, titulo: tituloLimpo, cliente: txt(col(r, 'cliente')),
-      responsavel: txt(col(r, 'responsavel')), situacao, situacao_original, prazo, criacao, peca: txt(col(r, 'peca')), briefing: txt(col(r, 'briefing')) })
+      responsavel: txt(col(r, 'responsavel')), situacao, situacao_original, prazo, criacao, peca: txt(col(r, 'peca')), briefing: txt(col(r, 'briefing')),
+      fornecedor: txt(col(r, 'fornecedor')), terceiros: txt(col(r, 'terceiros')) })
   })
   return { entra, fora }
 }
