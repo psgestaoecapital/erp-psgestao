@@ -2,8 +2,10 @@
 // PS EHS · EHS-7 / M11 — Trabalhos de risco: Gestão de mudanças (MOC) · análise antes da mudança
 // Antes de mudar equipamento, processo, layout, material, procedimento ou pessoas-chave, a mudança é
 // registrada, tem o risco avaliado e ganha ações de controle a cumprir ANTES de implementar.
-// Backend: ehs_mudanca + ehs_mudanca_acao (RLS por empresa via get_user_company_ids). Soft delete
-// (ativo=false, RD-98). Padrão visual PS EHS (RD-96), "?" em todo campo (RD-95), sem nome de terceiros (RD-100).
+// Backend: ehs_mudanca + ehs_mudanca_acao (RLS por empresa via get_user_company_ids). Exclusão rastreável
+// (RD-98 p4): desativar a mudança e reescrever as ações passam por RPC (fn_ehs_mudanca_desativar /
+// fn_ehs_mudanca_acoes_salvar) com quem/quando + audit_log_global — sem DELETE físico.
+// Padrão visual PS EHS (RD-96), "?" em todo campo (RD-95), sem nome de terceiros (RD-100).
 
 'use client'
 
@@ -128,7 +130,8 @@ export default function GestaoMudancasPage() {
       if (error) throw error
       setLista((data || []) as Mudanca[])
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao carregar as mudanças')
+      console.error('carregar mudanças', e)
+      setErro('Não foi possível carregar as mudanças. Tente novamente em instantes.')
     } finally {
       setLoading(false)
     }
@@ -150,14 +153,15 @@ export default function GestaoMudancasPage() {
     if (motivo === null) return
     if (!motivo.trim()) { alert('Informe o motivo para desativar.'); return }
     try {
-      const { error } = await supabase
-        .from('ehs_mudanca')
-        .update({ ativo: false, observacoes: ((m.observacoes ? m.observacoes + ' ' : '') + `[desativada: ${motivo.trim()}]`).slice(0, 2000), atualizado_em: new Date().toISOString() })
-        .eq('id', m.id)
+      // RD-98 p4: a mudança (MOC) é documento de segurança — a desativação grava quem/quando/motivo e um
+      // registro em audit_log_global via RPC (soft-delete rastreável), nunca um UPDATE solto pelo cliente.
+      const { data, error } = await supabase.rpc('fn_ehs_mudanca_desativar', { p_id: m.id, p_motivo: motivo.trim() })
       if (error) throw error
+      if (data && data.ok === false) { alert(data.erro || 'Não foi possível desativar a mudança.'); return }
       carregar()
     } catch (e: any) {
-      alert(e?.message || 'Falha ao desativar')
+      console.error('fn_ehs_mudanca_desativar', e)
+      alert('Não foi possível desativar a mudança. Tente novamente.')
     }
   }
 
@@ -344,22 +348,24 @@ function MudancaFormModal({ companyId, mudanca, onClose, onSaved }: { companyId:
         const { error } = await supabase.from('ehs_mudanca')
           .update({ ...campos, atualizado_em: new Date().toISOString() }).eq('id', mudId)
         if (error) throw error
-        const { error: delErr } = await supabase.from('ehs_mudanca_acao').delete().eq('mudanca_id', mudId)
-        if (delErr) throw delErr
       } else {
         const { data, error } = await supabase.from('ehs_mudanca')
           .insert({ company_id: companyId, ...campos }).select('id').single()
         if (error) throw error
         mudId = data!.id
       }
-      if (linhas.length > 0) {
-        const payload = linhas.map((a, i) => ({ company_id: companyId, mudanca_id: mudId, ordem: i + 1, descricao: a.descricao, responsavel: a.responsavel.trim() || null, prazo: a.prazo || null, concluido: a.concluido }))
-        const { error: insErr } = await supabase.from('ehs_mudanca_acao').insert(payload)
-        if (insErr) throw insErr
-      }
+      // RD-98 p4: a coleção de ações de controle é reescrita por RPC (soft-delete das antigas + insert das
+      // novas, com rastro em audit_log_global) — nunca por DELETE físico de ehs_mudanca_acao.
+      const { data: acData, error: acErr } = await supabase.rpc('fn_ehs_mudanca_acoes_salvar', {
+        p_mudanca_id: mudId,
+        p_acoes: linhas.map((a) => ({ descricao: a.descricao, responsavel: a.responsavel.trim() || null, prazo: a.prazo || null, concluido: a.concluido })),
+      })
+      if (acErr) throw acErr
+      if (acData && acData.ok === false) { setErro(acData.erro || 'Não foi possível salvar as ações de controle.'); setSalvando(false); return }
       onSaved()
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao salvar a mudança')
+      console.error('salvar mudança', e)
+      setErro('Não foi possível salvar a mudança. Confira os dados e tente novamente.')
       setSalvando(false)
     }
   }
