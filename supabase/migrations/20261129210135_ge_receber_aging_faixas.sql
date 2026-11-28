@@ -78,7 +78,7 @@ VALUES (
   11,
   1,
   'publicado',
-  'code-desenvolvedor-3'
+  NULL  -- atualizado_por é uuid; o seed não tem usuário logado (como as demais linhas de erp_ajuda_campo)
 )
 ON CONFLICT (chave) DO UPDATE SET
   rota = EXCLUDED.rota,
