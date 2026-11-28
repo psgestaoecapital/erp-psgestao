@@ -25,6 +25,7 @@ ALTER TABLE public.nr36_funcionario_elegivel ADD CONSTRAINT nr36_funcionario_ele
   CHECK (origem = ANY (ARRAY['manual'::text, 'funcao'::text, 'esocial'::text, 'demo_seed'::text]));
 
 -- (2) seed corrigido: idêntico ao vivo, só sem a coluna gerada em_aberto no INSERT do passo (6).
+-- ci-sem-guarda: fn_demo_seed_industria_nr36 — seed SÓ-DEMO: company fixa em …005, barrada por IS DISTINCT FROM + is_demo; não recebe empresa do cliente
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_industria_nr36(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -140,6 +141,11 @@ BEGIN
     'upload',    v_up_id,
     'apuracao',  v_apur);
 END $function$;
+
+-- ACL (RD-52 · gate check_fn_guards regra 1): SECURITY DEFINER recriada — revoga anon/PUBLIC e casa a ACL viva
+-- (authenticated + service_role; anon NÃO tem). Seed interno chamado pelo fn_demo_reset/deploy como serviço.
+REVOKE ALL ON FUNCTION public.fn_demo_seed_industria_nr36(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_seed_industria_nr36(uuid) TO authenticated, service_role;
 
 -- (3) re-semeia a DEMO 005 agora que o domínio de origem e a coluna gerada estão alinhados (guardado + idempotente).
 --     BEST-EFFORT: a correção DURÁVEL (constraint + função) é o que importa; se o seed encontrar um resíduo
