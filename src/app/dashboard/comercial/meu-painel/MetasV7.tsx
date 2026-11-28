@@ -18,6 +18,9 @@ const pct = (v: number | null) => v == null ? '—' : `${nf({ maximumFractionDig
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const mesAtual = () => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, '0')}` }
 const mesAnterior = (mes: string) => { const [y, m] = mes.split('-').map(Number); const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
+// "2026-11" → "nov/2026" (mês por extenso abreviado em pt-BR). Só para EXIBIR; o <input type="month"> continua em YYYY-MM.
+const MESES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+const mesExtenso = (mes: string) => { const [y, m] = mes.split('-').map(Number); return `${MESES_ABREV[(m - 1) % 12] ?? m}/${y}` }
 const intervaloMes = (mes: string) => {
   const [y, m] = mes.split('-').map(Number)
   const ini = new Date(y, m - 1, 1); const fim = new Date(y, m, 0)
@@ -120,11 +123,11 @@ export function MetasV7({ empresa }: Props) {
 
       {!temMeta && (
         <div style={{ background: '#fff', border: `1px solid ${C.gold}`, borderRadius: 12, padding: 14, fontSize: 14 }}>
-          <b>As metas de {mes} ainda não estão cadastradas.</b> Abaixo, a sugestão para a diretoria: mês anterior + 5%. Ajuste e salve; o painel passa a medir realizado × meta. Enquanto não houver meta, a sugestão é só um ponto de partida (não é meta).
+          <b>As metas de {mesExtenso(mes)} ainda não estão cadastradas.</b> Abaixo, a sugestão para a diretoria: mês anterior + 5%. Ajuste e salve; o painel passa a medir realizado × meta. Enquanto não houver meta, a sugestão é só um ponto de partida (não é meta).
           {lider && (
             <div style={{ marginTop: 8 }}>
               <button type="button" onClick={preencherSugestoes} style={{ padding: '10px 14px', minHeight: 44, borderRadius: 10, border: 'none', background: C.gold, color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>
-                Cadastrar metas de {mes}
+                Cadastrar metas de {mesExtenso(mes)}
               </button>
             </div>
           )}

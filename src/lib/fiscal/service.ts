@@ -131,9 +131,11 @@ export async function createFiscalService(
   // coluna legada se houver; senao obtem o token do Vault via fn_fiscal_obter_token.
   // #1944 · o COFRE manda: usa o token do Vault; a coluna legada (base64) só se o cofre estiver vazio.
   let apiKey: string
+  // Token do ambiente EM USO (o efetivo: o da NF-e, ou homologação se o override desceu) — cada ambiente tem o seu segredo
+  // no cofre (fn_fiscal_obter_token resolve por ambiente), então homologação nunca usa o token de produção.
   const { data: tok } = await supabaseAdmin.rpc('fn_fiscal_obter_token', {
     p_company_id: companyId,
-    p_ambiente: configAmbiente,
+    p_ambiente: ambiente,
   })
   const tokStr = typeof tok === 'string' ? tok.trim() : ''
   if (tokStr.length >= 8) {

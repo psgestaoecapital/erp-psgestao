@@ -5,6 +5,7 @@ import { authFetch } from '@/lib/authFetch';
 import PainelCodes from '@/components/dev/PainelCodes';
 import FluxoVivo from '@/components/dev/FluxoVivo';
 import { Activity, FileText, Bot, Wrench, Network } from 'lucide-react';
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo';
 
 // Identidade PS (RD visual): Espresso #3D2314 (estrutura/texto) · Off-white #FAF7F2 (fundos) · Dourado #C8941A (destaques).
 // (Antes a Central estava invertida — fundo escuro. Corrigido para o padrão claro. Verde/amarelo/vermelho ficam só nas 3 barras (performance), em tons com contraste sobre off-white.)
@@ -152,7 +153,7 @@ const NOME_VERTICAL:Record<string,string>={
   agro:'Agro / Pecuária', bpo:'BPO', compliance:'PS EHS', custeio_a:'Custeio A', custeio_b:'Custeio B',
   gestao_empresarial:'Gestão Empresarial', hub:'Hub (Construção)', industrial:'Industrial', medica:'Médica',
   odonto:'Odonto', oficina:'Oficina', pm:'P&M (Agência)', revenda_veiculos:'Revenda de Veículos', wealth:'Wealth',
-  estrela_polar:'Estrela Polar',
+  ecommerce:'E-commerce', infraestrutura:'Infraestrutura', estrela_polar:'Estrela Polar',
 };
 // 26/09 (CEO): a Estrela Polar vive em erp_documento_vertical (vertical='estrela_polar'), como as verticais.
 // Não é vertical de produto (não entra em dev_vertical nem nas barras/auditoria): aparece fixa no seletor.
@@ -305,17 +306,29 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
   const [audit,setAudit]=useState<any|null>(null);   // ⑧ — número VERDADEIRO da auditoria (X de N · sem botão)
   const [verSemBotao,setVerSemBotao]=useState(false); // ⑧ — expandir a lista das telas sem botão de auditoria
   // Cadastro de verticais na Central de Dev: a lista vem de dev_vertical (não mais fixa no código).
-  const [verticais,setVerticais]=useState<{id:string;slug:string;nome:string;ativo:boolean;ordem:number}[]>([]);
+  type VertRow={id:string;slug:string;nome:string;ativo:boolean;ordem:number;doc_slug:string|null;areas_telas:string[]|null};
+  const [verticais,setVerticais]=useState<VertRow[]>([]);
+  // Fase 3 (27/11): só aparece na lista a vertical ativa COM documento vigente em COALESCE(doc_slug, slug).
+  // null = o usuário não lê erp_documento_vertical (RLS só PS admin) → lista as ativas, como antes.
+  const [comDoc,setComDoc]=useState<Set<string>|null>(null);
+  const [vertCarregada,setVertCarregada]=useState(false); // espera a lista para não piscar "sem documento" (doc_slug)
+  const [docEdits,setDocEdits]=useState<Record<string,string>>({});
+  const [areasEdits,setAreasEdits]=useState<Record<string,string>>({});
   const [gerVert,setGerVert]=useState(false);
   const [novoSlug,setNovoSlug]=useState(''); const [novoNome,setNovoNome]=useState('');
   const [nomeEdits,setNomeEdits]=useState<Record<string,string>>({});
   const [vertBusy,setVertBusy]=useState(false); const [vertMsg,setVertMsg]=useState<string|null>(null);
   async function carregarVerticais(){
-    const{data}=await supabase.from('dev_vertical').select('id,slug,nome,ativo,ordem').order('ordem').order('nome');
-    const lista=((data||[]) as {id:string;slug:string;nome:string;ativo:boolean;ordem:number}[]);
-    setVerticais(lista);
-    const ativos=lista.filter(v=>v.ativo);
-    if(ativos.length && vertical!==ESTRELA_POLAR && !ativos.some(v=>v.slug===vertical)) setVertical(ativos[0].slug);
+    const[{data},{data:vig}]=await Promise.all([
+      supabase.from('dev_vertical').select('id,slug,nome,ativo,ordem,doc_slug,areas_telas').order('ordem').order('nome'),
+      supabase.from('erp_documento_vertical').select('vertical').eq('vigente',true),
+    ]);
+    const lista=((data||[]) as VertRow[]);
+    const docs=((vig||[]) as {vertical:string}[]).map(r=>r.vertical);
+    const cd=docs.length?new Set(docs):null;
+    setVerticais(lista); setComDoc(cd); setDocEdits({}); setAreasEdits({}); setVertCarregada(true);
+    const visiveis=lista.filter(v=>v.ativo&&(!cd||cd.has(v.doc_slug||v.slug)));
+    if(visiveis.length && vertical!==ESTRELA_POLAR && !visiveis.some(v=>v.slug===vertical)) setVertical(visiveis[0].slug);
   }
   useEffect(()=>{ void carregarVerticais(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ },[]);
   async function incluirVertical(){
@@ -336,29 +349,44 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
     if(error) setVertMsg(error.message); else await carregarVerticais();
     setVertBusy(false);
   }
+  // Fase 3: onde está o documento (doc_slug) e quais áreas de telas a auditoria conta (areas_telas). Vazio = NULL (usa o slug).
+  async function salvarDocAreasVert(v:VertRow){
+    const doc=(docEdits[v.id]??(v.doc_slug||'')).trim().toLowerCase();
+    const areasTxt=areasEdits[v.id]??(v.areas_telas||[]).join(', ');
+    const areas=areasTxt.split(',').map(a=>a.trim().toLowerCase()).filter(Boolean);
+    setVertBusy(true); setVertMsg(null);
+    const{error}=await supabase.from('dev_vertical').update({doc_slug:doc||null,areas_telas:areas.length?areas:null}).eq('id',v.id);
+    if(error) setVertMsg(error.message); else await carregarVerticais();
+    setVertBusy(false);
+  }
   async function toggleAtivoVert(id:string,ativo:boolean){
     setVertBusy(true); setVertMsg(null);
     const{error}=await supabase.from('dev_vertical').update({ativo:!ativo}).eq('id',id);
     if(error) setVertMsg(error.message); else await carregarVerticais();
     setVertBusy(false);
   }
+  // O documento, o Aprovar e o Revogar usam COALESCE(doc_slug, slug); barras, orçamento e auditoria seguem pelo slug.
+  const vAtual=verticais.find(v=>v.slug===vertical);
+  const docVertical=vertical===ESTRELA_POLAR?ESTRELA_POLAR:(vAtual?.doc_slug||vertical);
   async function carregarDoc(){
     setCarregando(true);setSemDoc(false);setDoc(null);setAprovadorNome(null);
     const{data}=await supabase.from('erp_documento_vertical')
       .select('titulo,versao,status,conteudo_md,criado_em,aprovado_por,aprovado_em')
-      .eq('vertical',vertical).eq('vigente',true).maybeSingle();
+      .eq('vertical',docVertical).eq('vigente',true).maybeSingle();
     if(data){ setDoc(data as any);
       if((data as any).aprovado_por){ const{data:ap}=await supabase.from('users').select('full_name,email').eq('id',(data as any).aprovado_por).maybeSingle(); if(ap)setAprovadorNome((ap as any).full_name||(ap as any).email); }
     } else setSemDoc(true);
     // A3 — o histórico já é guardado por construção (índice único garante 1 vigente; anteriores vigente=false).
     const{data:vs}=await supabase.from('erp_documento_vertical')
       .select('versao,resumo_mudanca,vigente,criado_em,aprovado_por,aprovado_em,conteudo_md')
-      .eq('vertical',vertical).order('versao',{ascending:false});
+      .eq('vertical',docVertical).order('versao',{ascending:false});
     setVersoes((vs||[]) as any[]);
     setCarregando(false);
   }
   useEffect(()=>{(async()=>{
     setDisparo(null);setOrc(null);setVerVersao(null);
+    // Sem a lista ainda não se sabe o doc_slug: mostra "Carregando…" em vez de "sem documento".
+    if(!vertCarregada && vertical!==ESTRELA_POLAR){ setCarregando(true); return; }
     await carregarDoc();
     // documento-mestre: sem orçamento de auditoria, barras nem telas — só o documento e o histórico
     if(vertical===ESTRELA_POLAR){ setBarra(null); setAudit(null); return; }
@@ -370,13 +398,13 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
     // ⑧ — status VERDADEIRO da auditoria desta vertical (X de N auditadas · telas sem botão)
     const{data:au}=await supabase.rpc('fn_dev_vertical_auditoria_status',{p_vertical:vertical});
     setAudit(au||null); setVerSemBotao(false);
-  })();},[vertical]);
+  })();},[vertical,docVertical,vertCarregada]);
 
   async function aprovarDoc(){
     if(aprovando)return;
     if(!confirm('Aprovar este documento?\n\nAo aprovar, ele passa a ser a REFERÊNCIA da vertical — a Claude e o auditor vão comparar o sistema contra ele.'))return;
     setAprovando(true);
-    try{ const{data:d}=await supabase.rpc('fn_dev_documento_aprovar',{p_vertical:vertical}); if((d as any)?.ok)await carregarDoc(); else alert((d as any)?.mensagem||'Falha ao aprovar.'); }
+    try{ const{data:d}=await supabase.rpc('fn_dev_documento_aprovar',{p_vertical:docVertical}); if((d as any)?.ok)await carregarDoc(); else alert((d as any)?.mensagem||'Falha ao aprovar.'); }
     catch(e:any){ alert(e.message||'Erro ao aprovar.'); }
     setAprovando(false);
   }
@@ -384,7 +412,7 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
     if(aprovando)return;
     if(!confirm('Revogar a aprovação? O documento volta a rascunho e deixa de ser a referência oficial até ser aprovado de novo.'))return;
     setAprovando(true);
-    try{ const{data:d}=await supabase.rpc('fn_dev_documento_desaprovar',{p_vertical:vertical}); if((d as any)?.ok)await carregarDoc(); else alert((d as any)?.mensagem||'Falha ao revogar.'); }
+    try{ const{data:d}=await supabase.rpc('fn_dev_documento_desaprovar',{p_vertical:docVertical}); if((d as any)?.ok)await carregarDoc(); else alert((d as any)?.mensagem||'Falha ao revogar.'); }
     catch(e:any){ alert(e.message||'Erro ao revogar.'); }
     setAprovando(false);
   }
@@ -414,7 +442,7 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
           style={{background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'6px 10px',fontSize:12,fontFamily:'inherit'}}>
           <option value={ESTRELA_POLAR}>⭐ Estrela Polar (documento-mestre)</option>
           {(verticais.filter(v=>v.ativo).length
-            ? verticais.filter(v=>v.ativo).map(v=>({k:v.slug,n:v.nome}))
+            ? verticais.filter(v=>v.ativo&&(!comDoc||comDoc.has(v.doc_slug||v.slug))).map(v=>({k:v.slug,n:v.nome}))
             : Object.entries(NOME_VERTICAL).filter(([k])=>k!==ESTRELA_POLAR).map(([k,n])=>({k,n}))
           ).map(o=><option key={o.k} value={o.k}>{o.n}</option>)}
         </select>
@@ -423,7 +451,7 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
       {isAdmin && gerVert && (
         <div style={{background:BG2,border:`1px solid ${BD}`,borderRadius:12,padding:14,marginBottom:14}}>
           <div style={{fontSize:12.5,fontWeight:600,color:TX,marginBottom:2}}>Verticais da Central de Dev</div>
-          <div style={{fontSize:11,color:TXM,marginBottom:10}}>A lista vem do banco (dev_vertical). Inativar tira da lista sem apagar — o histórico e o blueprint continuam.</div>
+          <div style={{fontSize:11,color:TXM,marginBottom:10}}>A lista vem do banco (dev_vertical). Inativar tira da lista sem apagar — o histórico e o blueprint continuam. A lista só mostra a vertical ativa que tem documento vivo vigente.</div>
           <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}}>
             <input value={novoSlug} onChange={e=>setNovoSlug(e.target.value)} placeholder="slug (ex.: corretora_seguros)" style={{flex:'1 1 200px',background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'6px 10px',fontSize:12}} />
             <input value={novoNome} onChange={e=>setNovoNome(e.target.value)} placeholder="Nome" style={{flex:'1 1 200px',background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'6px 10px',fontSize:12}} />
@@ -436,6 +464,15 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
                 <code style={{fontSize:11,color:TXM,minWidth:150}}>{v.slug}</code>
                 <input defaultValue={v.nome} onChange={e=>setNomeEdits(p=>({...p,[v.id]:e.target.value}))} style={{flex:'1 1 200px',background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'5px 9px',fontSize:12}} />
                 <button onClick={()=>void salvarNomeVert(v.id)} disabled={vertBusy||!(v.id in nomeEdits)} style={{background:'transparent',color:GOL,border:`1px solid ${BD}`,borderRadius:8,padding:'5px 10px',fontSize:11.5,cursor:vertBusy?'not-allowed':'pointer'}}>Salvar</button>
+                <span style={{display:'inline-flex',alignItems:'center',gap:4,flex:'1 1 170px'}}>
+                  <input aria-label="Documento vivo" defaultValue={v.doc_slug||''} onChange={e=>setDocEdits(p=>({...p,[v.id]:e.target.value}))} placeholder={`documento (padrão: ${v.slug})`} style={{flex:1,minWidth:0,background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'5px 9px',fontSize:12}} />
+                  <AjudaCampo chave="dev.verticais.doc_slug" />
+                </span>
+                <span style={{display:'inline-flex',alignItems:'center',gap:4,flex:'1 1 200px'}}>
+                  <input aria-label="Áreas das telas" defaultValue={(v.areas_telas||[]).join(', ')} onChange={e=>setAreasEdits(p=>({...p,[v.id]:e.target.value}))} placeholder={`áreas das telas (padrão: ${v.slug})`} style={{flex:1,minWidth:0,background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'5px 9px',fontSize:12}} />
+                  <AjudaCampo chave="dev.verticais.areas_telas" />
+                </span>
+                <button onClick={()=>void salvarDocAreasVert(v)} disabled={vertBusy||!(v.id in docEdits||v.id in areasEdits)} style={{background:'transparent',color:GOL,border:`1px solid ${BD}`,borderRadius:8,padding:'5px 10px',fontSize:11.5,cursor:vertBusy?'not-allowed':'pointer'}}>Salvar documento/áreas</button>
                 <button onClick={()=>void toggleAtivoVert(v.id,v.ativo)} disabled={vertBusy} style={{background:'transparent',color:v.ativo?Y:GOL,border:`1px solid ${BD}`,borderRadius:8,padding:'5px 10px',fontSize:11.5,cursor:vertBusy?'not-allowed':'pointer'}}>{v.ativo?'Inativar':'Reativar'}</button>
               </div>
             ))}

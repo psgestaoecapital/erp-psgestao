@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/withAuth'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
-import { gravarCredencialEmpresa } from '@/lib/credenciais/servidor'
+import { gravarCredencialEmpresa, credencialEmpresa } from '@/lib/credenciais/servidor'
 import { consultarApiIbpt, gravarCacheIbpt, registrarStatusIbpt, type ConsultaIbpt } from '@/lib/fiscal/ibptEmpresa'
 import { escolherProdutoTeste, escolherVeiculoTeste, type VeiculoTeste } from '@/lib/fiscal/ibptTeste'
 
@@ -80,6 +80,11 @@ async function dadosEmpresa(companyId: string) {
   return { cnpj: String(data?.cnpj ?? '').replace(/\D/g, ''), uf: String(data?.uf_fiscal ?? '').trim().toUpperCase() }
 }
 
+// Mesma regra de regime da emissão (nfe/emitir/route.ts): Simples pelo regime_tributario OU pela opção do SN.
+function ehSimplesConfig(c: { regime_tributario?: string | null; opcao_simples_nacional?: number | null } | null): boolean {
+  return /simples/i.test(String(c?.regime_tributario ?? '')) || c?.opcao_simples_nacional != null
+}
+
 export const GET = withAuth(async (req: NextRequest, { userId }) => {
   const companyId = req.nextUrl.searchParams.get('companyId') ?? ''
   if (!companyId) return NextResponse.json({ ok: false, mensagem: 'companyId obrigatório' }, { status: 400 })
@@ -89,8 +94,9 @@ export const GET = withAuth(async (req: NextRequest, { userId }) => {
     supabaseAdmin.from('erp_credencial').select('atualizado_em').eq('provider', 'ibpt').eq('chave', 'token').eq('escopo', 'empresa').eq('company_id', companyId).eq('ativo', true).maybeSingle(),
     supabaseAdmin.from('erp_ibpt_empresa_status').select('token_salvo_em, ultima_consulta_ok, ultimo_erro_em, ultimo_erro, ultima_versao, ultima_vigencia_fim').eq('company_id', companyId).maybeSingle(),
     supabaseAdmin.from('fiscal_ibpt_aliquota').select('versao, vigencia_fim').order('vigencia_fim', { ascending: false }).limit(1).maybeSingle(),
-    supabaseAdmin.from('erp_fiscal_provider_config').select('ibpt_empresa_nas_notas').eq('company_id', companyId).eq('ativo', true).limit(1).maybeSingle(),
+    supabaseAdmin.from('erp_fiscal_provider_config').select('ibpt_empresa_nas_notas, lei12741_ativo, regime_tributario, opcao_simples_nacional, percentual_total_tributos_sn').eq('company_id', companyId).eq('ativo', true).limit(1).maybeSingle(),
   ])
+  const c = cfg as { ibpt_empresa_nas_notas?: boolean; lei12741_ativo?: boolean; regime_tributario?: string | null; opcao_simples_nacional?: number | null; percentual_total_tributos_sn?: number | string | null } | null
   return NextResponse.json({
     ok: true,
     configurado: !!cred,
@@ -98,7 +104,11 @@ export const GET = withAuth(async (req: NextRequest, { userId }) => {
     ultimaConsultaOk: st?.ultima_consulta_ok ?? null,
     ultimoErro: st?.ultimo_erro ?? null, ultimoErroEm: st?.ultimo_erro_em ?? null,
     versao: st?.ultima_versao ?? null, vigenciaFim: st?.ultima_vigencia_fim ?? null,
-    usoNasNotas: !!(cfg as { ibpt_empresa_nas_notas?: boolean } | null)?.ibpt_empresa_nas_notas,
+    usoNasNotas: !!c?.ibpt_empresa_nas_notas,
+    lei12741Ativo: !!c?.lei12741_ativo,
+    // Simples usa o percentual único (percentual_total_tributos_sn); regime normal usa a tabela/token IBPT.
+    ehSimples: ehSimplesConfig(c),
+    pctTributosSn: c?.percentual_total_tributos_sn != null ? Number(c.percentual_total_tributos_sn) : null,
     generica: gen ? { versao: gen.versao, vigenciaFim: gen.vigencia_fim } : null,
   }, { headers: { 'Cache-Control': 'no-store' } })
 })
@@ -156,6 +166,45 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
   return NextResponse.json({ ok: true, generico, testes })
 })
 
+// #bug NFS-e "sem tributos aproximados" · "Atualizar agora": reconsulta o IBPT com o token JÁ salvo (do Vault) e
+// repopula o cache (erp_ibpt_cache) + o status, SEM precisar remover/recolocar o token. Mesma consulta do "salvar e
+// testar", só que sem gravar token. Guarda: gerente (igual ao salvar).
+export const PUT = withAuth(async (req: NextRequest, { userId }) => {
+  const body = (await req.json().catch(() => ({}))) as { companyId?: string }
+  const companyId = String(body.companyId ?? '')
+  if (!companyId) return NextResponse.json({ ok: false, mensagem: 'companyId obrigatório' }, { status: 400 })
+  const negado = await guardaEmpresaFiscal({ userId, companyId, papelMinimo: 'gerente', log: { notaTipo: 'nfe', operacao: 'ibpt_token_reconsultar', endpoint: 'ibpt-token' } })
+  if (negado) return negado
+
+  const token = await credencialEmpresa(companyId, 'ibpt', 'token')
+  if (!token) return NextResponse.json({ ok: false, mensagem: 'Nenhum token do IBPT salvo nesta empresa. Cadastre o token primeiro.' }, { status: 400 })
+  const emp = await dadosEmpresa(companyId)
+  if (emp.cnpj.length !== 14 || emp.uf.length !== 2) {
+    return NextResponse.json({ ok: false, mensagem: 'Complete o CNPJ e a UF fiscal da empresa antes de atualizar o IBPT.' }, { status: 400 })
+  }
+  const { itens } = await itensDeTeste(companyId, emp.uf)
+  const resultados: Array<{ consulta: ConsultaIbpt; r: Awaited<ReturnType<typeof consultarApiIbpt>> }> = []
+  for (const consulta of itens) resultados.push({ consulta, r: await consultarApiIbpt(token, emp.cnpj, consulta) })
+  const recusado = resultados.find((x) => !x.r.ok && x.r.motivo === 'token_invalido')
+  const oks = resultados.filter((x) => x.r.ok)
+  if (recusado || oks.length === 0) {
+    const falha = (recusado ?? resultados[0]).r as { ok: false; motivo: string; mensagem: string }
+    await registrarStatusIbpt(companyId, { ultimo_erro_em: new Date().toISOString(), ultimo_erro: falha.mensagem })
+    return NextResponse.json({ ok: false, motivo: falha.motivo, mensagem: falha.mensagem }, { status: falha.motivo === 'fora_do_ar' ? 503 : 400 })
+  }
+  const agora = new Date().toISOString()
+  for (const x of oks) if (x.r.ok) await gravarCacheIbpt(companyId, x.consulta, x.r.dado, x.r.cru)
+  const ult = oks[oks.length - 1].r
+  await registrarStatusIbpt(companyId, {
+    ultima_consulta_ok: agora, ultimo_erro: null, ultimo_erro_em: null,
+    ultima_versao: ult.ok ? ult.dado.versao : null, ultima_vigencia_fim: ult.ok ? ult.dado.vigenciaFim : null,
+  })
+  return NextResponse.json({
+    ok: true, atualizados: oks.length,
+    versao: ult.ok ? ult.dado.versao : null, vigenciaFim: ult.ok ? ult.dado.vigenciaFim : null,
+  })
+})
+
 export const DELETE = withAuth(async (req: NextRequest, { userId }) => {
   const body = (await req.json().catch(() => ({}))) as { companyId?: string }
   const companyId = String(body.companyId ?? '')
@@ -165,5 +214,46 @@ export const DELETE = withAuth(async (req: NextRequest, { userId }) => {
   await supabaseAdmin.from('erp_credencial').update({ ativo: false, atualizado_em: new Date().toISOString() })
     .eq('provider', 'ibpt').eq('chave', 'token').eq('escopo', 'empresa').eq('company_id', companyId)
   await registrarStatusIbpt(companyId, { token_salvo_em: null })
+  // Token removido → a empresa deixa de usar o token da empresa nas notas (volta à tabela genérica). O "Lei 12.741
+  // ativo" NÃO é mexido aqui (o valor aproximado continua saindo pela tabela genérica / percentual do Simples).
+  await supabaseAdmin.from('erp_fiscal_provider_config').update({ ibpt_empresa_nas_notas: false })
+    .eq('company_id', companyId).eq('ativo', true)
+  return NextResponse.json({ ok: true })
+})
+
+// #11321 · liga/desliga, por empresa, o "valor aproximado dos tributos" (Lei 12.741) nas notas:
+//   lei12741Ativo        → lei12741_ativo (vale para qualquer regime: o gate da emissão já concatena o bloco só a
+//                          consumidor final, com o percentual do Simples OU a tabela/token do regime normal)
+//   ibptEmpresaNasNotas  → ibpt_empresa_nas_notas (SÓ regime normal, e só com token configurado + 1ª consulta OK)
+// Guarda: gerente da empresa (mesma do salvar token). Não altera cálculo — só liga/desliga a composição já existente.
+export const PATCH = withAuth(async (req: NextRequest, { userId }) => {
+  const body = (await req.json().catch(() => ({}))) as { companyId?: string; lei12741Ativo?: boolean; ibptEmpresaNasNotas?: boolean }
+  const companyId = String(body.companyId ?? '')
+  if (!companyId) return NextResponse.json({ ok: false, mensagem: 'companyId obrigatório' }, { status: 400 })
+  const negado = await guardaEmpresaFiscal({ userId, companyId, papelMinimo: 'gerente', log: { notaTipo: 'nfe', operacao: 'ibpt_toggle_salvar', endpoint: 'ibpt-token' } })
+  if (negado) return negado
+
+  const updates: Record<string, boolean> = {}
+  if (typeof body.lei12741Ativo === 'boolean') updates.lei12741_ativo = body.lei12741Ativo
+  if (typeof body.ibptEmpresaNasNotas === 'boolean') {
+    if (body.ibptEmpresaNasNotas === true) {
+      const [{ data: cfg }, { data: cred }, { data: st }] = await Promise.all([
+        supabaseAdmin.from('erp_fiscal_provider_config').select('regime_tributario, opcao_simples_nacional').eq('company_id', companyId).eq('ativo', true).limit(1).maybeSingle(),
+        supabaseAdmin.from('erp_credencial').select('id').eq('provider', 'ibpt').eq('chave', 'token').eq('escopo', 'empresa').eq('company_id', companyId).eq('ativo', true).maybeSingle(),
+        supabaseAdmin.from('erp_ibpt_empresa_status').select('ultima_consulta_ok').eq('company_id', companyId).maybeSingle(),
+      ])
+      if (ehSimplesConfig(cfg as { regime_tributario?: string | null; opcao_simples_nacional?: number | null } | null)) {
+        return NextResponse.json({ ok: false, mensagem: 'Empresa do Simples Nacional usa o percentual aproximado cadastrado, não o token do IBPT.' }, { status: 400 })
+      }
+      if (!cred || !st?.ultima_consulta_ok) {
+        return NextResponse.json({ ok: false, mensagem: 'Configure e teste o token do IBPT (com uma consulta OK) antes de usá-lo nas notas.' }, { status: 400 })
+      }
+    }
+    updates.ibpt_empresa_nas_notas = body.ibptEmpresaNasNotas
+  }
+  if (Object.keys(updates).length === 0) return NextResponse.json({ ok: false, mensagem: 'Nada para alterar.' }, { status: 400 })
+
+  const { error } = await supabaseAdmin.from('erp_fiscal_provider_config').update(updates).eq('company_id', companyId).eq('ativo', true)
+  if (error) return NextResponse.json({ ok: false, mensagem: 'Não foi possível salvar a configuração agora. Tente de novo.' }, { status: 500 })
   return NextResponse.json({ ok: true })
 })

@@ -1,17 +1,19 @@
-// Gate — LOTE DE MIGRATIONS CRÍTICAS (CEO 01/11). A fila crítica chegou a 44 com vazão de 2-3/h: cada crítica saía
-// sozinha e esperava ~20 min de @pos. O CEO aprovou batelar até LOTE_MIG_CRIT_MAX=5 migrations CRÍTICAS num MESMO @pos,
-// com CARVE-OUT das categorias perigosas (NR-36, fiscal, financeiro de cliente, RLS/permissão/LGPD) e de qualquer
-// conserto-main, que continuam publicando SOZINHAS (1 por @pos). Se o @pos do lote falhar, o guardião bisseta.
+// Gate — LOTE DE MIGRATIONS CRÍTICAS (CEO 01/11; teto 5→10 em CEO 25/11, item B). A fila crítica chegou a 44 com vazão de
+// 2-3/h: cada crítica saía sozinha e esperava ~20 min de @pos. O CEO aprovou batelar até LOTE_MIG_CRIT_MAX migrations
+// CRÍTICAS BATELÁVEIS (padrão subiu de 5 para 10) num MESMO @pos, com CARVE-OUT das categorias perigosas (NR-36, fiscal,
+// financeiro de cliente, RLS/permissão/LGPD) e de qualquer conserto-main, que continuam publicando SOZINHAS (1 por @pos).
+// Se o @pos do lote falhar, o guardião bisseta (com 10, pior caso ~4 rodadas de @pos).
 //
 // Este teste prova, nesta ordem:
-//  Parte 1 — a mecânica está no script (teto 5, n_critica_solo, encerra a rodada no SOLO).
+//  Parte 1 — a mecânica está no script (teto 10, n_critica_solo, encerra a rodada no SOLO).
 //  Parte 2 — o classificador critica-solo.ts (puro): fiscal/financeiro/RLS/NR-36 → SOLO; função/estrutura → batelável;
 //            migration ilegível → SOLO (viés de segurança).
-//  Parte 3 — o comportamento real contra o `gh` simulado: até 5 críticas batelam num @pos; teto respeitado; SOLO publica
+//  Parte 3 — o comportamento real contra o `gh` simulado: críticas bateláveis batelam num @pos (padrão 10); teto respeitado; SOLO publica
 //            sozinha e encerra a rodada; e o CAMINHO DE FALHA — @pos do lote vermelho segura toda crítica seguinte.
 import { readFileSync } from 'node:fs'
 import { criticaSolo } from '../merge/critica-solo'
 import { soDemoBatelavel } from '../merge/so-demo-batelavel'
+import { independentes, analisar } from '../merge/migrations-independentes'
 import { SCRIPT_FILA, comFilaSimulada, merges, temFerramentas } from '../merge/fila-simulada'
 
 let falhas = 0
@@ -24,7 +26,7 @@ const ok = (cond: boolean, msg: string) => {
 
 // ── Parte 1: a mecânica está no script ──
 const sh = readFileSync(SCRIPT_FILA, 'utf8')
-ok(/LOTE_MIG_CRIT_MAX=\$\{LOTE_MIG_CRIT_MAX:-5\}/.test(sh), 'teto do lote de críticas = 5 por padrão (CEO 01/11)')
+ok(/LOTE_MIG_CRIT_MAX=\$\{LOTE_MIG_CRIT_MAX:-10\}/.test(sh), 'teto do lote de críticas = 10 por padrão (item B, CEO 25/11; era 5)')
 ok(/n_critica_solo=0/.test(sh), 'n_critica_solo declarado (carve-out das categorias perigosas)')
 ok(/critica-solo\.ts/.test(sh), 'a fila chama o classificador critica-solo.ts')
 ok(/index\("conserto-main"\)/.test(sh) && /n_critica_solo=1/.test(sh), 'conserto-main é SOLO (pela etiqueta)')
@@ -82,9 +84,11 @@ if (!temFerramentas()) {
   console.log('… cenários pulados: jq ou git ausente neste ambiente (as partes 1 e 2 continuam valendo)')
 } else {
   comFilaSimulada((rodar) => {
-    // crítica BATELÁVEL: revisao-eng-chefe + autorizada + migration, SQL estrutural (não cai no carve-out).
+    // crítica BATELÁVEL: revisao-eng-chefe + autorizada + migration. Conteúdo CRÍTICO por si (CREATE OR REPLACE VIEW muda
+    // leitura existente) e BATELÁVEL (não-fiscal) — continua crítica mesmo após o item A (CEO 25/11), que só rebaixa a
+    // migration ADITIVA de PR autorizada. (Antes era `create function`, que o item A passaria a tratar como aditiva.)
     const crit = (n: number) => ({ n, labels: ['revisao-eng-chefe'], autorizada: true, migration: true,
-      sqlMigration: `create function fn_nova_${n}() returns void language sql as $$ select 1 $$;` })
+      sqlMigration: `create or replace view public.v_lote_${n} as select ${n} as x;` })
     // crítica SOLO: conteúdo fiscal.
     const solo = (n: number) => ({ n, labels: ['revisao-eng-chefe'], autorizada: true, migration: true,
       sqlMigration: `insert into nfe_lote(id) values (${n});` })
@@ -140,8 +144,67 @@ if (!temFerramentas()) {
     x = rodar([soDemoSemLabel(1), crit(2)], false, 5000, {}, {})
     ok(merges(x.escritas).includes(1) && !merges(x.escritas).includes(2),
       '8) sem a label so-demo: migration financeira cai no carve-out → SOLO (como hoje)')
+
+    // 9) TETO configurável (item B, CEO 25/11): com LOTE_MIG_CRIT_MAX=3, a 4ª crítica BATELÁVEL espera a próxima rodada —
+    //    prova que o teto é LIDO e aplicado no valor configurado (o padrão subiu p/ 10; aqui provamos a mecânica no valor).
+    x = rodar([crit(1), crit(2), crit(3), crit(4)], false, 5000, { LOTE_MIG_CRIT_MAX: '3' }, {})
+    ok(merges(x.escritas).join() === '1,2,3', '9) LOTE_MIG_CRIT_MAX=3: só 3 críticas batelam (a 4ª espera — teto respeitado)')
   })
 }
+
+// ── Parte 4: catálogo aditivo por chave (erp_ajuda_campo) — CEO 24/11 ──
+const insAjuda = (ks: string[]) =>
+  `INSERT INTO erp_ajuda_campo (chave, rotulo) VALUES ${ks.map((k) => `('${k}','R')`).join(', ')};`
+ok(independentes(insAjuda(['pm.a']), [insAjuda(['pm.b'])]) === 'ok',
+  'ajuda: chaves diferentes → batelável (o ganho)')
+ok(independentes(insAjuda(['pm.a', 'pm.b']), [insAjuda(['pm.x'])]) === 'ok',
+  'ajuda: várias chaves disjuntas → batelável')
+ok(independentes(insAjuda(['pm.a']), [insAjuda(['pm.a'])]).startsWith('duvida'),
+  'ajuda: MESMA chave → dúvida (evita colisão de PK)')
+ok(independentes(insAjuda(['pm.a']), [`UPDATE erp_ajuda_campo SET rotulo='x' WHERE chave='pm.a';`]).startsWith('duvida'),
+  'ajuda: INSERT × UPDATE no catálogo → dúvida (dependência de linha)')
+ok(independentes(insAjuda(['pm.a']), [`ALTER TABLE erp_ajuda_campo ADD COLUMN novo text;`]).startsWith('duvida'),
+  'ajuda: INSERT × ALTER → dúvida')
+ok(independentes(`INSERT INTO erp_ajuda_campo (chave, rotulo) SELECT chave, rotulo FROM outra;`, [insAjuda(['pm.a'])]).startsWith('duvida'),
+  'ajuda: INSERT..SELECT → conservador (dúvida)')
+ok(independentes(`INSERT INTO erp_ajuda_campo (rotulo, chave) VALUES ('R','pm.a');`, [insAjuda(['pm.b'])]).startsWith('duvida'),
+  'ajuda: chave fora da 1ª coluna → conservador')
+ok([...analisar(insAjuda(['pm.x.y'])).tocados].includes('ajuda:erp_ajuda_campo:pm.x.y'),
+  'analisar extrai a chave como ajuda:<tab>:<chave>')
+ok(independentes(`CREATE OR REPLACE FUNCTION fn_y() RETURNS void LANGUAGE sql AS $$ SELECT 1 $$;`,
+  [`CREATE OR REPLACE FUNCTION fn_y() RETURNS void LANGUAGE sql AS $$ SELECT 2 $$;`]).startsWith('duvida'),
+  'regressão: mesma função nas duas → dúvida (comportamento antigo intacto)')
+
+// ── Parte 4b: as DUAS formas idempotentes REAIS da RD-95 (a forma crua nunca aparece em migration de verdade) ──
+// Toda migration de ajuda real é idempotente: ou `VALUES ... ON CONFLICT (chave) DO NOTHING`, ou
+// `INSERT (chave,...) SELECT ... FROM (VALUES ...) AS v(chave,...) WHERE NOT EXISTS`. Sem isto o recurso é NO-OP.
+const insConflict = (ks: string[]) =>
+  `INSERT INTO public.erp_ajuda_campo (chave, rotulo) VALUES ${ks.map((k) => `('${k}','R')`).join(', ')} ON CONFLICT (chave) DO NOTHING;`
+const insSelectValues = (ks: string[]) =>
+  `INSERT INTO public.erp_ajuda_campo (chave, rota, rotulo)\n` +
+  `SELECT v.chave, v.rota, v.rotulo FROM (VALUES ${ks.map((k) => `('${k}','/r','R')`).join(', ')})\n` +
+  `AS v(chave, rota, rotulo) WHERE NOT EXISTS (SELECT 1 FROM public.erp_ajuda_campo a WHERE a.chave = v.chave);`
+ok(independentes(insConflict(['pm.a']), [insConflict(['pm.b'])]) === 'ok',
+  'ajuda REAL: VALUES … ON CONFLICT (chave) DO NOTHING, chaves diferentes → batelável')
+ok(independentes(insConflict(['pm.a']), [insConflict(['pm.a'])]).startsWith('duvida'),
+  'ajuda REAL: ON CONFLICT DO NOTHING, MESMA chave → dúvida')
+ok(independentes(insConflict(['pm.a']),
+  [`INSERT INTO public.erp_ajuda_campo (chave, rotulo) VALUES ('pm.b','R') ON CONFLICT (chave) DO UPDATE SET rotulo='R';`]).startsWith('duvida'),
+  'ajuda REAL: ON CONFLICT DO UPDATE (muda linha existente) → conservador (dúvida)')
+ok(independentes(insSelectValues(['pm.a']), [insSelectValues(['pm.b'])]) === 'ok',
+  'ajuda REAL: INSERT … SELECT FROM (VALUES …) WHERE NOT EXISTS, chaves diferentes → batelável')
+ok(independentes(insSelectValues(['pm.a']), [insSelectValues(['pm.a'])]).startsWith('duvida'),
+  'ajuda REAL: INSERT..SELECT (VALUES), MESMA chave → dúvida')
+ok(independentes(`INSERT INTO public.erp_ajuda_campo (chave, rota, rotulo) SELECT * FROM (VALUES ('pm.a','/r','R')) AS v(chave, rota, rotulo);`,
+  [insSelectValues(['pm.b'])]) === 'ok',
+  'ajuda REAL: SELECT * FROM (VALUES …) (projeção identidade, alias chave em 1º) → batelável')
+ok([...analisar(insConflict(['pm.q'])).tocados].includes('ajuda:erp_ajuda_campo:pm.q'),
+  'analisar extrai a chave da forma ON CONFLICT como ajuda:<tab>:<chave>')
+ok([...analisar(insSelectValues(['pm.z'])).tocados].includes('ajuda:erp_ajuda_campo:pm.z'),
+  'analisar extrai a chave da forma INSERT..SELECT(VALUES) como ajuda:<tab>:<chave>')
+ok(independentes(`INSERT INTO public.erp_ajuda_campo (chave, rotulo) SELECT chave, rotulo FROM outra_tabela;`,
+  [insConflict(['pm.a'])]).startsWith('duvida'),
+  'ajuda: INSERT..SELECT de uma TABELA (não de VALUES) → conservador')
 
 if (falhas) {
   console.error(`\ncheck-fila-lote-critico: ${falhas} falha(s)`)
